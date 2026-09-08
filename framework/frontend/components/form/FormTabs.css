@@ -9,10 +9,12 @@
  * .form-tabs__actions), each tab is a .form-tabs__tab button.
  */
 
-/* one source of truth for the accent in this file */
+/* one source of truth for the accent in this file — derives from the app's
+   --color-primary/-light (set in each app's index.css) instead of hardcoding,
+   so tabs follow the app's brand instead of forcing MeterItPro's indigo. */
 .form-tabs {
-  --ft-accent: #4f46e5;
-  --ft-accent-tint: rgba(79, 70, 229, 0.12);
+  --ft-accent: var(--color-primary, #4f46e5);
+  --ft-accent-tint: var(--color-primary-light, rgba(79, 70, 229, 0.12));
   --ft-track: #f1f3f4;
 
   display: flex;

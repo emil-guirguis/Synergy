@@ -1,4 +1,12 @@
 :root {
   /* Header brand color */
   --gradient-brand: #03a84e;
+
+  /* TBWC brand accent (green) — mirrors tbwcTheme.ts's tbwcGreenAccent so
+     framework-drawn chrome (e.g. BaseForm.css's schema-generated forms)
+     honors the same color instead of falling back to the framework's
+     default indigo. */
+  --color-primary: #2E7D32;
+  --color-primary-dark: #1B5E20;
+  --color-primary-light: rgba(46, 125, 50, 0.12);
 }

@@ -607,16 +607,18 @@ div.form-container div.MuiFormControl-root {
 /* not matter. Accent unified to the app primary #4f46e5.          */
 /* ============================================================= */
 
-/* One source of truth for the accent inside every form. This also */
-/* fixes per-form buttons that read var(--color-primary, …) which  */
-/* previously resolved to #4f46e5 / #4f46e5 — never the brand blue. */
+/* mf-accent/mf-accent-tint are this file's own accent tokens (used by the  */
+/* section icon chip below) — derive them from --color-primary/-light      */
+/* instead of hardcoding, so they follow whatever each app's :root sets    */
+/* (see index.css in each app) rather than forcing MeterItPro's indigo on  */
+/* every consumer. --color-primary itself is deliberately NOT redeclared   */
+/* here: it already inherits from :root with its own var(…, #4f46e5)      */
+/* fallback wherever it's read (e.g. .base-form__btn--primary above) —     */
+/* redeclaring it here would just reintroduce the same hardcoding bug.     */
 .base-form,
 .form-container {
-  --color-primary: #4f46e5;
-  --color-primary-dark: #4338ca;
-  --color-primary-light: rgba(79, 70, 229, 0.12);
-  --mf-accent: #4f46e5;
-  --mf-accent-tint: rgba(79, 70, 229, 0.12);
+  --mf-accent: var(--color-primary, #4f46e5);
+  --mf-accent-tint: var(--color-primary-light, rgba(79, 70, 229, 0.12));
   --mf-hairline: #f0f0f0;
 }
 
