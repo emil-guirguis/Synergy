@@ -1,16 +1,23 @@
 /**
- * Vite plugin: emit dist/404.html as a copy of dist/index.html — but only
- * for a non-root base (GitHub Pages), NOT for the root-base Cloudflare build.
+ * Vite plugin: emit dist/404.html for GitHub Pages — but NOT a plain copy of
+ * dist/index.html, because this site hosts TWO SPAs (MeterItPro at the site
+ * root, TBWC merged in afterward under /TBWCPortal/ — see deploy-gh-pages.yml).
+ * GitHub Pages only supports one 404.html per site, so a deep link under
+ * /TBWCPortal/* (e.g. /Synergy/TBWCPortal/orders) 404s and falls back to this
+ * SAME file. A plain copy of MeterItPro's index.html booted the WRONG app for
+ * those paths and crashed (MeterItPro's router trying to interpret a TBWC
+ * route shape). Found + logged 2026-09-07, fixed same day.
  *
- * GitHub Pages (base '/Synergy/') has no SPA rewrite — the public/_redirects
- * file is a Cloudflare-only convention and is ignored — so without a 404.html
- * any deep link loaded directly returns GitHub's default 404. GitHub serves
- * 404.html for unmatched paths, which lets the SPA boot and client-route.
+ * Fix: 404.html is a tiny dispatcher, not either app's real index.html. It
+ * inspects location.pathname (which GitHub Pages leaves untouched — only the
+ * served body changes), fetches the CORRECT app's actual index.html content,
+ * and writes it into the document. Neither app needs any routing changes:
+ * whichever app boots sees the same location.pathname it would have seen from
+ * a real page load at that path, so its own router matches normally.
  *
- * Cloudflare Pages (base '/') DOES honor _redirects (`/* /index.html 200`),
- * which returns a clean 200. But if a 404.html is also present, Cloudflare
- * serves THAT (status 404) for unmatched routes instead of the 200 rewrite.
- * So we skip 404.html when base === '/', letting _redirects win on CF.
+ * Only runs for a non-root base (GitHub Pages). Cloudflare Pages (base '/')
+ * uses public/_redirects (`/* /index.html 200`) instead — a 404.html there
+ * would take priority over that 200 rewrite, so this is skipped for base '/'.
  */
 
 import fs from 'fs';
@@ -36,10 +43,27 @@ export function spaFallbackPlugin(): Plugin {
       const distDir = path.resolve(process.cwd(), 'dist');
       const index = path.join(distDir, 'index.html');
       const fallback = path.join(distDir, '404.html');
-      if (fs.existsSync(index)) {
-        fs.copyFileSync(index, fallback);
-        console.log(`🧭 spa-fallback: wrote dist/404.html (base ${base})`);
-      }
+      if (!fs.existsSync(index)) return;
+
+      const tbwcBase = `${base}TBWCPortal/`;
+      const dispatcher = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Loading…</title></head>
+<body><script>
+  (function () {
+    var path = window.location.pathname;
+    var target = path.indexOf(${JSON.stringify(tbwcBase)}) === 0
+      ? ${JSON.stringify(tbwcBase + 'index.html')}
+      : ${JSON.stringify(base + 'index.html')};
+    fetch(target).then(function (r) { return r.text(); }).then(function (html) {
+      document.open();
+      document.write(html);
+      document.close();
+    });
+  })();
+</script></body></html>
+`;
+      fs.writeFileSync(fallback, dispatcher);
+      console.log(`🧭 spa-fallback: wrote dispatcher dist/404.html (base ${base}, tbwc prefix ${tbwcBase})`);
     },
   };
 }
