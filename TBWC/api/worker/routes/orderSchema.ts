@@ -167,7 +167,9 @@ export const orderSchema = defineSchema({
           order: 1,
           fields: [
             field({ name: 'build_notes', order: 1, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Build Notes', dbField: 'build_notes', maxLength: 5000, showOn: ['form'] }),
-            field({ name: 'memo', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false, readOnly: true, label: 'QB Memo', dbField: 'memo', maxLength: 5000, showOn: ['form'] }),
+            // General free-text notes, distinct from build_notes above.
+            field({ name: 'notes', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Notes', dbField: 'notes', maxLength: 5000, showOn: ['form'] }),
+            field({ name: 'memo', order: 3, type: FieldTypes.TEXTAREA, default: '', required: false, readOnly: true, label: 'QB Memo', dbField: 'memo', maxLength: 5000, showOn: ['form'] }),
           ],
         }),
       ],

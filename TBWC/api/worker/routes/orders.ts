@@ -42,6 +42,7 @@ const SELECT_WITH_REP_NAME =
 // deliberately excluded here; the DB itself rejects a direct write to it.
 const WRITABLE = new Set([
   'build_notes',
+  'notes',
   'expedite',
   'jay',
   'ship_no_later_than',
