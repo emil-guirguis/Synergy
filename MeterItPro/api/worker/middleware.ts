@@ -30,7 +30,6 @@ export async function getCachedUser(env: Env, userId: string): Promise<any | nul
       'getCachedUser'
     );
     if (result.rows.length === 0) return null;
-    console.log('[AUTH] User loaded from DB:', userId);
     return result.rows[0];
   });
 }
@@ -45,7 +44,7 @@ export type AuthVariables = {
 /**
  * JWT authentication middleware
  *
- * Validates the token and sets context from JWT claims only � no DB query.
+ * Validates the token and sets context from JWT claims only — no DB query.
  * Both userId and tenant_id are embedded in the token at sign time, so polling
  * endpoints like /notifications/count never touch the users table.
  *
@@ -64,7 +63,16 @@ export async function authenticateToken(c: Context<{ Bindings: Env; Variables: A
     decoded = await verify(token, c.env.JWT_SECRET, 'HS256');
   } catch (err: any) {
     if (err.name === 'JwtTokenExpired') {
+      // Expired tokens are validly signed — a stale tab, not an attack.
+      // Don't count them toward the throttle or we'd 429 legit users.
       return c.json({ success: false, message: 'Token expired' }, 401);
+    }
+    // Throttle repeated invalid-signature failures per IP — slows token
+    // guessing against every authenticated route (login/signup already have
+    // their own ipRateLimit; this is the choke point for forged bearers).
+    const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+    if (!checkRateLimit(`rl:authfail:${ip}`, 30, 60_000)) {
+      return c.json({ success: false, message: 'Too many failed attempts, please try again later' }, 429);
     }
     return c.json({ success: false, message: 'Invalid token' }, 401);
   }
@@ -73,7 +81,7 @@ export async function authenticateToken(c: Context<{ Bindings: Env; Variables: A
     return c.json({ success: false, message: 'Invalid token - missing claims' }, 401);
   }
 
-  // Minimal user object from JWT claims � no DB round-trip.
+  // Minimal user object from JWT claims — no DB round-trip.
   // Routes that need full user data (role, permissions, name, email) call
   // requirePermission(), which does the cached DB lookup lazily.
   c.set('user', {
@@ -90,7 +98,7 @@ export async function authenticateToken(c: Context<{ Bindings: Env; Variables: A
  * Permission check middleware factory.
  * Usage: requirePermission('meter:read')
  *
- * This is where the DB lookup happens � lazily and cached. Routes that don't
+ * This is where the DB lookup happens — lazily and cached. Routes that don't
  * call requirePermission() never hit the users table.
  */
 export function requirePermission(permission: string) {
@@ -146,6 +154,17 @@ export function requirePermission(permission: string) {
   };
 }
 
+// Sync servers poll constantly with the same key; cache the key→tenant lookup
+// so each poll doesn't cost a DB round-trip. Short TTL bounds how long a
+// revoked/deactivated key keeps working. Misses (invalid keys) are not cached,
+// but the per-key rate limit above caps how hard they can hit the DB.
+const SYNC_KEY_TTL_MS = 60_000;
+const syncTenantCache = createEntityCache<{ tenant_id: number }>(SYNC_KEY_TTL_MS);
+
+export function clearSyncTenantCache(): void {
+  syncTenantCache.clear();
+}
+
 /**
  * API key authentication for sync routes.
  */
@@ -159,16 +178,19 @@ export async function authenticateSyncServer(c: Context<{ Bindings: Env; Variabl
     return c.json({ success: false, message: 'Too many requests' }, 429);
   }
 
-  const result = await execQuery(
-    c.env,
-    'SELECT tenant_id FROM tenant WHERE api_key = $1 AND active = true',
-    [apiKey]
-  );
+  const tenant = await syncTenantCache.get(apiKey, async () => {
+    const result = await execQuery(
+      c.env,
+      'SELECT tenant_id FROM tenant WHERE api_key = $1 AND active = true',
+      [apiKey]
+    );
+    return result.rows.length > 0 ? result.rows[0] : null;
+  });
 
-  if (result.rows.length === 0) {
+  if (!tenant) {
     return c.json({ success: false, message: 'Invalid API key' }, 401);
   }
 
-  c.set('tenantId', result.rows[0].tenant_id);
+  c.set('tenantId', tenant.tenant_id);
   await next();
 }

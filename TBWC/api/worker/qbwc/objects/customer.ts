@@ -11,33 +11,16 @@
 import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import {
-  qbxmlDoc, tag, blocks, statusCode, escapeXml, qbTimeToTs, toQbLocal, bumpSecond, QB_MAX_RETURNED,
+  qbxmlDoc, tag, blocks, statusCode, qbTimeToTs, listModifiedFilter, QB_MAX_RETURNED,
+  dataExtBlocks,
 } from '../qbxml';
 import { multiRowValues, chunk, BATCH_SIZE } from '../batchSql';
+import { sinceModified } from '../incremental';
 
 const REQUEST_ID = 'customer';
 
-async function lastModified(env: Env): Promise<string | null> {
-  const r = await execQuery(
-    env,
-    `SELECT MAX(time_modified) AS m FROM public.qb_customer`,
-    [],
-    'qbwc.customer.lastModified'
-  );
-  const m = r.rows[0]?.m;
-  return m ? new Date(m).toISOString() : null;
-}
-
 async function buildRequest(env: Env): Promise<string> {
-  const since = await lastModified(env);
-  // qbXML LIST queries (Customer/SalesRep) take a bare <FromModifiedDate> that
-  // must come AFTER <ActiveStatus>. The <ModifiedDateRangeFilter> wrapper is
-  // transaction-only; using it on a list query makes QB reject the whole request
-  // with 0x80040400 (parse error). Emit QB-local time WITH offset (toQbLocal) so
-  // the incremental window matches QB's local TimeModified.
-  const fromMod = since
-    ? `\n      <FromModifiedDate>${escapeXml(toQbLocal(bumpSecond(since)))}</FromModifiedDate>`
-    : '';
+  const fromMod = listModifiedFilter(await sinceModified(env, 'qb_customer', 'qbwc.customer.since'));
   const rq =
     `    <CustomerQueryRq requestID="${REQUEST_ID}" iterator="Start">\n` +
     // qbXML schema order for CustomerQueryRq: MaxReturned, then ActiveStatus,
@@ -46,6 +29,11 @@ async function buildRequest(env: Env): Promise<string> {
     `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>\n` +
     // All (not ActiveOnly): TBWC's customer counts must include inactive
     // customers to match QuickBooks' own totals.
+    // No OwnerID filter: it's GUIDTYPE, not the INTTYPE sentinel we assumed —
+    // "-1" is never a valid GUID and made QB fail the whole request ("error
+    // converting GUID value \"-1\" in field \"OwnerID\""), same bug as
+    // SalesOrder. Means private (non-public) DataExt custom fields won't come
+    // back on customers, only OwnerID-0 public ones.
     `      <ActiveStatus>All</ActiveStatus>${fromMod}\n` +
     `    </CustomerQueryRq>`;
   return qbxmlDoc(rq);
@@ -98,18 +86,19 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       balanceStr == null ? null : Number(balanceStr),
       qbTimeToTs(tag(ret, 'TimeModified')),
       JSON.stringify({ listId, ret: ret.slice(0, 8000) }),
+      JSON.stringify(dataExtBlocks(ret)),
     ]);
   }
 
   // Batched multi-row upserts: execQuery opens a connection per call, so an
   // iterator page must be a handful of statements, not one per record.
-  const CASTS = ['', '', '', '', '', '', '', '', '', '::jsonb', '', '', '', '::jsonb'];
+  const CASTS = ['', '', '', '', '', '', '', '', '', '::jsonb', '', '', '', '::jsonb', '::jsonb'];
   for (const rows of chunk([...byId.values()], BATCH_SIZE)) {
     await execQuery(
       env,
       `INSERT INTO public.qb_customer
          (list_id, edit_sequence, full_name, name, company_name, first_name,
-          last_name, email, phone, bill_addr, is_active, balance, time_modified, raw, synced_at)
+          last_name, email, phone, bill_addr, is_active, balance, time_modified, raw, data_ext, synced_at)
        VALUES ${multiRowValues(rows.length, CASTS, ', CURRENT_TIMESTAMP')}
        ON CONFLICT (list_id) DO UPDATE SET
          edit_sequence = EXCLUDED.edit_sequence,
@@ -125,6 +114,7 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
          balance       = EXCLUDED.balance,
          time_modified = EXCLUDED.time_modified,
          raw           = EXCLUDED.raw,
+         data_ext      = EXCLUDED.data_ext,
          synced_at     = CURRENT_TIMESTAMP`,
       rows.flat(),
       'qbwc.customer.upsert'
@@ -144,5 +134,10 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   }
 }
 
-const customer: QbObject = { name: 'Customer', requestID: REQUEST_ID, buildRequest, parseResponse };
+const customer: QbObject = {
+  name: 'Customer',
+  requestID: REQUEST_ID,
+  buildRequest,
+  parseResponse,
+};
 export default customer;

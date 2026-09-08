@@ -11,6 +11,7 @@
  * every write is wrapped in try/catch that only console.errors.
  */
 import { Env, execQuery } from '../db';
+import { RET_TYPES as ITEM_RET_TYPES } from './objects/item';
 
 export interface SyncRunRow {
   ticket: string | null;
@@ -53,8 +54,11 @@ export function parseRsBlocks(responseXml: string): SyncRunRow[] {
         ? responseXml.slice(rsOpen.lastIndex)
         : responseXml.slice(rsOpen.lastIndex, close);
       // Count only this object's Ret records (exact tag — <InvoiceRet> matches,
-      // nested <InvoiceLineRet> does not).
-      rows = (body.match(new RegExp(`<${cls.objectType}Ret>`, 'g')) || []).length;
+      // nested <InvoiceLineRet> does not). Item is the one object with no bare
+      // <ItemRet> — QB always emits a type-specific variant instead.
+      rows = cls.objectType === 'Item'
+        ? ITEM_RET_TYPES.reduce((sum, t) => sum + (body.match(new RegExp(`<${t}>`, 'g')) || []).length, 0)
+        : (body.match(new RegExp(`<${cls.objectType}Ret>`, 'g')) || []).length;
     }
 
     // statusCode 1 = "no matching records" — an empty pull, not an error.

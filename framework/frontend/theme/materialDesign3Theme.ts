@@ -4,28 +4,48 @@
  */
 
 import { createTheme, type ThemeOptions } from '@mui/material/styles';
-import { lightColorTokens, darkColorTokens } from './colors';
+import { lightColorTokens, darkColorTokens, type ColorTokens } from './colors';
 import { typographyScales, fontFamily } from './typography';
 import { elevationShadows } from './elevation';
 
 /**
+ * Base MD3 token set, per app, for the accent slots (primary/secondary) an app
+ * may override. Apps inherit every other token (error/warning/info/success,
+ * typography, shape, elevation, component overrides) from this file.
+ */
+export type ColorTokenOverrides = Partial<
+  Pick<
+    ColorTokens,
+    | 'primary'
+    | 'onPrimary'
+    | 'primaryContainer'
+    | 'onPrimaryContainer'
+    | 'secondary'
+    | 'onSecondary'
+    | 'secondaryContainer'
+    | 'onSecondaryContainer'
+  >
+>;
+
+/**
  * Create Material Design 3 theme for light mode
  */
-export const createLightTheme = (): ReturnType<typeof createTheme> => {
+export const createLightTheme = (colorOverrides?: ColorTokenOverrides): ReturnType<typeof createTheme> => {
+  const lightColorTokensMerged = { ...lightColorTokens, ...colorOverrides };
   const themeOptions: ThemeOptions = {
     palette: {
       mode: 'light',
       primary: {
-        main: lightColorTokens.primary,
-        light: lightColorTokens.primaryContainer,
+        main: lightColorTokensMerged.primary,
+        light: lightColorTokensMerged.primaryContainer,
         dark: '#4F378B',
-        contrastText: lightColorTokens.onPrimary,
+        contrastText: lightColorTokensMerged.onPrimary,
       },
       secondary: {
-        main: lightColorTokens.secondary,
-        light: lightColorTokens.secondaryContainer,
+        main: lightColorTokensMerged.secondary,
+        light: lightColorTokensMerged.secondaryContainer,
         dark: '#4A4458',
-        contrastText: lightColorTokens.onSecondary,
+        contrastText: lightColorTokensMerged.onSecondary,
       },
       error: {
         main: lightColorTokens.error,
@@ -161,21 +181,22 @@ export const createLightTheme = (): ReturnType<typeof createTheme> => {
 /**
  * Create Material Design 3 theme for dark mode
  */
-export const createDarkTheme = (): ReturnType<typeof createTheme> => {
+export const createDarkTheme = (colorOverrides?: ColorTokenOverrides): ReturnType<typeof createTheme> => {
+  const darkColorTokensMerged = { ...darkColorTokens, ...colorOverrides };
   const themeOptions: ThemeOptions = {
     palette: {
       mode: 'dark',
       primary: {
-        main: darkColorTokens.primary,
-        light: darkColorTokens.primaryContainer,
+        main: darkColorTokensMerged.primary,
+        light: darkColorTokensMerged.primaryContainer,
         dark: '#371E55',
-        contrastText: darkColorTokens.onPrimary,
+        contrastText: darkColorTokensMerged.onPrimary,
       },
       secondary: {
-        main: darkColorTokens.secondary,
-        light: darkColorTokens.secondaryContainer,
+        main: darkColorTokensMerged.secondary,
+        light: darkColorTokensMerged.secondaryContainer,
         dark: '#332D41',
-        contrastText: darkColorTokens.onSecondary,
+        contrastText: darkColorTokensMerged.onSecondary,
       },
       error: {
         main: darkColorTokens.error,
@@ -315,6 +336,9 @@ export const darkTheme = createDarkTheme();
 /**
  * Create Material Design 3 theme with optional mode
  */
-export const createMaterialDesign3Theme = (mode: 'light' | 'dark' = 'light') => {
-  return mode === 'light' ? createLightTheme() : createDarkTheme();
+export const createMaterialDesign3Theme = (
+  mode: 'light' | 'dark' = 'light',
+  colorOverrides?: ColorTokenOverrides
+) => {
+  return mode === 'light' ? createLightTheme(colorOverrides) : createDarkTheme(colorOverrides);
 };

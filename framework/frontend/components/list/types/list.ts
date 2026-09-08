@@ -69,6 +69,8 @@ export interface FilterDefinition {
   className?: string;
   /** Maps to store filter key if different from key */
   storeKey?: string;
+  /** Render the control locked (e.g. a rep whose only meaningful value is themselves) */
+  disabled?: boolean;
 }
 
 /**

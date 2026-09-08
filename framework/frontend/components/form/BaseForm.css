@@ -764,11 +764,16 @@ body[data-theme='dark'] .base-form [class*="base-form__sections-container"] > * 
   border-bottom-color: #2a2d31 !important;
 }
 
-/* ── Explicit per-tab grid columns (schema: tab({ columns })) ──────── */
+/* ── Explicit per-tab grid (schema: tab({ columns, rows })) ────────── */
 /* Overrides the section-count-based column heuristic above. Placed last so it
    wins the cascade against the !important rules earlier in this file at equal
    selector specificity. Pair with each section's gridColumn/gridRow
-   (schema: section({ gridColumn, gridRow })) for precise placement. */
+   (schema: section({ gridColumn, gridRow })) for precise placement.
+   align-items: start keeps cards content-sized (same as the flex layout);
+   to let a tall section span beside a stack, give the tab a trailing `1fr`
+   row (rows: 'auto auto 1fr') and span the tall section across it. */
 .base-form__sections-container[data-columns] {
   grid-template-columns: var(--section-columns) !important;
+  grid-template-rows: var(--section-rows, none);
+  align-items: start;
 }

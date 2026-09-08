@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 import RepInquiriesCard from '../features/repPortal/RepInquiriesCard';
+import RepStatsCards from '../features/repPortal/RepStatsCards';
 
 export default function DashboardPage() {
   const { user, isAdmin } = useAuth();
@@ -11,11 +12,8 @@ export default function DashboardPage() {
       <Typography variant="h4" fontWeight={700} gutterBottom>
         Welcome, {firstName}
       </Typography>
-      <Typography variant="body1" color="text.secondary">
-        {isAdmin ? 'Admin overview' : 'Your portal overview'}
-      </Typography>
 
-      {isAdmin && <RepInquiriesCard />}
+      {isAdmin ? <RepInquiriesCard /> : <RepStatsCards />}
     </Box>
   );
 }

@@ -24,10 +24,30 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onInventoryEdit, o
 
   const columns = useMemo(() => {
     if (!schema) return [];
-    return generateColumnsFromSchema<Inventory>(schema.formFields, {
-      fieldOrder: ['part_number', 'description', 'category', 'base_price'],
+    const cols = generateColumnsFromSchema<Inventory>(schema.formFields, {
+      fieldOrder: ['name', 'sales_desc', 'category', 'sales_price'],
       responsive: 'hide-mobile',
     });
+    // Descriptions can run long (full QB SalesDesc text) and would otherwise
+    // stretch the whole table — cap the column and truncate with an ellipsis.
+    const descCol = cols.find((c) => c.key === 'sales_desc');
+    if (descCol) {
+      descCol.render = (_value, row) => (
+        <span
+          style={{
+            display: 'block',
+            maxWidth: 420,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={row.sales_desc ?? ''}
+        >
+          {row.sales_desc ?? ''}
+        </span>
+      );
+    }
+    return cols;
   }, [schema]);
 
   const filters = useMemo(() => {
@@ -40,9 +60,13 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onInventoryEdit, o
     entityNamePlural: 'inventory',
     useStore: useInventoryEnhanced,
     features: {
-      allowCreate: true,
+      // allowEdit stays on so a row click still opens the form — it's just a
+      // read-only view for now (every field is schema-readOnly, and the PUT
+      // route 405s). allowEdit gates whether handleEdit fires at all, so
+      // turning it off would block opening the form, not just saving.
+      allowCreate: false,
       allowEdit: true,
-      allowDelete: true,
+      allowDelete: false,
       allowBulkActions: false,
       allowExport: false,
       allowImport: false,

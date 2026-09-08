@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { BrowserRouter } from 'react-router-dom';
-import { lightTheme } from '@framework/theme/materialDesign3Theme';
+import { tbwcTheme } from './theme/tbwcTheme';
 import { AuthProvider } from './contexts/AuthContext';
 import App from './App';
 import './index.css';
@@ -14,7 +14,7 @@ const basename = import.meta.env.BASE_URL.replace(/\/+$/, '') || undefined;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider theme={lightTheme}>
+    <ThemeProvider theme={tbwcTheme}>
       <CssBaseline />
       <BrowserRouter basename={basename}>
         <AuthProvider>

@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import DashboardPage from '../pages/DashboardPage';
+import DocumentsPage from '../pages/DocumentsPage';
 import { OrderManagementPage } from '../features/orders/OrderManagementPage';
 import { InventoryManagementPage } from '../features/inventory/InventoryManagementPage';
 import { QuoteManagementPage } from '../features/quotes/QuoteManagementPage';
@@ -16,6 +17,7 @@ export default function AppRoutes() {
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/orders" element={<OrderManagementPage />} />
       <Route path="/quotes" element={<QuoteManagementPage />} />
+      <Route path="/documents" element={<DocumentsPage />} />
       <Route
         path="/inventory"
         element={isAdmin ? <InventoryManagementPage /> : <Navigate to="/dashboard" replace />}

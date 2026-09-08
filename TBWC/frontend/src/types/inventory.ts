@@ -1,19 +1,23 @@
-/** Inventory catalog row (tbwc-site public.inventory). PK is `inventory_id`. */
+/** Inventory catalog row (tbwc-site public.qb_item, QB-synced item list). PK is `qb_item_id`. */
 export interface Inventory {
-  inventory_id: number;
-  /** Normalised alias of inventory_id set by the entity store (idFieldName). */
+  qb_item_id: number;
+  /** Normalised alias of qb_item_id set by the entity store (idFieldName). */
   id?: number | string;
-  part_number: string | null;
-  description: string | null;
+  list_id: string;
+  item_type: string | null;
+  name: string | null;
+  full_name: string | null;
+  sales_desc: string | null;
+  sales_price: number | null;
+  is_active: boolean;
   category: string | null;
+  upc_code: string | null;
+  distribution_type: string | null;
   base_price: number | null;
   msrp: number | null;
-  moq: number | null;
   dnet_cost: number | null;
-  unit_weight: number | null;
+  moq: number | null;
   pack_qty: number | null;
   service_days: number | null;
-  distribution_type: string | null;
-  upc_code: string | null;
-  is_active: boolean;
+  unit_weight: number | null;
 }

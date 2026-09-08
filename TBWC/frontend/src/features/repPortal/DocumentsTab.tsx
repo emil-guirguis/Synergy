@@ -29,17 +29,52 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
+import DownloadIcon from '@mui/icons-material/Download';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import {
   listDocsTree,
   uploadDoc,
   removeDoc,
   moveDoc,
+  signedDownloadUrl,
+  signedViewUrl,
   type DocTree,
   type DocFile,
   type DocCategory,
 } from '../../services/storageService';
+import {
+  getDocTypes,
+  setDocType,
+  renameDocType,
+  deleteDocType,
+  type DocType,
+} from '../../services/docTypeService';
 
 const NEW = '__new__';
+const TYPE_LABEL: Record<DocType, string> = { rep: 'Rep', employee: 'Employee', all: 'All' };
+
+/** Files with no row in rep_doc_type default to 'all' (visible to everyone). */
+function typeOf(docTypes: Record<string, DocType>, path: string): DocType {
+  return docTypes[path] ?? 'all';
+}
+
+/** Drop files that don't match `typeSel` ('all' = no filtering); prune emptied folders. */
+function filterTree(tree: DocTree, docTypes: Record<string, DocType>, typeSel: DocType): DocTree {
+  if (typeSel === 'all') return tree;
+  const keep = (f: DocFile) => {
+    const t = typeOf(docTypes, f.path);
+    return t === 'all' || t === typeSel;
+  };
+  const rootFiles = tree.rootFiles.filter(keep);
+  const categories = tree.categories
+    .map((c) => {
+      const files = c.files.filter(keep);
+      const subs = c.subs.map((s) => ({ ...s, files: s.files.filter(keep) })).filter((s) => s.files.length > 0);
+      return { ...c, files, subs };
+    })
+    .filter((c) => c.files.length > 0 || c.subs.length > 0);
+  return { rootFiles, categories };
+}
 
 function fmtSize(bytes?: number): string {
   if (bytes == null) return '';
@@ -64,18 +99,21 @@ function cleanSeg(s: string): string {
 
 type Msg = { text: string; severity: 'success' | 'error' } | null;
 
-export default function DocumentsTab() {
+export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean }) {
   const [tree, setTree] = useState<DocTree>({ rootFiles: [], categories: [] });
+  const [docTypes, setDocTypes] = useState<Record<string, DocType>>({});
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<Msg>(null);
   const [uploading, setUploading] = useState(false);
 
-  // Upload form.
+  // Upload form. `typeSel` also drives the tree filter below (picking a type
+  // both sets what the next upload is tagged with and filters the view).
   const [catSel, setCatSel] = useState('');
   const [catNew, setCatNew] = useState('');
   const [subSel, setSubSel] = useState('');
   const [subNew, setSubNew] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [typeSel, setTypeSel] = useState<DocType>('all');
 
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setOpen((o) => ({ ...o, [key]: !o[key] }));
@@ -83,13 +121,43 @@ export default function DocumentsTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setTree(await listDocsTree());
+      const [t, dt] = await Promise.all([listDocsTree(), getDocTypes().catch(() => ({}))]);
+      setTree(t);
+      setDocTypes(dt);
     } catch (e) {
       setMsg({ text: (e as Error).message || 'Could not load documents', severity: 'error' });
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // Reps only ever see 'all' + 'rep' docs — 'employee' stays hidden regardless of typeSel.
+  const filteredTree = useMemo(() => {
+    if (readOnly) {
+      const keep = (f: DocFile) => typeOf(docTypes, f.path) !== 'employee';
+      const rootFiles = tree.rootFiles.filter(keep);
+      const categories = tree.categories
+        .map((c) => {
+          const files = c.files.filter(keep);
+          const subs = c.subs.map((s) => ({ ...s, files: s.files.filter(keep) })).filter((s) => s.files.length > 0);
+          return { ...c, files, subs };
+        })
+        .filter((c) => c.files.length > 0 || c.subs.length > 0);
+      return { rootFiles, categories };
+    }
+    return filterTree(tree, docTypes, typeSel);
+  }, [tree, docTypes, typeSel, readOnly]);
+
+  async function onTypeChange(path: string, type: DocType) {
+    const prev = typeOf(docTypes, path);
+    setDocTypes((d) => ({ ...d, [path]: type }));
+    try {
+      await setDocType(path, type);
+    } catch (e) {
+      setDocTypes((d) => ({ ...d, [path]: prev }));
+      setMsg({ text: (e as Error).message || 'Could not update type', severity: 'error' });
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -118,7 +186,13 @@ export default function DocumentsTab() {
     setMsg({ text: 'Uploading…', severity: 'success' });
     try {
       for (const file of files) {
-        await uploadDoc(`${prefix}/${file.name}`, file);
+        const path = `${prefix}/${file.name}`;
+        await uploadDoc(path, file);
+        try {
+          await setDocType(path, typeSel);
+        } catch {
+          // Best-effort — the file itself uploaded fine, it just defaults to 'all'.
+        }
       }
       setMsg({ text: `Uploaded ${files.length} file(s) to ${prefix}`, severity: 'success' });
       setFiles([]);
@@ -134,10 +208,33 @@ export default function DocumentsTab() {
     if (!window.confirm(`Delete "${path}"?\nReps will no longer see it.`)) return;
     try {
       await removeDoc(path);
+      try {
+        await deleteDocType(path);
+      } catch {
+        // Best-effort cleanup — the file is gone either way.
+      }
       setMsg({ text: `Deleted ${path}`, severity: 'success' });
       await load();
     } catch (e) {
       setMsg({ text: (e as Error).message || 'Delete failed', severity: 'error' });
+    }
+  }
+
+  async function onDownload(path: string) {
+    try {
+      const url = await signedDownloadUrl(path);
+      window.location.assign(url);
+    } catch (e) {
+      setMsg({ text: (e as Error).message || 'Download failed', severity: 'error' });
+    }
+  }
+
+  async function onOpen(path: string) {
+    try {
+      const url = await signedViewUrl(path);
+      window.open(url, '_blank', 'noopener');
+    } catch (e) {
+      setMsg({ text: (e as Error).message || 'Could not open document', severity: 'error' });
     }
   }
 
@@ -161,6 +258,11 @@ export default function DocumentsTab() {
     const newPath = dir ? `${dir}/${next}` : next;
     try {
       await moveDoc(path, newPath);
+      try {
+        await renameDocType(path, newPath);
+      } catch {
+        // Best-effort — the rename itself succeeded either way.
+      }
       setMsg({ text: `Renamed to ${newPath}`, severity: 'success' });
       await load();
     } catch (e) {
@@ -171,7 +273,9 @@ export default function DocumentsTab() {
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Documents reps see in their portal. Upload into a category (and optional subcategory).
+        {readOnly
+          ? 'Documents shared with reps. Click the download icon to save a file.'
+          : 'Documents reps see in their portal. Upload into a category (and optional subcategory).'}
       </Typography>
 
       {msg && (
@@ -181,90 +285,106 @@ export default function DocumentsTab() {
       )}
 
       {/* ---- Upload ---- */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel id="cat-label">Category *</InputLabel>
-            <Select
-              labelId="cat-label"
-              label="Category *"
-              value={catSel}
-              onChange={(e) => {
-                setCatSel(e.target.value);
-                setSubSel('');
-                setSubNew('');
-              }}
-            >
-              <MenuItem value="">
-                <em>— Select category —</em>
-              </MenuItem>
-              {tree.categories.map((c) => (
-                <MenuItem key={c.name} value={c.name}>
-                  {c.name}
+      {!readOnly && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel id="cat-label">Category *</InputLabel>
+              <Select
+                labelId="cat-label"
+                label="Category *"
+                value={catSel}
+                onChange={(e) => {
+                  setCatSel(e.target.value);
+                  setSubSel('');
+                  setSubNew('');
+                }}
+              >
+                <MenuItem value="">
+                  <em>— Select category —</em>
                 </MenuItem>
-              ))}
-              <MenuItem value={NEW}>＋ New category…</MenuItem>
-            </Select>
-          </FormControl>
-          {catSel === NEW && (
-            <TextField
-              size="small"
-              label="New category name"
-              value={catNew}
-              onChange={(e) => setCatNew(e.target.value)}
-              sx={{ minWidth: 200 }}
-            />
-          )}
+                {tree.categories.map((c) => (
+                  <MenuItem key={c.name} value={c.name}>
+                    {c.name}
+                  </MenuItem>
+                ))}
+                <MenuItem value={NEW}>＋ New category…</MenuItem>
+              </Select>
+            </FormControl>
+            {catSel === NEW && (
+              <TextField
+                size="small"
+                label="New category name"
+                value={catNew}
+                onChange={(e) => setCatNew(e.target.value)}
+                sx={{ minWidth: 200 }}
+              />
+            )}
 
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel id="sub-label">Subcategory</InputLabel>
-            <Select
-              labelId="sub-label"
-              label="Subcategory"
-              value={subSel}
-              onChange={(e) => setSubSel(e.target.value)}
-            >
-              <MenuItem value="">
-                <em>(none)</em>
-              </MenuItem>
-              {subOptions.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s}
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel id="sub-label">Subcategory</InputLabel>
+              <Select
+                labelId="sub-label"
+                label="Subcategory"
+                value={subSel}
+                onChange={(e) => setSubSel(e.target.value)}
+              >
+                <MenuItem value="">
+                  <em>(none)</em>
                 </MenuItem>
-              ))}
-              <MenuItem value={NEW}>＋ New subcategory…</MenuItem>
-            </Select>
-          </FormControl>
-          {subSel === NEW && (
-            <TextField
-              size="small"
-              label="New subcategory name"
-              value={subNew}
-              onChange={(e) => setSubNew(e.target.value)}
-              sx={{ minWidth: 200 }}
-            />
-          )}
+                {subOptions.map((s) => (
+                  <MenuItem key={s} value={s}>
+                    {s}
+                  </MenuItem>
+                ))}
+                <MenuItem value={NEW}>＋ New subcategory…</MenuItem>
+              </Select>
+            </FormControl>
+            {subSel === NEW && (
+              <TextField
+                size="small"
+                label="New subcategory name"
+                value={subNew}
+                onChange={(e) => setSubNew(e.target.value)}
+                sx={{ minWidth: 200 }}
+              />
+            )}
 
-          <Button variant="outlined" component="label" sx={{ whiteSpace: 'nowrap' }}>
-            {files.length ? `${files.length} file(s)` : 'Choose files'}
-            <input
-              hidden
-              type="file"
-              accept="application/pdf"
-              multiple
-              onChange={(e) => setFiles(Array.from(e.target.files || []))}
-            />
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<UploadFileIcon />}
-            onClick={onUpload}
-            disabled={uploading}
-          >
-            Upload
-          </Button>
-        </Stack>
-      </Paper>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel id="type-label">Type</InputLabel>
+              <Select
+                labelId="type-label"
+                label="Type"
+                value={typeSel}
+                onChange={(e) => setTypeSel(e.target.value as DocType)}
+              >
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="rep">Rep</MenuItem>
+                <MenuItem value="employee">Employee</MenuItem>
+              </Select>
+            </FormControl>
+
+            <Button variant="outlined" component="label" sx={{ whiteSpace: 'nowrap' }}>
+              {files.length ? `${files.length} file(s)` : 'Choose files'}
+              <input
+                hidden
+                type="file"
+                accept="application/pdf"
+                multiple
+                onChange={(e) => setFiles(Array.from(e.target.files || []))}
+              />
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<UploadFileIcon />}
+              onClick={onUpload}
+              disabled={uploading}
+            >
+              Upload
+            </Button>
+          </Stack>
+        </Paper>
+      )}
 
       {/* ---- Tree ---- */}
       <Paper variant="outlined" sx={{ p: 1 }}>
@@ -272,21 +392,39 @@ export default function DocumentsTab() {
           <Typography sx={{ p: 2 }} color="text.secondary">
             Loading…
           </Typography>
-        ) : tree.rootFiles.length === 0 && tree.categories.length === 0 ? (
+        ) : filteredTree.rootFiles.length === 0 && filteredTree.categories.length === 0 ? (
           <Typography sx={{ p: 2 }} color="text.secondary">
-            No documents yet.
+            {tree.rootFiles.length === 0 && tree.categories.length === 0
+              ? 'No documents yet.'
+              : `No ${TYPE_LABEL[typeSel].toLowerCase()} documents.`}
           </Typography>
         ) : (
           <>
-            {tree.rootFiles.map((f) => (
-              <FileRow key={f.path} file={f} depth={0} onDelete={onDelete} onRename={onRename} />
+            {filteredTree.rootFiles.map((f) => (
+              <FileRow
+                key={f.path}
+                file={f}
+                depth={0}
+                readOnly={readOnly}
+                type={typeOf(docTypes, f.path)}
+                onTypeChange={onTypeChange}
+                onOpen={onOpen}
+                onDownload={onDownload}
+                onDelete={onDelete}
+                onRename={onRename}
+              />
             ))}
-            {tree.categories.map((c) => (
+            {filteredTree.categories.map((c) => (
               <CategoryRow
                 key={c.name}
                 cat={c}
                 open={open}
                 toggle={toggle}
+                readOnly={readOnly}
+                docTypes={docTypes}
+                onTypeChange={onTypeChange}
+                onOpen={onOpen}
+                onDownload={onDownload}
                 onDelete={onDelete}
                 onRename={onRename}
               />
@@ -346,12 +484,22 @@ function CategoryRow({
   cat,
   open,
   toggle,
+  readOnly,
+  docTypes,
+  onTypeChange,
+  onOpen,
+  onDownload,
   onDelete,
   onRename,
 }: {
   cat: DocCategory;
   open: Record<string, boolean>;
   toggle: (key: string) => void;
+  readOnly: boolean;
+  docTypes: Record<string, DocType>;
+  onTypeChange: (path: string, type: DocType) => void;
+  onOpen: (path: string) => void;
+  onDownload: (path: string) => void;
   onDelete: (path: string) => void;
   onRename: (path: string) => void;
 }) {
@@ -368,7 +516,18 @@ function CategoryRow({
       />
       <Collapse in={isOpen} unmountOnExit>
         {cat.files.map((f) => (
-          <FileRow key={f.path} file={f} depth={1} onDelete={onDelete} onRename={onRename} />
+          <FileRow
+            key={f.path}
+            file={f}
+            depth={1}
+            readOnly={readOnly}
+            type={typeOf(docTypes, f.path)}
+            onTypeChange={onTypeChange}
+            onOpen={onOpen}
+            onDownload={onDownload}
+            onDelete={onDelete}
+            onRename={onRename}
+          />
         ))}
         {cat.subs.map((s) => {
           const subKey = `${cat.name}/${s.name}`;
@@ -384,7 +543,18 @@ function CategoryRow({
               />
               <Collapse in={subOpen} unmountOnExit>
                 {s.files.map((f) => (
-                  <FileRow key={f.path} file={f} depth={2} onDelete={onDelete} onRename={onRename} />
+                  <FileRow
+                    key={f.path}
+                    file={f}
+                    depth={2}
+                    readOnly={readOnly}
+                    type={typeOf(docTypes, f.path)}
+                    onTypeChange={onTypeChange}
+                    onOpen={onOpen}
+                    onDownload={onDownload}
+                    onDelete={onDelete}
+                    onRename={onRename}
+                  />
                 ))}
               </Collapse>
             </Box>
@@ -398,11 +568,21 @@ function CategoryRow({
 function FileRow({
   file,
   depth,
+  readOnly,
+  type,
+  onTypeChange,
+  onOpen,
+  onDownload,
   onDelete,
   onRename,
 }: {
   file: DocFile;
   depth: number;
+  readOnly: boolean;
+  type: DocType;
+  onTypeChange: (path: string, type: DocType) => void;
+  onOpen: (path: string) => void;
+  onDownload: (path: string) => void;
   onDelete: (path: string) => void;
   onRename: (path: string) => void;
 }) {
@@ -425,12 +605,35 @@ function FileRow({
       <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
         {fmtSize(file.size)}
       </Typography>
-      <IconButton size="small" onClick={() => onRename(file.path)} title="Rename">
-        <DriveFileRenameOutlineIcon fontSize="small" />
+      {readOnly ? null : (
+        <Select
+          size="small"
+          variant="standard"
+          value={type}
+          onChange={(e) => onTypeChange(file.path, e.target.value as DocType)}
+          sx={{ mr: 1, minWidth: 90, fontSize: '0.8125rem' }}
+        >
+          <MenuItem value="all">All</MenuItem>
+          <MenuItem value="rep">Rep</MenuItem>
+          <MenuItem value="employee">Employee</MenuItem>
+        </Select>
+      )}
+      <IconButton size="small" onClick={() => onOpen(file.path)} title="Open">
+        <OpenInNewIcon fontSize="small" />
       </IconButton>
-      <IconButton size="small" onClick={() => onDelete(file.path)} title="Delete">
-        <DeleteOutlineIcon fontSize="small" />
+      <IconButton size="small" onClick={() => onDownload(file.path)} title="Download">
+        <DownloadIcon fontSize="small" />
       </IconButton>
+      {!readOnly && (
+        <>
+          <IconButton size="small" onClick={() => onRename(file.path)} title="Rename">
+            <DriveFileRenameOutlineIcon fontSize="small" />
+          </IconButton>
+          <IconButton size="small" onClick={() => onDelete(file.path)} title="Delete">
+            <DeleteOutlineIcon fontSize="small" />
+          </IconButton>
+        </>
+      )}
     </Box>
   );
 }

@@ -5,23 +5,27 @@
 import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import {
-  qbxmlDoc, tag, blocks, statusCode, escapeXml, refField, lineItems,
-  qbTimeToTs, qbDate, num,
+  qbxmlDoc, tag, blocks, statusCode, refField, lineItems,
+  qbTimeToTs, qbDate, num, txnModifiedFilter,
 } from '../qbxml';
+import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
+import { sinceModified } from '../incremental';
+
+/** LinkedTxn blocks (header + per-line), deduped by TxnID — links this invoice
+ *  back to the SalesOrder(s) it was created from. */
+function linkedTxns(ret: string): { txn_id: string; txn_type: string | null }[] {
+  const seen = new Map<string, { txn_id: string; txn_type: string | null }>();
+  for (const b of blocks(ret, 'LinkedTxn')) {
+    const id = tag(b, 'TxnID');
+    if (id && !seen.has(id)) seen.set(id, { txn_id: id, txn_type: tag(b, 'TxnType') ?? null });
+  }
+  return [...seen.values()];
+}
 
 const REQUEST_ID = 'invoice';
 
-async function since(env: Env): Promise<string | null> {
-  const r = await execQuery(env, `SELECT MAX(time_modified) AS m FROM public.qb_invoice`, [], 'qbwc.invoice.since');
-  const m = r.rows[0]?.m;
-  return m ? new Date(m).toISOString() : null;
-}
-
 async function buildRequest(env: Env): Promise<string> {
-  const from = await since(env);
-  const filter = from
-    ? `\n      <ModifiedDateRangeFilter><FromModifiedDate>${escapeXml(from)}</FromModifiedDate></ModifiedDateRangeFilter>`
-    : '';
+  const filter = txnModifiedFilter(await sinceModified(env, 'qb_invoice', 'qbwc.invoice.since'));
   return qbxmlDoc(
     `    <InvoiceQueryRq requestID="${REQUEST_ID}">${filter}\n` +
     `      <IncludeLineItems>true</IncludeLineItems>\n` +
@@ -46,15 +50,15 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       env,
       `INSERT INTO public.qb_invoice
          (txn_id, edit_sequence, ref_number, customer_list_id, customer_name, txn_date,
-          due_date, subtotal, total, balance_remaining, is_paid, lines, time_modified, raw, synced_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14::jsonb, CURRENT_TIMESTAMP)
+          due_date, subtotal, total, balance_remaining, is_paid, lines, linked_txn, time_modified, raw, synced_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14,$15::jsonb, CURRENT_TIMESTAMP)
        ON CONFLICT (txn_id) DO UPDATE SET
          edit_sequence=EXCLUDED.edit_sequence, ref_number=EXCLUDED.ref_number,
          customer_list_id=EXCLUDED.customer_list_id, customer_name=EXCLUDED.customer_name,
          txn_date=EXCLUDED.txn_date, due_date=EXCLUDED.due_date, subtotal=EXCLUDED.subtotal,
          total=EXCLUDED.total, balance_remaining=EXCLUDED.balance_remaining, is_paid=EXCLUDED.is_paid,
-         lines=EXCLUDED.lines, time_modified=EXCLUDED.time_modified, raw=EXCLUDED.raw,
-         synced_at=CURRENT_TIMESTAMP`,
+         lines=EXCLUDED.lines, linked_txn=EXCLUDED.linked_txn, time_modified=EXCLUDED.time_modified,
+         raw=EXCLUDED.raw, synced_at=CURRENT_TIMESTAMP`,
       [
         txnId,
         tag(ret, 'EditSequence') ?? null,
@@ -74,6 +78,7 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
         num(tag(ret, 'BalanceRemaining')),
         (() => { const b = num(tag(ret, 'BalanceRemaining')); return b == null ? null : b === 0; })(),
         JSON.stringify(lineItems(ret, 'InvoiceLineRet')),
+        JSON.stringify(linkedTxns(ret)),
         qbTimeToTs(tag(ret, 'TimeModified')),
         JSON.stringify({ txnId, ret: ret.slice(0, 8000) }),
       ],
@@ -90,6 +95,8 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       'qbwc.invoice.map'
     );
   }
+
+  if (rets.length > 0) await refreshOrderInvoiceStatus(env);
 }
 
 const invoice: QbObject = { name: 'Invoice', requestID: REQUEST_ID, buildRequest, parseResponse };

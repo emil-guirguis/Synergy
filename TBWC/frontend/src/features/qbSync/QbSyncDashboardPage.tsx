@@ -61,14 +61,17 @@ function RunStatus({ run }: { run: SyncRun }) {
     );
   }
   const empty = run.status_code === '1' || run.rows_processed === 0;
+  const label = empty ? 'ok' : `ok (${run.rows_processed} applied)`;
   return (
-    <Chip
-      size="small"
-      icon={<CheckCircleOutlineIcon />}
-      label={empty ? 'ok (no changes)' : `ok (${run.rows_processed} applied)`}
-      color="success"
-      variant="outlined"
-    />
+    <Tooltip title={label}>
+      <Chip
+        size="small"
+        icon={<CheckCircleOutlineIcon />}
+        label={label}
+        color="success"
+        variant="outlined"
+      />
+    </Tooltip>
   );
 }
 
@@ -154,9 +157,6 @@ export function QbSyncDashboardPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
         <Box>
           <Typography variant="h5">QuickBooks Sync</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Runs happen when the Web Connector polls — this page only reports them.
-          </Typography>
         </Box>
         <Tooltip title="Refresh">
           <span>

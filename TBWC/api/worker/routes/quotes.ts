@@ -37,7 +37,7 @@ function num(v: any): number {
 }
 
 interface LineInput {
-  inventory_id?: number | null;
+  qb_item_id?: number | null;
   part_number?: string | null;
   description?: string | null;
   qty?: number | string;
@@ -49,14 +49,14 @@ function normalizeLines(raw: any): { lines: any[]; subtotal: number } {
   const arr: LineInput[] = Array.isArray(raw) ? raw : [];
   let subtotal = 0;
   const lines = arr
-    .filter((l) => l && (l.inventory_id != null || (l.part_number && String(l.part_number).trim() !== '') || num(l.qty) > 0))
+    .filter((l) => l && (l.qb_item_id != null || (l.part_number && String(l.part_number).trim() !== '') || num(l.qty) > 0))
     .map((l, i) => {
       const qty = num(l.qty);
       const unit_price = num(l.unit_price);
       const ext_price = Math.round(qty * unit_price * 100) / 100;
       subtotal += ext_price;
       return {
-        inventory_id: l.inventory_id ?? null,
+        qb_item_id: l.qb_item_id ?? null,
         part_number: l.part_number ?? null,
         description: l.description ?? null,
         qty,
@@ -136,9 +136,9 @@ app.post('/', async (c) => {
     for (const l of lines) {
       await q(
         `INSERT INTO "quote_line"
-           (quote_id, inventory_id, part_number, description, qty, unit_price, ext_price, line_order)
+           (quote_id, qb_item_id, part_number, description, qty, unit_price, ext_price, line_order)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [quote.quote_id, l.inventory_id, l.part_number, l.description, l.qty, l.unit_price, l.ext_price, l.line_order]
+        [quote.quote_id, l.qb_item_id, l.part_number, l.description, l.qty, l.unit_price, l.ext_price, l.line_order]
       );
     }
     return { ...quote, lines };
@@ -198,9 +198,9 @@ app.put('/:id', async (c) => {
       for (const l of lines) {
         await q(
           `INSERT INTO "quote_line"
-             (quote_id, inventory_id, part_number, description, qty, unit_price, ext_price, line_order)
+             (quote_id, qb_item_id, part_number, description, qty, unit_price, ext_price, line_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [id, l.inventory_id, l.part_number, l.description, l.qty, l.unit_price, l.ext_price, l.line_order]
+          [id, l.qb_item_id, l.part_number, l.description, l.qty, l.unit_price, l.ext_price, l.line_order]
         );
       }
       return { ...quote, lines };

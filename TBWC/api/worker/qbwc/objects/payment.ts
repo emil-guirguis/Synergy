@@ -4,22 +4,14 @@
 import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import {
-  qbxmlDoc, tag, blocks, statusCode, escapeXml, refField, qbTimeToTs, qbDate, num,
+  qbxmlDoc, tag, blocks, statusCode, refField, qbTimeToTs, qbDate, num, txnModifiedFilter,
 } from '../qbxml';
+import { sinceModified } from '../incremental';
 
 const REQUEST_ID = 'payment';
 
-async function since(env: Env): Promise<string | null> {
-  const r = await execQuery(env, `SELECT MAX(time_modified) AS m FROM public.qb_payment`, [], 'qbwc.payment.since');
-  const m = r.rows[0]?.m;
-  return m ? new Date(m).toISOString() : null;
-}
-
 async function buildRequest(env: Env): Promise<string> {
-  const from = await since(env);
-  const filter = from
-    ? `\n      <ModifiedDateRangeFilter><FromModifiedDate>${escapeXml(from)}</FromModifiedDate></ModifiedDateRangeFilter>`
-    : '';
+  const filter = txnModifiedFilter(await sinceModified(env, 'qb_payment', 'qbwc.payment.since'));
   return qbxmlDoc(`    <ReceivePaymentQueryRq requestID="${REQUEST_ID}">${filter}\n    </ReceivePaymentQueryRq>`);
 }
 

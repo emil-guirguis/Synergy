@@ -4,4 +4,4 @@ export { Toast } from '../modal/Toast';
 export { LoadingSpinner } from './LoadingSpinner';
 export { CountrySelect, validateCountry } from '../formfield/CountrySelect';
 export { default as ImageUpload } from './ImageUpload';
-export { SearchFilter } from '../seachfilter/SearchFilter';
+export { SearchFilter } from '../searchfilter/SearchFilter';

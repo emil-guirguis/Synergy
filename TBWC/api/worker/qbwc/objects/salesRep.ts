@@ -9,30 +9,14 @@
 import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import {
-  qbxmlDoc, tag, blocks, statusCode, escapeXml, qbTimeToTs, refField, toQbLocal, bumpSecond,
+  qbxmlDoc, tag, blocks, statusCode, qbTimeToTs, refField, listModifiedFilter,
 } from '../qbxml';
+import { sinceModified } from '../incremental';
 
 const REQUEST_ID = 'salesrep';
 
-async function lastModified(env: Env): Promise<string | null> {
-  const r = await execQuery(
-    env,
-    `SELECT MAX(time_modified) AS m FROM public.qb_sales_rep`,
-    [],
-    'qbwc.salesrep.lastModified'
-  );
-  const m = r.rows[0]?.m;
-  return m ? new Date(m).toISOString() : null;
-}
-
 async function buildRequest(env: Env): Promise<string> {
-  const since = await lastModified(env);
-  // See customer.ts: LIST queries use a bare <FromModifiedDate> after
-  // <ActiveStatus>, NOT <ModifiedDateRangeFilter> (transaction-only), or QB
-  // rejects with 0x80040400. Emit QB-local time WITH offset via toQbLocal.
-  const fromMod = since
-    ? `\n      <FromModifiedDate>${escapeXml(toQbLocal(bumpSecond(since)))}</FromModifiedDate>`
-    : '';
+  const fromMod = listModifiedFilter(await sinceModified(env, 'qb_sales_rep', 'qbwc.salesrep.since'));
   const rq =
     `    <SalesRepQueryRq requestID="${REQUEST_ID}">\n` +
     `      <ActiveStatus>ActiveOnly</ActiveStatus>${fromMod}\n` +

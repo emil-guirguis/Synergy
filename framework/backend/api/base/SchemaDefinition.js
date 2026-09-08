@@ -177,6 +177,7 @@ function fieldRef(config) {
  * @param {Array<string>} [config.visibleFor] - Form variants for which this section is visible (e.g., ['physical'])
  * @param {string} [config.gridColumn] - CSS grid-column placement (e.g. '1 / -1' to span all columns of the tab's grid) — only applies when the tab is laid out as a CSS grid (see tab({ columns })).
  * @param {string} [config.gridRow] - CSS grid-row placement, paired with gridColumn for explicit multi-row layouts.
+ * @param {boolean} [config.readOnly=false] - Render every field in this section disabled (same effect as readOnly on each field). UI-only — the API does not reject writes to these columns.
  * @returns {Object} Section definition
  */
 function section(config) {
@@ -184,6 +185,7 @@ function section(config) {
     name: config.name,
     order: config.order !== undefined ? config.order : null,
     fields: config.fields || [],
+    readOnly: config.readOnly || false,
     minWidth: config.minWidth || null,
     maxWidth: config.maxWidth || null,
     flex: config.flex !== undefined ? config.flex : 1,
@@ -206,7 +208,8 @@ function section(config) {
  * @param {Array<Object>} config.sections - Array of section definitions created with section()
  * @param {string} [config.sectionOrientation] - Section layout orientation ('horizontal' or 'vertical')
  * @param {Array<string>} [config.visibleFor] - Meter types for which this tab is visible (e.g., ['physical', 'virtual'])
- * @param {number} [config.columns] - Explicit CSS grid column count for this tab's section container (overrides the default section-count-based column heuristic). Use with each section's gridColumn/gridRow to place sections precisely (e.g. a full-width section via gridColumn: '1 / -1').
+ * @param {number|string} [config.columns] - Lay this tab's sections out as an explicit CSS grid (overrides both the section-count column heuristic and the flex layout that section()'s flex defaults would otherwise select). A number becomes `repeat(n, 1fr)`; a string is used verbatim as grid-template-columns (e.g. '2fr 1fr 1fr'). Use with each section's gridColumn/gridRow to place sections precisely (e.g. a full-width section via gridColumn: '1 / -1').
+ * @param {string} [config.rows] - Verbatim grid-template-rows for the tab grid (e.g. 'auto auto 1fr'). Only applies with `columns`. A trailing `1fr` row absorbs the extra height of a section that spans beside a stack of shorter ones.
  * @returns {Object} Tab definition
  */
 function tab(config) {
@@ -217,6 +220,7 @@ function tab(config) {
     sectionOrientation: config.sectionOrientation || null,
     visibleFor: config.visibleFor || null,
     columns: config.columns || null,
+    rows: config.rows || null,
   };
 }
 
@@ -308,7 +312,7 @@ function defineSchema(definition) {
     // in the API layer; mirror with an ON DELETE RESTRICT FK in the database.
     deleteRestrictions: definition.deleteRestrictions || [],
     idFieldName: definition.idFieldName || null,
-    version: '1.4.0', // Updated to include tab columns / section gridColumn+gridRow
+    version: '1.5.0', // Updated to include tab columns (count|template) + rows / section gridColumn+gridRow
     generatedAt: new Date().toISOString(),
   };
 

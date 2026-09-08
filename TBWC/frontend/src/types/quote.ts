@@ -2,7 +2,7 @@
 export interface QuoteLine {
   quote_line_id?: number;
   quote_id?: number;
-  inventory_id: number | null;
+  qb_item_id: number | null;
   part_number: string | null;
   description: string | null;
   qty: number;

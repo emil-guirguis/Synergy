@@ -23,7 +23,7 @@ vi.mock('hono/jwt', () => ({
 import { Hono } from 'hono';
 import { verify } from 'hono/jwt';
 import { query } from './db';
-import { authenticateToken, requirePermission, authenticateSyncServer, clearUserCache } from './middleware';
+import { authenticateToken, requirePermission, authenticateSyncServer, clearUserCache, clearSyncTenantCache } from './middleware';
 import type { Env } from './db';
 import type { AuthVariables } from './middleware';
 
@@ -116,6 +116,44 @@ describe('authenticateToken middleware', () => {
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.message).toBe('Invalid token - missing claims');
+  });
+
+  // The failed-verify throttle is keyed by IP in a module-level store that
+  // survives across tests, so these use unique x-forwarded-for addresses to
+  // stay isolated from each other and from the plain invalid-token test above.
+  it('returns 429 after repeated invalid-signature failures from one IP', async () => {
+    mockVerify.mockRejectedValue(new Error('Invalid'));
+
+    const app = createApp();
+    app.use('*', authenticateToken);
+    app.get('/test', (c) => c.json({ ok: true }));
+
+    let last: Response | undefined;
+    for (let i = 0; i < 31; i++) {
+      last = await app.request('/test', {
+        headers: { authorization: 'Bearer forged-token', 'x-forwarded-for': '203.0.113.9' },
+      }, TEST_ENV);
+    }
+    expect(last!.status).toBe(429);
+  });
+
+  it('never throttles expired tokens — they are validly signed, not an attack', async () => {
+    const error = new Error('Token expired');
+    error.name = 'JwtTokenExpired';
+    mockVerify.mockRejectedValue(error);
+
+    const app = createApp();
+    app.use('*', authenticateToken);
+    app.get('/test', (c) => c.json({ ok: true }));
+
+    let last: Response | undefined;
+    for (let i = 0; i < 35; i++) {
+      last = await app.request('/test', {
+        headers: { authorization: 'Bearer expired-token', 'x-forwarded-for': '203.0.113.10' },
+      }, TEST_ENV);
+    }
+    expect(last!.status).toBe(401);
+    expect((await last!.json()).message).toBe('Token expired');
   });
 
   it('should set user and tenantId on context from JWT claims when token is valid', async () => {
@@ -276,6 +314,7 @@ describe('authenticateSyncServer middleware', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearSyncTenantCache();
   });
 
   it('should return 401 when no API key header is provided', async () => {
@@ -319,5 +358,42 @@ describe('authenticateSyncServer middleware', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.tenantId).toBe(10);
+  });
+
+  it('caches the key→tenant lookup so repeat polls skip the DB', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ tenant_id: 10 }] } as any);
+
+    const app = createApp();
+    app.use('*', authenticateSyncServer);
+    app.get('/test', (c) => c.json({ tenantId: c.get('tenantId') }));
+
+    for (let i = 0; i < 3; i++) {
+      const res = await app.request('/test', {
+        headers: { 'x-api-key': 'cached-key' },
+      }, TEST_ENV);
+      expect(res.status).toBe(200);
+      expect((await res.json()).tenantId).toBe(10);
+    }
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache invalid keys — a later valid key still gets looked up', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] } as any);
+
+    const app = createApp();
+    app.use('*', authenticateSyncServer);
+    app.get('/test', (c) => c.json({ tenantId: c.get('tenantId') }));
+
+    const bad = await app.request('/test', {
+      headers: { 'x-api-key': 'not-yet-active-key' },
+    }, TEST_ENV);
+    expect(bad.status).toBe(401);
+
+    mockQuery.mockResolvedValueOnce({ rows: [{ tenant_id: 11 }] } as any);
+    const good = await app.request('/test', {
+      headers: { 'x-api-key': 'not-yet-active-key' },
+    }, TEST_ENV);
+    expect(good.status).toBe(200);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 });

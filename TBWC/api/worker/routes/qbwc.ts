@@ -67,8 +67,10 @@ app.post('/', async (c) => {
       const pass = getParam(body, 'strPassword');
       const ticket = crypto.randomUUID();
 
-      const expectUser = c.env.QBWC_USERNAME || DEV_QBWC_USERNAME;
-      const expectPass = c.env.QBWC_PASSWORD || DEV_QBWC_PASSWORD;
+      // .trim(): secrets piped to `wrangler secret put` on Windows can pick up
+      // a trailing CRLF, which made every QBWC login fail with "invalid password".
+      const expectUser = (c.env.QBWC_USERNAME || DEV_QBWC_USERNAME).trim();
+      const expectPass = (c.env.QBWC_PASSWORD || DEV_QBWC_PASSWORD).trim();
       if (user !== expectUser || pass !== expectPass) {
         // [ticket, "nvu"] = invalid user; QBWC aborts the session.
         return reply(authEnvelope([ticket, 'nvu']));

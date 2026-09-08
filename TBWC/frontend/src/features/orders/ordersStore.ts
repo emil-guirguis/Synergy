@@ -42,17 +42,14 @@ const ordersService = {
     const data = await parse(await fetch(`${API_BASE_URL}/orders/${id}`, { headers: authHeaders() }));
     return data.data;
   },
-  async create(data: Partial<Order>) {
-    const r = await parse(await fetch(`${API_BASE_URL}/orders`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(data) }));
-    return r.data;
-  },
+  // Orders exist only via the QuickBooks sync — the list disables create/delete;
+  // these throw defensively if ever called.
+  async create(): Promise<never> { throw new Error('Orders are created by the QuickBooks sync and cannot be created here.'); },
   async update(id: string, data: Partial<Order>) {
     const r = await parse(await fetch(`${API_BASE_URL}/orders/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }));
     return r.data;
   },
-  async delete(id: string) {
-    await parse(await fetch(`${API_BASE_URL}/orders/${id}`, { method: 'DELETE', headers: authHeaders() }));
-  },
+  async delete(): Promise<never> { throw new Error('Orders are managed by the QuickBooks sync and cannot be deleted here.'); },
 };
 
 export const useOrdersStore = createEntityStore<Order & { id: string }>(ordersService as any, {

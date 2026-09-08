@@ -19,7 +19,7 @@ interface QuoteFormProps {
 
 interface LineRow {
   key: string;
-  inventory_id: number | null;
+  qb_item_id: number | null;
   part_number: string;
   description: string;
   qty: number;
@@ -91,7 +91,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel }) => {
   // On edit, load the full quote (with its line items).
   useEffect(() => {
     let cancelled = false;
-    if (!isEdit || quoteId == null) { setLines([{ key: newKey(), inventory_id: null, part_number: '', description: '', qty: 1, unit_price: 0 }]); return; }
+    if (!isEdit || quoteId == null) { setLines([{ key: newKey(), qb_item_id: null, part_number: '', description: '', qty: 1, unit_price: 0 }]); return; }
     (async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/quotes/${quoteId}`, { headers: authHeaders() });
@@ -107,13 +107,13 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel }) => {
         }));
         const rows = (q.lines || []).map((l: QuoteLine) => ({
           key: newKey(),
-          inventory_id: l.inventory_id ?? null,
+          qb_item_id: l.qb_item_id ?? null,
           part_number: l.part_number ?? '',
           description: l.description ?? '',
           qty: num(l.qty),
           unit_price: num(l.unit_price),
         }));
-        setLines(rows.length ? rows : [{ key: newKey(), inventory_id: null, part_number: '', description: '', qty: 1, unit_price: 0 }]);
+        setLines(rows.length ? rows : [{ key: newKey(), qb_item_id: null, part_number: '', description: '', qty: 1, unit_price: 0 }]);
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Failed to load quote');
       } finally {
@@ -130,17 +130,17 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel }) => {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
   const addLine = () =>
-    setLines((ls) => [...ls, { key: newKey(), inventory_id: null, part_number: '', description: '', qty: 1, unit_price: 0 }]);
+    setLines((ls) => [...ls, { key: newKey(), qb_item_id: null, part_number: '', description: '', qty: 1, unit_price: 0 }]);
 
   const removeLine = (key: string) =>
     setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
 
   const pickInventory = (key: string, item: Inventory | null) => {
-    if (!item) { updateLine(key, { inventory_id: null }); return; }
+    if (!item) { updateLine(key, { qb_item_id: null }); return; }
     updateLine(key, {
-      inventory_id: item.inventory_id,
-      part_number: item.part_number ?? '',
-      description: item.description ?? '',
+      qb_item_id: item.qb_item_id,
+      part_number: item.name ?? '',
+      description: item.sales_desc ?? '',
       unit_price: num(item.base_price),
     });
   };
@@ -162,9 +162,9 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel }) => {
       tax: num(header.tax),
       freight: num(header.freight),
       lines: lines
-        .filter((l) => l.inventory_id != null || l.part_number.trim() !== '' || num(l.qty) > 0)
+        .filter((l) => l.qb_item_id != null || l.part_number.trim() !== '' || num(l.qty) > 0)
         .map((l) => ({
-          inventory_id: l.inventory_id,
+          qb_item_id: l.qb_item_id,
           part_number: l.part_number || null,
           description: l.description || null,
           qty: num(l.qty),
@@ -234,7 +234,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel }) => {
         </TableHead>
         <TableBody>
           {lines.map((l) => {
-            const selected = options.find((o) => o.inventory_id === l.inventory_id) || null;
+            const selected = options.find((o) => o.qb_item_id === l.qb_item_id) || null;
             return (
               <TableRow key={l.key}>
                 <TableCell>
@@ -243,20 +243,20 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel }) => {
                     options={options}
                     value={selected}
                     onChange={(_e, v) => pickInventory(l.key, v)}
-                    getOptionLabel={(o) => o.part_number || ''}
+                    getOptionLabel={(o) => o.name || ''}
                     renderOption={(props, o) => (
-                      <li {...props} key={o.inventory_id}>
+                      <li {...props} key={o.qb_item_id}>
                         <Box>
-                          <Typography variant="body2">{o.part_number}</Typography>
+                          <Typography variant="body2">{o.name}</Typography>
                           <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 360 }}>
-                            {o.description}
+                            {o.sales_desc}
                           </Typography>
                         </Box>
                       </li>
                     )}
-                    isOptionEqualToValue={(o, v) => o.inventory_id === v.inventory_id}
+                    isOptionEqualToValue={(o, v) => o.qb_item_id === v.qb_item_id}
                     renderInput={(params) => (
-                      <TextField {...params} placeholder={l.inventory_id == null && l.part_number ? l.part_number : 'Part # / search'} />
+                      <TextField {...params} placeholder={l.qb_item_id == null && l.part_number ? l.part_number : 'Part # / search'} />
                     )}
                   />
                 </TableCell>

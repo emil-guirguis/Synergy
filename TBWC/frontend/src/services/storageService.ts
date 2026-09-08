@@ -152,8 +152,8 @@ export async function moveDoc(fromPath: string, toPath: string): Promise<void> {
   if (!res.ok) throw new Error(await readError(res));
 }
 
-/** Signed, time-limited download URL for a private object. */
-export async function signedDownloadUrl(path: string, expiresIn = 60): Promise<string> {
+/** Raw signed URL (no forced download) for a private object — used to open/view it. */
+async function signedUrl(path: string, expiresIn: number): Promise<string> {
   const res = await fetch(`${storageBase()}/object/sign/${DOCS_BUCKET}/${encodePath(path)}`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -161,7 +161,17 @@ export async function signedDownloadUrl(path: string, expiresIn = 60): Promise<s
   });
   if (!res.ok) throw new Error(await readError(res));
   const body = (await res.json()) as { signedURL: string };
+  return `${storageBase()}${body.signedURL}`;
+}
+
+/** Signed, time-limited download URL for a private object (forces save-as). */
+export async function signedDownloadUrl(path: string, expiresIn = 60): Promise<string> {
+  const url = await signedUrl(path, expiresIn);
   const name = path.slice(path.lastIndexOf('/') + 1);
-  // signedURL is a relative "/object/sign/...?token=..." path; force a download.
-  return `${storageBase()}${body.signedURL}&download=${encodeURIComponent(name)}`;
+  return `${url}&download=${encodeURIComponent(name)}`;
+}
+
+/** Signed URL to open a doc directly (e.g. in a new tab) — no forced download. */
+export async function signedViewUrl(path: string, expiresIn = 60): Promise<string> {
+  return signedUrl(path, expiresIn);
 }

@@ -27,6 +27,12 @@ export interface User {
   created_at: string;
   /** Convenience display name (first + last), populated client-side. */
   name?: string;
+  /** This user's linked QB sales rep (public.qb_sales_rep), joined onto /auth/me. Null if not linked. */
+  qb_sales_rep_id: number | null;
+  /** The linked rep's ListID — what qb_sales_order.sales_rep_list_id stores. */
+  sales_rep_list_id: string | null;
+  sales_rep_initial: string | null;
+  sales_rep_name: string | null;
 }
 
 /** Permission keys referenced by the list/form feature components. */

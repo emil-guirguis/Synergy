@@ -1,3 +1,8 @@
+---
+name: diagnose-env
+description: Use when debugging env/secret conflicts — checks root .env, frontend .env, .dev.vars, launch.json overrides, and Cloudflare Worker secrets before assuming a code bug.
+---
+
 # diagnose-env
 
 When debugging env/secret issues:

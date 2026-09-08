@@ -15,15 +15,18 @@ registerIconMappings({
   inventory: 'inventory_2',
   customers: 'contacts',
   repPortal: 'folder_shared',
+  documents: 'folder_shared',
   qbSync: 'sync',
 });
 
 const NAV: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
   { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes' },
+  { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders' },
+  { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
   { id: 'customers', label: 'Customers', icon: 'customers', path: '/customers', requiredPermission: 'admin' },
-  { id: 'repPortal', label: 'Rep Portal', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'admin' },
+  { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'admin' },
   { id: 'qbSync', label: 'QB Sync', icon: 'qbSync', path: '/qb-sync', requiredPermission: 'admin' },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'admin' },
 ];
@@ -31,9 +34,10 @@ const NAV: MenuItem[] = [
 function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/quotes')) return 'Quotes';
   if (pathname.startsWith('/orders')) return 'Orders';
+  if (pathname.startsWith('/documents')) return 'Documents';
   if (pathname.startsWith('/inventory')) return 'Inventory';
   if (pathname.startsWith('/customers')) return 'Customers';
-  if (pathname.startsWith('/rep-portal')) return 'Rep Portal';
+  if (pathname.startsWith('/rep-portal')) return 'Rep Approvals';
   if (pathname.startsWith('/qb-sync')) return 'QB Sync';
   if (pathname.startsWith('/users')) return 'Users';
   return 'Dashboard';
@@ -45,7 +49,11 @@ export default function AppLayoutWrapper({ children }: { children: ReactNode }) 
   const ui = useUI();
 
   const checkPermission = useCallback(
-    (permission?: string) => (permission === 'admin' ? isAdmin : true),
+    (permission?: string) => {
+      if (permission === 'admin') return isAdmin;
+      if (permission === 'nonAdmin') return !isAdmin;
+      return true;
+    },
     [isAdmin]
   );
 

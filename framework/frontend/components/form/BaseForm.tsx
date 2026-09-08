@@ -506,6 +506,9 @@ export const BaseForm: React.FC<BaseFormProps> = ({
       const sectionHorizontal = !!(sectionData as any)?.horizontal;
       const sectionGridColumn = (sectionData as any)?.gridColumn;
       const sectionGridRow = (sectionData as any)?.gridRow;
+      // section({ readOnly: true }) — disable every field in the section without
+      // repeating readOnly on each field definition.
+      const sectionReadOnly = !!(sectionData as any)?.readOnly;
 
       const sectionStyle: React.CSSProperties = {};
       if (tabUseFlexbox) {
@@ -544,7 +547,8 @@ export const BaseForm: React.FC<BaseFormProps> = ({
           )}
           <div className={sectionHorizontal ? 'base-form__fields-row' : undefined}>
             {visibleFields.map(fieldName => {
-              const fieldDef = schema?.formFields?.[fieldName] || schema?.entityFields?.[fieldName];
+              const baseFieldDef = schema?.formFields?.[fieldName] || schema?.entityFields?.[fieldName];
+              const fieldDef = baseFieldDef && sectionReadOnly ? { ...baseFieldDef, readOnly: true } : baseFieldDef;
               return fieldDef ? <div key={fieldName} className={sectionHorizontal ? 'base-form__fields-row__item' : undefined}>{renderField(fieldName, fieldDef)}</div> : null;
             })}
           </div>
@@ -562,23 +566,33 @@ export const BaseForm: React.FC<BaseFormProps> = ({
           const isActive = tabName === effectiveActiveTab;
           const tabSchema = schema?.formTabs?.find(t => t.name === tabName);
           const tabSchemaSections = tabSchema?.sections || [];
-          const tabUseFlexbox = tabSchemaSections.some(sec =>
+          // Explicit grid from schema (tab({ columns, rows })). Must take precedence over
+          // the flex heuristic below: section() defaults flex/flexGrow/flexShrink to 1, so
+          // every schema-defined section "has flex props" and would otherwise force the
+          // flex container — where each section's gridColumn/gridRow is inert.
+          // `columns` is a count (→ repeat(n, 1fr)) or a raw grid-template-columns
+          // string (e.g. '2fr 1fr 1fr'); `rows` is a raw grid-template-rows string.
+          const tabColumns = (tabSchema as any)?.columns as number | string | null | undefined;
+          const tabRows = (tabSchema as any)?.rows as string | null | undefined;
+          const tabUseFlexbox = !tabColumns && tabSchemaSections.some(sec =>
             sec.flex !== undefined || sec.flexGrow !== undefined || sec.flexShrink !== undefined
           );
           const tabContainerClass = tabUseFlexbox
             ? 'base-form__sections-container--flex'
             : `base-form__sections-container base-form__sections-container--grid-${Object.keys(tabSections).length || 1}`;
-          // Explicit column count from schema (tab({ columns })) overrides the
-          // section-count heuristic above — pair with each section's gridColumn/gridRow
-          // for precise placement (e.g. a full-width section via gridColumn: '1 / -1').
-          const tabColumns = (tabSchema as any)?.columns;
+          const tabGridStyle = tabColumns
+            ? ({
+                '--section-columns': typeof tabColumns === 'number' ? `repeat(${tabColumns}, 1fr)` : tabColumns,
+                ...(tabRows ? { '--section-rows': tabRows } : {}),
+              } as React.CSSProperties)
+            : undefined;
 
           return (
             <div
               key={tabName}
               className={`${tabContainerClass}${isActive ? '' : ' base-form__tab-container--hidden'}`}
               data-columns={tabColumns || undefined}
-              style={tabColumns ? ({ '--section-columns': `repeat(${tabColumns}, 1fr)` } as React.CSSProperties) : undefined}
+              style={tabGridStyle}
             >
               {renderTabSections(tabSections, tabName, tabUseFlexbox)}
             </div>

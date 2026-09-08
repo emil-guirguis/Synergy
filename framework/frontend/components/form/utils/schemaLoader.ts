@@ -56,7 +56,10 @@ export interface BackendSchema {
     order?: number | null;
     visibleFor?: ('physical' | 'virtual')[];
     sectionOrientation?: 'horizontal' | 'vertical' | null;
-    columns?: number | null;
+    /** Explicit grid: column count (→ repeat(n, 1fr)) or raw grid-template-columns. */
+    columns?: number | string | null;
+    /** Raw grid-template-rows; only meaningful with `columns`. */
+    rows?: string | null;
     sections: Array<{
       name: string;
       description?: string | null;
@@ -74,6 +77,8 @@ export interface BackendSchema {
       flexShrink?: number | null;
       gridColumn?: string | null;
       gridRow?: string | null;
+      /** Section-level read-only: every field in the section renders disabled. */
+      readOnly?: boolean | null;
     }>;
   }>;
   formMaxWidth?: string | null;
@@ -114,7 +119,7 @@ const LS_PREFIX = 'schema_cache_';
  * with an older version are discarded so backend schema-format changes
  * propagate immediately instead of waiting out the cache TTL.
  */
-const MIN_SCHEMA_VERSION = '1.4.0';
+const MIN_SCHEMA_VERSION = '1.5.0';
 
 function isStaleVersion(schema: BackendSchema): boolean {
   return (schema.version || '0.0.0').localeCompare(MIN_SCHEMA_VERSION, undefined, { numeric: true }) < 0;
@@ -161,7 +166,12 @@ export async function fetchSchema(
   const defaultBaseUrl = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL 
     ? (import.meta as any).env.VITE_API_BASE_URL 
     : 'http://localhost:3001/api';
-  const { cache = true, baseUrl = defaultBaseUrl, ttl = CACHE_TTL } = options;
+  // Default OFF in dev (`vite dev`) so schema edits (fields, sections, tabs, layout)
+  // show up on the next reload instead of being masked by the 30-min cache — this was
+  // the cause of "I edited the schema and don't see the change locally" reports.
+  // Explicit `cache` in options (e.g. prefetchSchemas) always wins.
+  const isDev = typeof import.meta !== 'undefined' && !!(import.meta as any).env?.DEV;
+  const { cache = !isDev, baseUrl = defaultBaseUrl, ttl = CACHE_TTL } = options;
 
   // 1. Check in-memory cache
   if (cache && schemaCache.has(entityName)) {
@@ -280,7 +290,10 @@ export interface ConvertedSchema {
     order?: number | null;
     visibleFor?: ('physical' | 'virtual')[];
     sectionOrientation?: 'horizontal' | 'vertical' | null;
-    columns?: number | null;
+    /** Explicit grid: column count (→ repeat(n, 1fr)) or raw grid-template-columns. */
+    columns?: number | string | null;
+    /** Raw grid-template-rows; only meaningful with `columns`. */
+    rows?: string | null;
     sections: Array<{
       name: string;
       description?: string | null;
@@ -298,6 +311,8 @@ export interface ConvertedSchema {
       flexShrink?: number | null;
       gridColumn?: string | null;
       gridRow?: string | null;
+      /** Section-level read-only: every field in the section renders disabled. */
+      readOnly?: boolean | null;
     }>;
   }> | null;
   entityName: string;

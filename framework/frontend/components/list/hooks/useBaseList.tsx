@@ -516,8 +516,9 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
                   value={filterValue}
                   onChange={(e) => setFilter(filter.key, e.target.value)}
                   aria-label={filter.label}
+                  disabled={filter.disabled}
                 >
-                  {filter.key !== 'active' && (
+                  {filter.key !== 'active' && !filter.disabled && (
                     <option value="">{filter.placeholder || `All ${filter.label}`}</option>
                   )}
                   {options.map((option) => (

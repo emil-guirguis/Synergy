@@ -3,18 +3,21 @@
  * Defines semantic color values for light and dark themes
  */
 
+// Default palette mirrors MeterItPro's existing indigo/violet theme
+// (MeterItPro/frontend/src/theme/muiTheme.ts) so any app that doesn't
+// supply its own ColorTokenOverrides inherits MIP's scheme, not raw MD3.
 export const lightColorTokens = {
   // Primary Colors
-  primary: '#6750A4',
+  primary: '#4F46E5',
   onPrimary: '#FFFFFF',
-  primaryContainer: '#EADDFF',
-  onPrimaryContainer: '#21005E',
+  primaryContainer: '#818CF8',
+  onPrimaryContainer: '#1E1B4B',
 
   // Secondary Colors
-  secondary: '#625B71',
+  secondary: '#7C3AED',
   onSecondary: '#FFFFFF',
-  secondaryContainer: '#E8DEF8',
-  onSecondaryContainer: '#1E192B',
+  secondaryContainer: '#A78BFA',
+  onSecondaryContainer: '#2E1065',
 
   // Tertiary Colors
   tertiary: '#7D5260',
@@ -23,35 +26,35 @@ export const lightColorTokens = {
   onTertiaryContainer: '#31111D',
 
   // Error Colors
-  error: '#B3261E',
+  error: '#DC2626',
   onError: '#FFFFFF',
-  errorContainer: '#F9DEDC',
-  onErrorContainer: '#410E0B',
+  errorContainer: '#F87171',
+  onErrorContainer: '#7F1D1D',
 
   // Warning Colors
-  warning: '#F57C00',
+  warning: '#F59E0B',
   onWarning: '#FFFFFF',
-  warningContainer: '#FFE0B2',
-  onWarningContainer: '#E65100',
+  warningContainer: '#FBBF24',
+  onWarningContainer: '#78350F',
 
   // Info Colors
-  info: '#0288D1',
+  info: '#0EA5E9',
   onInfo: '#FFFFFF',
-  infoContainer: '#B3E5FC',
-  onInfoContainer: '#01579B',
+  infoContainer: '#7DD3FC',
+  onInfoContainer: '#0C4A6E',
 
   // Success Colors
-  success: '#2E7D32',
+  success: '#16A34A',
   onSuccess: '#FFFFFF',
-  successContainer: '#C8E6C9',
-  onSuccessContainer: '#1B5E20',
+  successContainer: '#86EFAC',
+  onSuccessContainer: '#14532D',
 
   // Neutral Colors
-  background: '#FFFBFE',
-  surface: '#FFFBFE',
-  surfaceVariant: '#E7E0EC',
-  outline: '#79747E',
-  outlineVariant: '#C4C7C5',
+  background: '#FAFAFA',
+  surface: '#FFFFFF',
+  surfaceVariant: '#F3F4F6',
+  outline: '#E5E7EB',
+  outlineVariant: '#D1D5DB',
 };
 
 export const darkColorTokens = {

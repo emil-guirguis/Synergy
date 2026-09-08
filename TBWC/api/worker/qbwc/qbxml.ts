@@ -139,6 +139,26 @@ export function bumpSecond(iso: string): string {
   return new Date(new Date(iso).getTime() + 1000).toISOString();
 }
 
+/** Bare <FromModifiedDate> filter for LIST queries (Customer/SalesRep/Item) —
+ *  qbXML requires this AFTER <ActiveStatus> in these schemas, never wrapped in
+ *  <ModifiedDateRangeFilter> (that wrapper is transaction-only; using it on a
+ *  list query makes QB reject the whole request with 0x80040400). '' when
+ *  `sinceIso` is null (first run — full pull). */
+export function listModifiedFilter(sinceIso: string | null): string {
+  if (!sinceIso) return '';
+  return `\n      <FromModifiedDate>${escapeXml(toQbLocal(bumpSecond(sinceIso)))}</FromModifiedDate>`;
+}
+
+/** <ModifiedDateRangeFilter> filter for TRANSACTION queries (SalesOrder,
+ *  Invoice, Payment, Estimate). Same offset/bump handling as
+ *  listModifiedFilter — a bare FromModifiedDate here is read in QB's local
+ *  time with no offset, silently shifting the incremental window. '' when
+ *  `sinceIso` is null (first run — full pull). */
+export function txnModifiedFilter(sinceIso: string | null): string {
+  if (!sinceIso) return '';
+  return `\n      <ModifiedDateRangeFilter><FromModifiedDate>${escapeXml(toQbLocal(bumpSecond(sinceIso)))}</FromModifiedDate></ModifiedDateRangeFilter>`;
+}
+
 /** QB dates are YYYY-MM-DD already; pass through or null. */
 export function qbDate(v: string | undefined): string | null {
   return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
@@ -154,6 +174,23 @@ export function refField(scope: string, refName: string): { listId?: string; ful
   const b = blocks(scope, refName)[0];
   if (!b) return {};
   return { listId: tag(b, 'ListID'), fullName: tag(b, 'FullName') };
+}
+
+/** Join an address block's (BillAddressBlock/ShipAddressBlock) Addr1-5 lines with '\n', or null if absent. */
+export function addrBlockText(scope: string, blockName: string): string | null {
+  const b = blocks(scope, blockName)[0];
+  if (!b) return null;
+  const lines = ['Addr1', 'Addr2', 'Addr3', 'Addr4', 'Addr5'].map((n) => tag(b, n)).filter((v): v is string => !!v);
+  return lines.length ? lines.join('\n') : null;
+}
+
+/** Read every DataExtRet (QB custom field) block in scope as {name, value, ownerId}. */
+export function dataExtBlocks(scope: string): Array<{ name?: string; value?: string; ownerId?: string }> {
+  return blocks(scope, 'DataExtRet').map((b) => ({
+    name: tag(b, 'DataExtName'),
+    value: tag(b, 'DataExtValue'),
+    ownerId: tag(b, 'OwnerID'),
+  }));
 }
 
 /** Extract transaction line rows (e.g. InvoiceLineRet) as a plain array. */
