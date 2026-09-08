@@ -1,0 +1,179 @@
+/* Shared settings-form styles — used by the base OrgInfoForm/SystemConfigForm
+   and by SettingsPageShell. */
+
+.settings-form {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  padding: 2rem;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.settings-form .MuiOutlinedInput-root {
+  min-height: 40px !important;
+}
+
+.settings-form .MuiOutlinedInput-input {
+  padding: 8px 12px !important;
+}
+
+.settings-form__section {
+  margin-bottom: 2rem;
+}
+
+.settings-form__fields {
+  margin-bottom: 1rem;
+}
+
+.settings-form__row {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.settings-form__row--full {
+  display: block;
+}
+
+.settings-form__field {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-form__error {
+  color: #b91c1c;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.settings-page {
+  padding: 1.5rem 2rem;
+  max-width: 1100px;
+}
+
+.settings-page__header {
+  margin-bottom: 1.5rem;
+}
+
+.settings-page__manage-label {
+  color: #6b7280;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.settings-page__title {
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 0.25rem;
+}
+
+.settings-page__subtitle {
+  color: #6b7280;
+}
+
+/* Two-column body */
+.settings-page__body {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+/* Sidebar */
+.settings-page__sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.settings-page__nav-item {
+  border-radius: 0 !important;
+}
+
+.settings-page__nav-item.Mui-selected {
+  background-color: #eff6ff !important;
+  color: #2563eb !important;
+}
+
+.settings-page__nav-item.Mui-selected .MuiListItemIcon-root {
+  color: #2563eb !important;
+}
+
+.settings-page__nav-item.Mui-selected .MuiListItemText-primary {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.settings-page__nav-icon {
+  min-width: 36px !important;
+}
+
+/* Content panel */
+.settings-page__content {
+  flex: 1;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.settings-page__content-header {
+  padding: 1.25rem 1.5rem 1rem;
+}
+
+.settings-page__section-title {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.settings-page__section-desc {
+  color: #6b7280;
+}
+
+.settings-page__content-body {
+  padding: 1.5rem;
+}
+
+/* Dark mode */
+body[data-theme='dark'] .settings-page__nav-item.Mui-selected,
+.dark .settings-page__nav-item.Mui-selected {
+  background-color: #1e3a5f !important;
+  color: #90caf9 !important;
+}
+
+body[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemIcon-root,
+.dark .settings-page__nav-item.Mui-selected .MuiListItemIcon-root {
+  color: #90caf9 !important;
+}
+
+body[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemText-primary,
+.dark .settings-page__nav-item.Mui-selected .MuiListItemText-primary {
+  color: #90caf9;
+}
+
+body[data-theme='dark'] .settings-page__manage-label,
+.dark .settings-page__manage-label,
+body[data-theme='dark'] .settings-page__subtitle,
+.dark .settings-page__subtitle,
+body[data-theme='dark'] .settings-page__section-desc,
+.dark .settings-page__section-desc {
+  color: #9ca3af;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 1rem;
+  }
+
+  .settings-page__body {
+    flex-direction: column;
+  }
+
+  .settings-page__sidebar {
+    width: 100%;
+  }
+}

@@ -66,6 +66,8 @@ export interface MenuItem {
   onClick?: () => void;
   /** Explicit active override — used for items that have no route */
   isActive?: boolean;
+  /** Shown but not clickable/navigable, rendered dimmed */
+  disabled?: boolean;
   /** Custom content rendered inline below the item when expanded (replaces children list) */
   content?: ReactNode;
 }

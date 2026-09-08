@@ -165,6 +165,12 @@
   font-weight: 600;
 }
 
+.sidebar-link.disabled {
+  cursor: default;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .sidebar-link.active::before {
   content: '';
   position: absolute;

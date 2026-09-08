@@ -8,6 +8,7 @@ import { CustomerManagementPage } from '../features/customers/CustomerManagement
 import { QbSyncDashboardPage } from '../features/qbSync/QbSyncDashboardPage';
 import { UserManagementPage } from '../features/users/UserManagementPage';
 import RepPortalPage from '../features/repPortal/RepPortalPage';
+import SettingsPage from '../pages/SettingsPage';
 import { useAuth } from '../hooks/useAuth';
 
 export default function AppRoutes() {
@@ -37,6 +38,10 @@ export default function AppRoutes() {
       <Route
         path="/rep-portal"
         element={isAdmin ? <RepPortalPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/settings"
+        element={isAdmin ? <SettingsPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

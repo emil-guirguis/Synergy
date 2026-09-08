@@ -7,37 +7,21 @@ import { Env, execQuery } from '../db';
 
 import { authenticateToken, requirePermission, AuthVariables } from '../middleware';
 import { logError } from '../errorHandler';
+import { rowToBasicSettings, basicSettingsToRow } from '@meterit/framework-backend/api/base/settings';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('*', authenticateToken);
 
-/** Map a tenant row to the CompanySettings shape the frontend expects */
+/** Map a tenant row to the CompanySettings shape the frontend expects.
+ * Base fields (name/address/contactInfo/systemConfig) come from the shared
+ * framework mapper; features/integrations are MeterItPro-specific. */
 function tenantToSettings(tenant: any) {
+  const base = rowToBasicSettings(tenant);
   return {
     id: String(tenant.tenant_id),
-    name: tenant.name ?? '',
     logo: null,
-    address: {
-      street: tenant.street ?? '',
-      street2: tenant.street2 ?? '',
-      city: tenant.city ?? '',
-      state: tenant.state ?? '',
-      zip: tenant.zip ?? '',
-      country: tenant.country ?? '',
-    },
-    contactInfo: {
-      url: tenant.url ?? '',
-      email: tenant.contact_email ?? '',
-    },
-    systemConfig: {
-      timezone: tenant.timezone ?? '',
-      dateFormat: tenant.date_format ?? '',
-      timeFormat: tenant.time_format ?? '12h',
-      currency: tenant.currency ?? '',
-      language: tenant.language ?? '',
-      defaultPageSize: tenant.default_page_size ?? 20,
-    },
+    ...base,
     features: {
       userManagement: true,
       locationManagement: true,
@@ -57,7 +41,6 @@ function tenantToSettings(tenant: any) {
       weatherAPI: false,
       mapProvider: '',
     },
-    updatedAt: tenant.updated_at,
   };
 }
 
@@ -99,24 +82,7 @@ app.put('/company', requirePermission('settings:update'), async (c) => {
     }
 
     const body = await c.req.json();
-
-    // Map CompanySettings fields to tenant columns
-    const updateData: Record<string, any> = {};
-    if (body.name !== undefined)                   updateData.name    = body.name;
-    if (body.contactInfo?.url !== undefined)           updateData.url           = body.contactInfo.url;
-    if (body.contactInfo?.email !== undefined)         updateData.contact_email = body.contactInfo.email;
-    if (body.address?.street !== undefined)         updateData.street  = body.address.street;
-    if (body.address?.street2 !== undefined)        updateData.street2 = body.address.street2;
-    if (body.address?.city !== undefined)           updateData.city    = body.address.city;
-    if (body.address?.state !== undefined)          updateData.state   = body.address.state;
-    if (body.address?.zip !== undefined)            updateData.zip     = body.address.zip;
-    if (body.address?.country !== undefined)        updateData.country       = body.address.country;
-    if (body.systemConfig?.timezone !== undefined)  updateData.timezone      = body.systemConfig.timezone;
-    if (body.systemConfig?.dateFormat !== undefined) updateData.date_format  = body.systemConfig.dateFormat;
-    if (body.systemConfig?.timeFormat !== undefined) updateData.time_format  = body.systemConfig.timeFormat;
-    if (body.systemConfig?.currency !== undefined)  updateData.currency      = body.systemConfig.currency;
-    if (body.systemConfig?.language !== undefined)  updateData.language      = body.systemConfig.language;
-    if (body.systemConfig?.defaultPageSize !== undefined) updateData.default_page_size = body.systemConfig.defaultPageSize;
+    const updateData = basicSettingsToRow(body);
     if (Object.keys(updateData).length === 0) {
       return c.json({ success: true, message: 'No fields to update' });
     }

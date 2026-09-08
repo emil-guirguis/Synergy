@@ -1,37 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Alert, Box, CircularProgress, Typography, Paper,
-  List, ListItemButton, ListItemIcon, ListItemText, Divider
-} from '@mui/material';
 import BusinessIcon from '@mui/icons-material/Business';
 import SyncIcon from '@mui/icons-material/Sync';
 import TuneIcon from '@mui/icons-material/Tune';
-import CompanyInfoForm from '../components/settings/CompanyInfoForm';
-import SystemConfigForm from '../components/settings/SystemConfigForm';
+import {
+  SettingsPageShell,
+  OrgInfoForm,
+  SystemConfigForm,
+} from '@meterit/framework-frontend/components/settings';
 import SyncServersPanel from '../features/syncServers/SyncServersPanel';
 import './SettingsPage.css';
 import { useSettings } from '../store/entities/settingsStore';
 
-const NAV_ITEMS = [
-  {
-    label: 'Organization',
-    icon: <BusinessIcon fontSize="small" />,
-    description: 'Tenant-level settings applied to every user in your org.',
-  },
-  {
-    label: 'System Config',
-    icon: <TuneIcon fontSize="small" />,
-    description: 'System configuration and operational settings.',
-  },
-  {
-    label: 'Sync Servers',
-    icon: <SyncIcon fontSize="small" />,
-    description: 'Manage sync servers connected via Cloudflare Tunnel.',
-  },
-];
-
 const SettingsPage: React.FC = () => {
-  const [activeItem, setActiveItem] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const { settings, loading, error, fetchSettings, updateSettings, updateSystemConfig } = useSettings();
 
@@ -93,82 +73,65 @@ const SettingsPage: React.FC = () => {
 
   const handleCancel = () => setLocalSettings(settings);
 
-  const current = NAV_ITEMS[activeItem];
+  if (!localSettings) {
+    return (
+      <SettingsPageShell
+        title="Settings"
+        subtitle="Tenant configuration and preferences"
+        error={error}
+        sections={[{ key: 'loading', label: 'Organization', icon: <BusinessIcon fontSize="small" />, description: '', content: null }]}
+      />
+    );
+  }
 
   return (
-    <Box className="settings-page">
-      <Box className="settings-page__header">
-        <Typography variant="overline" className="settings-page__manage-label">
-          Manage
-        </Typography>
-        <Typography variant="h4" className="settings-page__title">
-          Settings
-        </Typography>
-        <Typography variant="body2" className="settings-page__subtitle">
-          Tenant configuration and preferences
-        </Typography>
-      </Box>
-
-      {successMessage && <Alert severity="success" sx={{ mb: 2 }}>{successMessage}</Alert>}
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-      <Box className="settings-page__body">
-        <Paper className="settings-page__sidebar" elevation={0} variant="outlined">
-          <List disablePadding>
-            {NAV_ITEMS.map((item, idx) => (
-              <ListItemButton
-                key={item.label}
-                selected={activeItem === idx}
-                onClick={() => setActiveItem(idx)}
-                className="settings-page__nav-item"
-              >
-                <ListItemIcon className="settings-page__nav-icon">
-                  {item.icon}
-                </ListItemIcon>
-                <ListItemText primary={item.label} />
-              </ListItemButton>
-            ))}
-          </List>
-        </Paper>
-
-        <Paper className="settings-page__content" elevation={0} variant="outlined">
-          <Box className="settings-page__content-header">
-            <Typography variant="h6" className="settings-page__section-title">
-              {current.label}
-            </Typography>
-            <Typography variant="body2" className="settings-page__section-desc">
-              {current.description}
-            </Typography>
-          </Box>
-          <Divider />
-          <Box className="settings-page__content-body">
-            {activeItem === 0 && localSettings && (
-              <CompanyInfoForm
-                values={localSettings}
-                onChange={handleCompanyInfoChange}
-                onSubmit={handleCompanyInfoSubmit}
-                onCancel={handleCancel}
-                loading={loading}
-                error={error}
-              />
-            )}
-            {activeItem === 1 && localSettings && (
-              <SystemConfigForm
-                values={localSettings.systemConfig}
-                onChange={handleSystemConfigChange}
-                onSubmit={handleSystemConfigSubmit}
-                onCancel={handleCancel}
-                loading={loading}
-                error={error}
-              />
-            )}
-            {activeItem === 2 && <SyncServersPanel />}
-            {!settings && loading && <CircularProgress />}
-            {!settings && error && <Typography color="error">{error}</Typography>}
-          </Box>
-        </Paper>
-      </Box>
-    </Box>
+    <SettingsPageShell
+      title="Settings"
+      subtitle="Tenant configuration and preferences"
+      successMessage={successMessage}
+      error={error}
+      sections={[
+        {
+          key: 'organization',
+          label: 'Organization',
+          icon: <BusinessIcon fontSize="small" />,
+          description: 'Tenant-level settings applied to every user in your org.',
+          content: (
+            <OrgInfoForm
+              values={localSettings}
+              onChange={handleCompanyInfoChange}
+              onSubmit={handleCompanyInfoSubmit}
+              onCancel={handleCancel}
+              loading={loading}
+              error={error}
+            />
+          ),
+        },
+        {
+          key: 'systemConfig',
+          label: 'System Config',
+          icon: <TuneIcon fontSize="small" />,
+          description: 'System configuration and operational settings.',
+          content: (
+            <SystemConfigForm
+              values={localSettings.systemConfig}
+              onChange={handleSystemConfigChange}
+              onSubmit={handleSystemConfigSubmit}
+              onCancel={handleCancel}
+              loading={loading}
+              error={error}
+            />
+          ),
+        },
+        {
+          key: 'syncServers',
+          label: 'Sync Servers',
+          icon: <SyncIcon fontSize="small" />,
+          description: 'Manage sync servers connected via Cloudflare Tunnel.',
+          content: <SyncServersPanel />,
+        },
+      ]}
+    />
   );
 };
 

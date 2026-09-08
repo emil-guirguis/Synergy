@@ -17,11 +17,12 @@ registerIconMappings({
   repPortal: 'folder_shared',
   documents: 'folder_shared',
   qbSync: 'sync',
+  settings: 'settings',
 });
 
 const NAV: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
-  { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes' },
+  { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes', disabled: true },
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders' },
   { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
@@ -29,6 +30,7 @@ const NAV: MenuItem[] = [
   { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'admin' },
   { id: 'qbSync', label: 'QB Sync', icon: 'qbSync', path: '/qb-sync', requiredPermission: 'admin' },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'admin' },
+  { id: 'settings', label: 'Settings', icon: 'settings', path: '/settings', requiredPermission: 'admin' },
 ];
 
 function getPageTitle(pathname: string): string {
@@ -40,6 +42,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/rep-portal')) return 'Rep Approvals';
   if (pathname.startsWith('/qb-sync')) return 'QB Sync';
   if (pathname.startsWith('/users')) return 'Users';
+  if (pathname.startsWith('/settings')) return 'Settings';
   return 'Dashboard';
 }
 

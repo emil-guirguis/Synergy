@@ -15,6 +15,7 @@ import orderRoutes from './routes/orders';
 import inventoryRoutes from './routes/inventory';
 import quoteRoutes from './routes/quotes';
 import customerRoutes from './routes/customers';
+import settingsRoutes from './routes/settings';
 import qbwcRoutes from './routes/qbwc';
 import qbSyncRoutes from './routes/qbSync';
 import verifyRoutes from './routes/verify';
@@ -60,6 +61,7 @@ app.route('/api/orders', orderRoutes);
 app.route('/api/inventory', inventoryRoutes);
 app.route('/api/quotes', quoteRoutes);
 app.route('/api/customers', customerRoutes);
+app.route('/api/settings', settingsRoutes);
 app.route('/api/doc-types', docTypeRoutes);
 app.route('/api/qb-sync', qbSyncRoutes);
 // QuickBooks Web Connector SOAP endpoint (no Supabase auth — QBWC is not a browser

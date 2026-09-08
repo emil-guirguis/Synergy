@@ -1,10 +1,10 @@
 import React from 'react';
-import { Toast } from '@meterit/framework-frontend/components/common';
-import { FormField } from '@meterit/framework-frontend/components/formfield/FormField';
-import { FormActions } from '@meterit/framework-frontend/components/formactions/FormActions';
+import { Toast } from '../common';
+import { FormField } from '../formfield/FormField';
+import { FormActions } from '../formactions/FormActions';
 import './SettingsForm.css';
 
-export interface CompanyInfoFormProps {
+export interface OrgInfoFormProps {
   values: any;
   onChange: (field: string, value: any) => void;
   onSubmit: () => void;
@@ -13,8 +13,8 @@ export interface CompanyInfoFormProps {
   error?: string | null;
 }
 
-const CompanyInfoForm: React.FC<CompanyInfoFormProps> = ({ values, onChange, onSubmit, onCancel, loading, error }) => {
-  // Sync form changes back to parent
+/** Base "basic settings" org-info form: name, address, contact — shared by every app's Settings page. */
+const OrgInfoForm: React.FC<OrgInfoFormProps> = ({ values, onChange, onSubmit, onCancel, loading, error }) => {
   const handleFieldChange = (field: string, value: any) => {
     onChange(field, value);
   };
@@ -26,9 +26,8 @@ const CompanyInfoForm: React.FC<CompanyInfoFormProps> = ({ values, onChange, onS
 
   return (
     <form className="settings-form" onSubmit={handleSubmit}>
-      {/* Show error as a toast notification */}
       {error && <Toast message={error} type="error" />}
-      
+
       <div className="settings-form__fields">
         <div className="settings-form__row settings-form__row--full">
           <div className="settings-form__field">
@@ -45,7 +44,7 @@ const CompanyInfoForm: React.FC<CompanyInfoFormProps> = ({ values, onChange, onS
             />
           </div>
         </div>
-        
+
         <div className="settings-form__row">
           <div className="settings-form__field">
             <FormField
@@ -171,4 +170,4 @@ const CompanyInfoForm: React.FC<CompanyInfoFormProps> = ({ values, onChange, onS
   );
 };
 
-export default CompanyInfoForm;
+export default OrgInfoForm;

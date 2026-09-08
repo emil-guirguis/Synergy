@@ -10,5 +10,5 @@ export { FormModal } from '@meterit/framework-frontend/components/modal';
 export { FormField } from '@meterit/framework-frontend/components/formfield/FormField';
 
 // Components
-export { CompanyInfoForm, SystemConfigForm, EmailConfigForm } from './settings';
+export { EmailConfigForm } from './settings';
 export { SystemHealth } from './system';

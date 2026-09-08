@@ -57,6 +57,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [currentPath, menuItems]);
 
   const handleItemClick = (item: any) => {
+    if (item.disabled) return;
+
     if (item.onClick) {
       item.onClick();
       return;
@@ -102,14 +104,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return (
       <li key={item.id} className={`sidebar-item ${level > 0 ? 'sidebar-item--child' : ''}`}>
         <div
-          className={`sidebar-link ${isActive ? 'active' : ''} ${isExpandable ? 'has-children' : ''}`}
+          className={`sidebar-link ${isActive ? 'active' : ''} ${isExpandable ? 'has-children' : ''} ${item.disabled ? 'disabled' : ''}`}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             handleItemClick(item);
           }}
           role="button"
-          tabIndex={0}
+          tabIndex={item.disabled ? -1 : 0}
+          aria-disabled={item.disabled || undefined}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();

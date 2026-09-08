@@ -1,7 +1,7 @@
 import React from 'react';
-import { FormField } from '@meterit/framework-frontend/components/formfield/FormField';
-import { FormActions } from '@meterit/framework-frontend/components/formactions/FormActions';
-import { TIMEZONE_OPTIONS, CURRENCY_OPTIONS, LANGUAGE_OPTIONS } from '@meterit/framework-frontend/components/formfield/fieldOptions';
+import { FormField } from '../formfield/FormField';
+import { FormActions } from '../formactions/FormActions';
+import { TIMEZONE_OPTIONS, CURRENCY_OPTIONS, LANGUAGE_OPTIONS } from '../formfield/fieldOptions';
 import './SettingsForm.css';
 
 export interface SystemConfigFormProps {
@@ -13,6 +13,7 @@ export interface SystemConfigFormProps {
   error?: string | null;
 }
 
+/** Base "basic settings" system-config form: timezone/date/time/currency/language/page size. */
 const SystemConfigForm: React.FC<SystemConfigFormProps> = ({ values, onChange, onSubmit, onCancel, loading, error }) => {
   return (
     <form className="settings-form" onSubmit={e => { e.preventDefault(); onSubmit(); }}>
