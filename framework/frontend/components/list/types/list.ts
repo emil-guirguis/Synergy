@@ -26,6 +26,8 @@ export interface ListFeatures {
   allowSearch?: boolean;
   /** Show filter controls (default: true) */
   allowFilters?: boolean;
+  /** Filter panel starts expanded instead of collapsed (default: false) */
+  filtersExpandedByDefault?: boolean;
   /** Show stats display (default: true) */
   allowStats?: boolean;
   /** Enable pagination (default: true) */

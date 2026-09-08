@@ -151,6 +151,7 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     allowFilters = true,
     allowStats = true,
     allowPagination = true,
+    filtersExpandedByDefault = false,
   } = features;
 
   // Computed permission values (combines features + permissions)
@@ -996,6 +997,9 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     loading,
     error,
     pagination,
+
+    // Config passthrough
+    filtersExpandedByDefault,
   };
 }
 

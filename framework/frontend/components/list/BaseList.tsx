@@ -13,6 +13,8 @@ export interface BaseListProps<T> {
 
   // Collapsible filter panel
   filters?: ReactNode;
+  /** Filter panel starts expanded instead of collapsed (default: false) */
+  defaultFiltersOpen?: boolean;
 
   // Data
   data: T[];
@@ -60,6 +62,7 @@ export function BaseList<T extends Record<string, any>>({
   onExportClick,
   toolbarContent,
   filters,
+  defaultFiltersOpen = false,
   data,
   columns,
   loading,
@@ -78,7 +81,7 @@ export function BaseList<T extends Record<string, any>>({
   hoverable = true,
   className = '',
 }: BaseListProps<T>) {
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(defaultFiltersOpen);
 
   const hasToolbar = title || onCreateClick || onExportClick || toolbarContent || filters;
 

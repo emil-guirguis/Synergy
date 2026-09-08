@@ -114,6 +114,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       allowImport: false,
       allowSearch: true,
       allowFilters: true,
+      filtersExpandedByDefault: true,
       allowStats: false,
     },
     permissions: {
@@ -142,6 +143,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       <BaseList
         title="Orders"
         filters={baseList.renderFilters()}
+        defaultFiltersOpen={baseList.filtersExpandedByDefault}
         onCreateClick={baseList.canCreate ? baseList.handleCreate : undefined}
         data={baseList.data}
         columns={baseList.columns}
