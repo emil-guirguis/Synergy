@@ -70,6 +70,13 @@ export const createEntityStore = <T extends { id: string }>(
   // In-flight request deduplication: multiple concurrent callers get the same
   // promise instead of each firing a separate API request.
   let fetchingPromise: Promise<void> | null = null;
+  // Bypass-cache calls (filter/search changes, pagination) skip dedup above and
+  // each fire their own request. Network responses can then land out of order —
+  // e.g. an old unfiltered fetch resolving after a newer filtered one — and the
+  // last one to land would silently overwrite state with stale data. Guard with
+  // a generation counter: only the response from the most recently issued fetch
+  // is applied; earlier ones are discarded on arrival.
+  let latestRequestId = 0;
 
   return create<EntityStoreSlice<T>>()(
     (set, get) => ({
@@ -165,6 +172,8 @@ export const createEntityStore = <T extends { id: string }>(
 
         set((s) => ({ list: { ...s.list, loading: true, error: null } }));
 
+        const requestId = ++latestRequestId;
+
         const doFetch = async () => {
           try {
             let queryParams = hasRealParams ? params : {
@@ -189,9 +198,14 @@ export const createEntityStore = <T extends { id: string }>(
             }
 
             if (!queryParams.sortBy) {
-              if (schema?.defaultSort) {
-                queryParams.sortBy = schema.defaultSort;
-                console.log('[fetchItems] Using default sortBy from schema:', queryParams.sortBy);
+              if (schema?.defaultSortBy) {
+                // schema.defaultSortBy is "field" or "field asc"/"field desc" —
+                // split so the arrow indicator (list.sortBy/sortOrder below) and
+                // the actual query param agree on direction.
+                const [field, dir] = schema.defaultSortBy.trim().split(/\s+/);
+                queryParams.sortBy = field;
+                queryParams.sortOrder = dir;
+                console.log('[fetchItems] Using default sortBy from schema:', field, dir);
               } else {
                 queryParams.sortOrder = undefined;
               }
@@ -212,12 +226,26 @@ export const createEntityStore = <T extends { id: string }>(
               });
             }
 
+            if (requestId !== latestRequestId) {
+              console.log('[fetchItems] Discarding stale response for requestId', requestId);
+              return;
+            }
+
             set((s) => ({
               items: response.items as any,
               total: response.total,
               hasMore: response.hasMore,
               lastFetch: Date.now(),
-              list: { ...s.list, loading: false, error: null, total: response.total },
+              list: {
+                ...s.list,
+                loading: false,
+                error: null,
+                total: response.total,
+                // Record the sort actually applied to this response (explicit
+                // param or schema default) so the list UI can render the arrow.
+                sortBy: queryParams.sortBy ?? s.list.sortBy,
+                sortOrder: queryParams.sortOrder ?? s.list.sortOrder,
+              },
             }));
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to fetch items';
@@ -225,6 +253,10 @@ export const createEntityStore = <T extends { id: string }>(
             const fullMessage = errorDetail ? `${errorMessage}: ${errorDetail}` : errorMessage;
 
             console.error('[fetchItems] Error:', { message: errorMessage, detail: errorDetail, fullError: error });
+
+            if (requestId !== latestRequestId) {
+              return;
+            }
 
             set((s) => ({ list: { ...s.list, loading: false, error: fullMessage }, error: fullMessage }));
             throw error;

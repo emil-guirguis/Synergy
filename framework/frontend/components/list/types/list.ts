@@ -188,6 +188,9 @@ export interface EnhancedStore<T> {
     page: number;
     pageSize: number;
     total: number;
+    /** Sort actually applied to the current data (explicit or schema default) */
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
   };
   
   /** Fetch items from API */
@@ -348,6 +351,9 @@ export interface BaseListReturn<T> {
   error: string | undefined;
   /** Pagination configuration */
   pagination: PaginationConfig;
+  /** Column key currently sorted server-side (explicit or schema default) — feeds BaseList's sort-arrow indicator */
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 /**

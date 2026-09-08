@@ -20,13 +20,24 @@ export function DataTable<T extends Record<string, any>>({
   responsive = true,
   striped = true,
   hoverable = true,
+  sortBy,
+  sortOrder,
 }: DataTableProps<T>) {
   const { isMobile, isTablet } = useResponsive();
   const [selectedItems, setSelectedItems] = useState<T[]>([]);
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
-  } | null>(null);
+  } | null>(sortBy ? { key: sortBy, direction: sortOrder === 'asc' ? 'asc' : 'desc' } : null);
+
+  // sortBy/sortOrder reflect the server-applied sort (e.g. schema.defaultSortBy),
+  // which typically only becomes known after the schema loads asynchronously —
+  // sync it in once it arrives rather than only seeding initial state.
+  useEffect(() => {
+    if (sortBy) {
+      setSortConfig({ key: sortBy, direction: sortOrder === 'asc' ? 'asc' : 'desc' });
+    }
+  }, [sortBy, sortOrder]);
   const [pageInputValue, setPageInputValue] = useState<string>(
     String(pagination?.currentPage ?? 1)
   );

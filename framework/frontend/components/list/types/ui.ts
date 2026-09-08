@@ -137,6 +137,9 @@ export interface DataTableProps<T> {
   responsive?: boolean;
   striped?: boolean;
   hoverable?: boolean;
+  /** Column key currently sorted server-side (e.g. schema's defaultSortBy) — seeds the sort-arrow indicator */
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface ColumnDefinition<T> {

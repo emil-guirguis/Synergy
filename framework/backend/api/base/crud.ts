@@ -202,7 +202,10 @@ export function createCrud(execQuery: ExecQueryFn) {
         const col = camelToSnake(sortBy);
         assertIdent(col, 'sortBy');
         const dir = (sortOrder || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-        orderBy = `"${table}".${col} ${dir}`;
+        // Postgres defaults NULLS FIRST on DESC (NULLS LAST on ASC already matches
+        // what users expect) — force NULLS LAST both ways so blank values never
+        // jump to the top of a descending sort.
+        orderBy = `"${table}".${col} ${dir} NULLS LAST`;
       } else {
         orderBy = `"${table}".${primaryKey} DESC`;
       }

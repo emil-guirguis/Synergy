@@ -5,7 +5,10 @@ export const supportTicketSchema = defineSchema({
   entityName: 'Support Ticket',
   tableName: 'support_ticket',
   description: 'Support ticket entity',
-  defaultSort: 'created_at',
+  // `defaultSortBy` is the property name SchemaDefinition.js actually reads
+  // (and serves at GET /api/schema/support-ticket) — `defaultSort` here was
+  // silently dropped, same mismatch found and fixed in TBWC's orderSchema.ts.
+  defaultSortBy: 'created_at',
 
   customListColumns: {},
 

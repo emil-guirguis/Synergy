@@ -20,7 +20,7 @@ async function parse(res: Response) {
   return res.json();
 }
 
-const ordersService = {
+export const ordersService = {
   async getAll(params?: any) {
     const q = new URLSearchParams();
     if (params?.page) q.append('page', String(params.page));

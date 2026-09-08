@@ -151,8 +151,8 @@ export const createEntityStore = <T extends { id: string }>(
             }
 
             if (!queryParams.sortBy) {
-              if (schema?.defaultSort) {
-                queryParams.sortBy = schema.defaultSort;
+              if (schema?.defaultSortBy) {
+                queryParams.sortBy = schema.defaultSortBy;
                 console.log('[fetchItems] Using default sortBy from schema:', queryParams.sortBy);
               } else {
                 queryParams.sortOrder = undefined;

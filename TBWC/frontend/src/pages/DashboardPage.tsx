@@ -2,6 +2,9 @@ import { Box, Typography } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 import RepInquiriesCard from '../features/repPortal/RepInquiriesCard';
 import RepStatsCards from '../features/repPortal/RepStatsCards';
+import OrderAlertsCards from '../features/orders/OrderAlertsCards';
+import YearlyOrderTotalCard from '../features/orders/YearlyOrderTotalCard';
+import YearlyCommissionTotalCard from '../features/orders/YearlyCommissionTotalCard';
 
 export default function DashboardPage() {
   const { user, isAdmin } = useAuth();
@@ -13,7 +16,16 @@ export default function DashboardPage() {
         Welcome, {firstName}
       </Typography>
 
-      {isAdmin ? <RepInquiriesCard /> : <RepStatsCards />}
+      {isAdmin ? (
+        <>
+          <RepInquiriesCard />
+          <YearlyOrderTotalCard />
+          <YearlyCommissionTotalCard />
+          <OrderAlertsCards />
+        </>
+      ) : (
+        <RepStatsCards />
+      )}
     </Box>
   );
 }

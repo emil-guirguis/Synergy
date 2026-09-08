@@ -997,6 +997,8 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     loading,
     error,
     pagination,
+    sortBy: store.list?.sortBy,
+    sortOrder: store.list?.sortOrder,
 
     // Config passthrough
     filtersExpandedByDefault,

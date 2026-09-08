@@ -31,8 +31,8 @@ app.get('/', requirePermission('device:read'), async (c) => {
   try {
     const qs = c.req.query();
 
-    // Use defaultSort from schema if sortBy is not provided
-    const sortBy = qs.sortBy || deviceSchema.defaultSort;
+    // Use defaultSortBy from schema if sortBy is not provided
+    const sortBy = qs.sortBy || deviceSchema.defaultSortBy;
 
     const { where, whereLike } = whereFromQuery(qs, { likeFields: LIKE_FIELDS, fieldMap: FIELD_MAP });
 

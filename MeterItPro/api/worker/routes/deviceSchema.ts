@@ -7,7 +7,10 @@ export const deviceSchema = defineSchema({
   tableName: 'device',
   description: 'Device entity',
   formMaxWidth: '770px',
-  defaultSort: 'manufacturer',
+  // `defaultSortBy` is the property name SchemaDefinition.js actually reads
+  // (and serves at GET /api/schema/device) — `defaultSort` here was silently
+  // dropped, same mismatch found and fixed in TBWC's orderSchema.ts.
+  defaultSortBy: 'manufacturer',
 
   customListColumns: {},
 

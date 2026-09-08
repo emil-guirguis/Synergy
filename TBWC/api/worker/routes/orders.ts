@@ -20,6 +20,12 @@ app.use('*', authenticateToken);
 
 const TABLE = 'qb_sales_order';
 const PK = 'qb_sales_order_id';
+// orderSchema.defaultSortBy is "field" or "field asc"/"field desc" — split it
+// once here so /GET can fall back to both sortBy and sortOrder from one source.
+// Note: defineSchema()'s return only flattens schema/formFields/entityFields/
+// relationships/deleteRestrictions onto itself — defaultSortBy (like tableName,
+// idFieldName, etc.) stays nested under `.schema`.
+const [DEFAULT_SORT_FIELD, DEFAULT_SORT_ORDER] = orderSchema.schema.defaultSortBy.split(/\s+/);
 const SEARCH = ['customer_name', 'ref_number', 'invoice_number', 'po_number'];
 // Free-text individual filters, derived from the schema (list-shown string/number
 // fields with no enumValues — 'invoice_status' is a fixed-options select, exact-match).
@@ -62,10 +68,15 @@ function canSeeAll(user: any): boolean {
 app.get('/', async (c) => {
   const user = c.get('user');
   const q = c.req.query();
-  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
+  // missingPo/notShipped are synthetic filters (dashboard alert cards), not real
+  // columns — keep them out of whereFromQuery's generic pass and apply as
+  // IS NULL checks below instead.
+  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped'] });
   // Field filters first, then the security scope — rep_id always wins so a rep
   // can't widen their own visibility via a crafted query param.
-  const where = { ...fieldWhere, ...(canSeeAll(user) ? {} : { rep_id: user.id }) };
+  const where: Record<string, any> = { ...fieldWhere, ...(canSeeAll(user) ? {} : { rep_id: user.id }) };
+  if (q.missingPo === 'true') where.po_number = null;
+  if (q.notShipped === 'true') where.shipped_date = null;
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
@@ -73,9 +84,10 @@ app.get('/', async (c) => {
     limit: q.limit ? parseInt(q.limit, 10) : 25,
     search: q.search,
     searchFields: SEARCH,
-    sortBy: q.sortBy,
-    sortOrder: q.sortOrder,
-    orderBy: q.sortBy ? undefined : `"${TABLE}".txn_date DESC NULLS LAST, "${TABLE}".${PK} DESC`,
+    // Default sort (SO # desc) comes from the schema — orderSchema.defaultSortBy —
+    // so it's controlled in one place rather than hardcoded here.
+    sortBy: q.sortBy || DEFAULT_SORT_FIELD,
+    sortOrder: q.sortOrder || DEFAULT_SORT_ORDER,
     where,
     whereLike,
     selectFields: SELECT_WITH_REP_NAME,

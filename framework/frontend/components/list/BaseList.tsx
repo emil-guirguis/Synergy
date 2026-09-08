@@ -33,6 +33,9 @@ export interface BaseListProps<T> {
   onRowClick?: (item: T) => void;
   bulkActions?: BulkAction<T>[];
   pagination?: DataTableProps<T>['pagination'];
+  /** Column key currently sorted server-side (e.g. schema's defaultSortBy) — seeds the sort-arrow indicator */
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 
   // Table options
   responsive?: boolean;
@@ -76,6 +79,8 @@ export function BaseList<T extends Record<string, any>>({
   onRowClick,
   bulkActions,
   pagination,
+  sortBy,
+  sortOrder,
   responsive = true,
   striped = true,
   hoverable = true,
@@ -148,6 +153,8 @@ export function BaseList<T extends Record<string, any>>({
         onRowClick={onRowClick}
         bulkActions={bulkActions}
         pagination={pagination}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
         responsive={responsive}
         striped={striped}
         hoverable={hoverable}

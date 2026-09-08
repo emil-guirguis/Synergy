@@ -20,6 +20,7 @@ export const orderSchema = defineSchema({
   description: 'TBWC order (QuickBooks sales order + TBWC-owned fields)',
   formMaxWidth: '1300px',
   customListColumns: {},
+  defaultSortBy: 'qb_sales_order_id desc',
 
   formTabs: [
     tab({
@@ -152,7 +153,7 @@ export const orderSchema = defineSchema({
             field({ name: 'project_admin_fee', order: 2, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Project Administration Fee', dbField: 'project_admin_fee', showOn: ['form'] }),
             // Postgres GENERATED column (commission + overage) — the DB itself
             // rejects direct writes, so this is readOnly here to match.
-            field({ name: 'commission_total', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Commission Total', dbField: 'commission_total', showOn: ['form'] }),
+            field({ name: 'commission_total', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Commission Total', dbField: 'commission_total', showOn: ['list','form'] }),
             field({ name: 'trade_ally_fee', order: 4, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Trade Ally Fee', dbField: 'trade_ally_fee', showOn: ['form'] }),
           ],
         }),
