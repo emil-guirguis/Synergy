@@ -75,6 +75,7 @@ const FieldTypes = {
  * @param {string} [definition.minWidth] - CSS min-width for field container
  * @param {string} [definition.maxWidth] - CSS max-width for field container
  * @param {Array<string>} [definition.visibleFor] - Form variants for which this field is visible (e.g., ['physical'])
+ * @param {number} [definition.rows] - Textarea row count override (default: 6 for note-like field names, 4 otherwise)
  * @returns {Object} Field definition
  */
 function field(definition) {
@@ -107,6 +108,7 @@ function field(definition) {
     minWidth: definition.minWidth || null,
     maxWidth: definition.maxWidth || null,
     visibleFor: definition.visibleFor || null,
+    rows: definition.rows !== undefined ? definition.rows : null,
   };
 }
 

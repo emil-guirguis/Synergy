@@ -36,6 +36,7 @@ export interface BackendFieldDefinition {
   helpText?: string;
   validate?: boolean;
   validationFields?: string[];
+  rows?: number | null;
   formGrouping?: {
     tabName: string;
     sectionName: string;
@@ -274,6 +275,8 @@ function convertFieldDefinition(backendField: BackendFieldDefinition & { validat
     ...(backendField.showIf && { showIf: backendField.showIf }),
     // Preserve helpText for field descriptions
     ...(backendField.helpText && { helpText: backendField.helpText }),
+    // Preserve rows for textarea height override
+    ...(backendField.rows != null && { rows: backendField.rows }),
     // Preserve formGrouping for tab/section organization
     ...(backendField.formGrouping && { formGrouping: backendField.formGrouping }),
   };

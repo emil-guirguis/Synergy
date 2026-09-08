@@ -39,6 +39,8 @@ export interface FieldDefinition<TValue = any> {
     sectionOrder: number;
     fieldOrder: number;
   };
+  /** Textarea row count override */
+  rows?: number | null;
 }
 
 /**
