@@ -234,11 +234,57 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
             />
           );
 
+        case 'currency': {
+          const currencyStep = typeof step === 'string' ? parseFloat(step) : (step ?? 0.01);
+          return (
+            <TextField
+              id={fieldId}
+              name={name}
+              label={label}
+              type="number"
+              value={value ?? ''}
+              onChange={onChange}
+              onBlur={onBlur}
+              required={required}
+              disabled={disabled}
+              fullWidth
+              variant="outlined"
+              error={showError}
+              helperText={showError ? error : help}
+              placeholder={placeholder}
+              autoComplete="off"
+              data-field={name}
+              data-component="currency"
+              {...(showError && { 'aria-invalid': true })}
+              aria-describedby={showError ? errorId : undefined}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                endAdornment: (
+                  <InputAdornment position="end" sx={{ mr: -1 }}>
+                    <NumberSpinner
+                      value={value ?? ''}
+                      min={typeof min === 'string' ? parseFloat(min) : min}
+                      max={typeof max === 'string' ? parseFloat(max) : max}
+                      step={currencyStep}
+                      onIncrement={() => handleNumberChange(1)}
+                      onDecrement={() => handleNumberChange(-1)}
+                      disabled={disabled}
+                    />
+                  </InputAdornment>
+                ),
+                min,
+                max,
+                step: currencyStep,
+                pattern,
+              }}
+            />
+          );
+        }
+
         case 'select':
         case 'timezone':
-        case 'currency':
         case 'language': {
-          if (searchable || type === 'timezone' || type === 'currency' || type === 'language') {
+          if (searchable || type === 'timezone' || type === 'language') {
             const selectedOption = (options ?? []).find(o => String(o.value) === String(value ?? '')) ?? null;
             return (
               <Autocomplete
