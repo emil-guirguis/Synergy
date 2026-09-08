@@ -70,7 +70,9 @@ app.get('/', async (c) => {
   const q = c.req.query();
   // missingPo/notShipped are synthetic filters (dashboard alert cards), not real
   // columns — keep them out of whereFromQuery's generic pass and apply as
-  // IS NULL checks below instead.
+  // IS NULL checks below instead. "Not invoiced" needs no such special-casing —
+  // is_fully_invoiced is a real column with its own schema-generated filter, so
+  // ?is_fully_invoiced=false already flows through whereFromQuery normally.
   const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped'] });
   // Field filters first, then the security scope — rep_id always wins so a rep
   // can't widen their own visibility via a crafted query param.

@@ -1,4 +1,4 @@
-import { Box, Typography } from '@mui/material';
+import { Box, Stack, Typography } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 import RepInquiriesCard from '../features/repPortal/RepInquiriesCard';
 import RepStatsCards from '../features/repPortal/RepStatsCards';
@@ -17,12 +17,14 @@ export default function DashboardPage() {
       </Typography>
 
       {isAdmin ? (
-        <>
+        <Stack spacing={3}>
           <RepInquiriesCard />
-          <YearlyOrderTotalCard />
-          <YearlyCommissionTotalCard />
+          <Stack direction="row" spacing={2} flexWrap="wrap">
+            <YearlyOrderTotalCard />
+            <YearlyCommissionTotalCard />
+          </Stack>
           <OrderAlertsCards />
-        </>
+        </Stack>
       ) : (
         <RepStatsCards />
       )}

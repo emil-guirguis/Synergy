@@ -134,15 +134,19 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // Dashboard alert cards link here with ?missingPo=true / ?notShipped=true —
   // apply them as filters (server-side, via orders.ts's IS NULL checks) rather
   // than a visible filter control, since they're a synthetic drill-down, not a
-  // real column filter. Gated on `schema` being loaded: useBaseList's own
-  // initial-fetch bookkeeping (the "hasActiveFilter" effect vs. the [filters]
-  // watcher's first-run skip) assumes filters are still empty the first time
-  // schema finishes loading — setting a filter before that race resolves gets
+  // real column filter. The "not invoiced" card instead drives the real
+  // is_fully_invoiced filter (?is_fully_invoiced=false) below, so the visible
+  // "Invoiced" dropdown lands on "No" instead of silently filtering underneath
+  // it. Gated on `schema` being loaded: useBaseList's own initial-fetch
+  // bookkeeping (the "hasActiveFilter" effect vs. the [filters] watcher's
+  // first-run skip) assumes filters are still empty the first time schema
+  // finishes loading — setting a filter before that race resolves gets
   // silently swallowed by both effects and no fetch ever fires.
   useEffect(() => {
     if (!schema) return;
     if (searchParams.get('missingPo') === 'true') baseList.setFilter('missingPo', 'true');
     if (searchParams.get('notShipped') === 'true') baseList.setFilter('notShipped', 'true');
+    if (searchParams.get('is_fully_invoiced') === 'false') baseList.setFilter('is_fully_invoiced', 'false');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, searchParams]);
 
