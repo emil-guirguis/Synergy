@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, CircularProgress } from '@mui/material';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { OrderLinesGrid } from '../orders/OrderLinesGrid';
+import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { useInvoices } from './invoiceStore';
 import type { Invoice } from '../../types/invoice';
 
@@ -52,9 +54,19 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) =
       onCancel={onCancel}
       className="invoice-form"
       showTabs={true}
-      fieldsToClean={['id', 'lines', 'linked_txn']}
+      fieldsToClean={['id', 'lines', 'linked_txn', 'documents']}
       renderCustomField={(fieldName, _fieldDef, value) => {
         if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshInvoice?.total} />;
+        if (fieldName === 'documents') {
+          return (
+            <DocumentsGrid
+              entityType="invoice"
+              entityId={freshInvoice?.id}
+              api={documentsApi}
+              storage={documentsStorage}
+            />
+          );
+        }
         return null;
       }}
     />

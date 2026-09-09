@@ -55,6 +55,23 @@ export const inventorySchema = defineSchema({
         }),
       ],
     }),
+    tab({
+      name: 'Documents',
+      order: 2,
+      sections: [
+        section({
+          name: 'Documents',
+          order: 1,
+          fields: [
+            // No dbField — UI-only anchor. TBWC's InventoryForm renders the shared
+            // framework DocumentsGrid here; rows live in public.document keyed by
+            // (entity_type='inventory', entity_id=<record id>), saved on edit, not
+            // with this form.
+            field({ name: 'documents', order: 1, type: FieldTypes.OBJECT, default: null, showOn: ['form'] }),
+          ],
+        }),
+      ],
+    }),
   ],
 
   entityFields: {

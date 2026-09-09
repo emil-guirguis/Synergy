@@ -4,6 +4,8 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
+import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import type { Order } from '../../types/order';
 
 interface OrderFormProps {
@@ -106,7 +108,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
       className="order-form"
       loading={loading}
       showTabs={true}
-      fieldsToClean={['id', 'lines', 'packing_list']}
+      fieldsToClean={['id', 'lines', 'packing_list', 'documents']}
       renderCustomField={(fieldName, _fieldDef, value) => {
         if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} />;
         if (fieldName === 'packing_list') {
@@ -119,6 +121,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
             >
               Packing List
             </Button>
+          );
+        }
+        if (fieldName === 'documents') {
+          return (
+            <DocumentsGrid
+              entityType="order"
+              entityId={freshOrder?.id}
+              api={documentsApi}
+              storage={documentsStorage}
+            />
           );
         }
         return null;

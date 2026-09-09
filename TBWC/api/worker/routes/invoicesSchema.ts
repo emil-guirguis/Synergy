@@ -58,6 +58,23 @@ export const invoicesSchema = defineSchema({
         }),
       ],
     }),
+    tab({
+      name: 'Documents',
+      order: 3,
+      sections: [
+        section({
+          name: 'Documents',
+          order: 1,
+          fields: [
+            // No dbField — UI-only anchor. TBWC's InvoiceForm renders the shared
+            // framework DocumentsGrid here; rows live in public.document keyed by
+            // (entity_type='invoice', entity_id=<record id>), saved on edit, not
+            // with this form.
+            field({ name: 'documents', order: 1, type: FieldTypes.OBJECT, default: null, showOn: ['form'] }),
+          ],
+        }),
+      ],
+    }),
   ],
 
   entityFields: {
