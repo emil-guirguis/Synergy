@@ -6,7 +6,7 @@ import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import {
   qbxmlDoc, tag, blocks, statusCode, refField, lineItems,
-  qbTimeToTs, qbDate, num, txnModifiedFilter,
+  qbTimeToTs, qbDate, num, txnModifiedFilter, QB_MAX_RETURNED,
 } from '../qbxml';
 import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
 import { sinceModified } from '../incremental';
@@ -26,8 +26,13 @@ const REQUEST_ID = 'invoice';
 
 async function buildRequest(env: Env): Promise<string> {
   const filter = txnModifiedFilter(await sinceModified(env, 'qb_invoice', 'qbwc.invoice.since'));
+  // Paged via iterator, same as customer/item/salesOrder — without it QB caps
+  // an un-iterated InvoiceQueryRq well short of the full result set (seen:
+  // 187 back when the whole company file has far more invoices than that).
+  // qbXML schema order: MaxReturned before the date filter, IncludeLineItems last.
   return qbxmlDoc(
-    `    <InvoiceQueryRq requestID="${REQUEST_ID}">${filter}\n` +
+    `    <InvoiceQueryRq requestID="${REQUEST_ID}" iterator="Start">\n` +
+    `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>${filter}\n` +
     `      <IncludeLineItems>true</IncludeLineItems>\n` +
     `    </InvoiceQueryRq>`
   );
@@ -99,5 +104,11 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   if (rets.length > 0) await refreshOrderInvoiceStatus(env);
 }
 
-const invoice: QbObject = { name: 'Invoice', requestID: REQUEST_ID, buildRequest, parseResponse };
+const invoice: QbObject = {
+  name: 'Invoice',
+  requestID: REQUEST_ID,
+  buildRequest,
+  parseResponse,
+  iteratorExtra: '      <IncludeLineItems>true</IncludeLineItems>\n',
+};
 export default invoice;

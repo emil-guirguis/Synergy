@@ -13,6 +13,7 @@ import { multiRowValues, chunk, BATCH_SIZE } from '../batchSql';
 import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
 import { sinceModified } from '../incremental';
 import { pendingPushes, markPushed, markFailed, type PendingPush } from '../pushQueue';
+import { logDetail } from '../syncLog';
 
 const REQUEST_ID = 'salesorder';
 
@@ -169,17 +170,21 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
     const txnId = rid?.startsWith(`${REQUEST_ID}:mod:`) ? rid.slice(`${REQUEST_ID}:mod:`.length) : undefined;
     if (!txnId) continue;
     const fieldNames = queuedFieldsByTxn.get(txnId) ?? [];
+    const fieldLabel = fieldNames.join(', ') || 'field';
     const sc = attrs.match(/\bstatusCode="([^"]*)"/)?.[1];
     if (sc && sc !== '0') {
       const msg = attrs.match(/\bstatusMessage="([^"]*)"/)?.[1];
       console.error(`[QBWC] SalesOrderMod (push) failed for ${txnId}: ${sc} ${msg}`);
       if (fieldNames.length) await markFailed(env, 'SalesOrder', txnId, fieldNames, `${sc} ${msg ?? ''}`.trim());
+      await logDetail(env, 'SalesOrder', 'push', `Failed to push ${fieldLabel} for order ${txnId}`, `${sc} ${msg ?? ''}`.trim());
       continue; // retried next session with the current edit_sequence
     }
     const ret = blocks(inner, 'SalesOrderRet')[0];
     const parsed = ret ? rowFromRet(ret) : undefined;
     if (parsed) byId.set(parsed.txnId, parsed.row);
     if (fieldNames.length) await markPushed(env, 'SalesOrder', txnId, fieldNames);
+    const refLabel = ret ? (tag(ret, 'RefNumber') ?? txnId) : txnId;
+    await logDetail(env, 'SalesOrder', 'push', `Pushed ${fieldLabel} to order ${refLabel}`);
   }
 
   // Batched multi-row upserts: execQuery opens a connection per call, so an
