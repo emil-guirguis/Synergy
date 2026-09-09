@@ -80,8 +80,15 @@ describe('qbxml escape/unescape', () => {
 });
 
 describe('qbxml.qbTimeToTs', () => {
-  it('converts a QB ISO timestamp with offset to ISO', () => {
-    expect(qbTimeToTs('2024-03-01T10:30:00-05:00')).toBe('2024-03-01T15:30:00.000Z');
+  // QB's own offset is ignored — the SVR2012 machine doesn't auto-adjust for
+  // DST and always stamps "-08:00", even in months America/Los_Angeles is
+  // really at -07:00 (PDT). The wall-clock digits are trusted instead and
+  // converted using the zone's real DST rule for that date.
+  it('uses the real zone offset outside DST (winter, PST -08:00)', () => {
+    expect(qbTimeToTs('2026-01-15T10:30:00-08:00')).toBe('2026-01-15T18:30:00.000Z');
+  });
+  it('uses the real zone offset during DST (summer, PDT -07:00), ignoring QB\'s mislabeled -08:00', () => {
+    expect(qbTimeToTs('2026-09-08T18:25:15-08:00')).toBe('2026-09-09T01:25:15.000Z');
   });
   it('returns null for undefined', () => {
     expect(qbTimeToTs(undefined)).toBeNull();

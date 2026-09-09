@@ -42,6 +42,29 @@ export function toQbLocal(utc: string | Date, tz: string = QB_TIMEZONE): string 
   return `${p.year}-${p.month}-${p.day}T${hh}:${p.minute}:${p.second}${sign}${oh}:${om}`;
 }
 
+/**
+ * Inverse of toQbLocal(): given a bare "YYYY-MM-DDTHH:mm:ss" wall-clock
+ * reading in `tz` (no offset), return the equivalent UTC instant, applying
+ * that zone's real DST rule for the given date rather than a fixed offset.
+ */
+function localWallClockToUtc(wallClock: string, tz: string): string {
+  const m = wallClock.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return wallClock;
+  const [y, mo, d, h, mi, s] = m.slice(1).map(Number);
+  const guessUtcMs = Date.UTC(y, mo - 1, d, h, mi, s);
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const p: Record<string, string> = {};
+  for (const { type, value } of fmt.formatToParts(new Date(guessUtcMs))) p[type] = value;
+  const hh = p.hour === '24' ? '00' : p.hour;
+  const asLocalMs = Date.UTC(+p.year, +p.month - 1, +p.day, +hh, +p.minute, +p.second);
+  const offsetMs = asLocalMs - guessUtcMs; // how far ahead of UTC `tz` reads at this instant
+  return new Date(guessUtcMs - offsetMs).toISOString();
+}
+
 /** Wrap one or more *Rq fragments in a full qbXML document. */
 export function qbxmlDoc(inner: string, onError: 'stopOnError' | 'continueOnError' = 'continueOnError'): string {
   return `<?xml version="1.0" encoding="utf-8"?>
@@ -125,9 +148,20 @@ export function unescapeXml(s: string): string {
     .replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 }
 
-/** QB TimeModified is ISO-8601 with offset; return a value Postgres accepts, or null. */
+/**
+ * QB TimeModified/TimeCreated is ISO-8601 with an offset, but the QB Desktop
+ * machine (SVR2012) doesn't auto-adjust its clock for DST — it emits a fixed
+ * "-08:00" year-round instead of "-07:00" during PDT. Trusting that offset
+ * shifted every timestamp by an hour whenever real DST was in effect (caught
+ * via a "QB Last Synced" field showing 7:25 PM for what QB itself labeled
+ * 18:25:15, i.e. 6:25 PM). The wall-clock digits are correct QB_TIMEZONE local
+ * time; strip QB's own (unreliable) offset and recompute UTC using the zone's
+ * real DST rule instead.
+ */
 export function qbTimeToTs(v: string | undefined): string | null {
   if (!v) return null;
+  const wallClock = v.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)?.[0];
+  if (wallClock) return localWallClockToUtc(wallClock, QB_TIMEZONE);
   const d = new Date(v);
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
