@@ -21,9 +21,7 @@ const YEAR = '2026';
 const isIn2026 = (o: Order) => !!o.txn_date && o.txn_date.startsWith(YEAR);
 const missingPo = (o: Order) => isIn2026(o) && !o.po_number?.trim();
 const notShipped = (o: Order) => isIn2026(o) && !o.shipped_date;
-// Not year-scoped, unlike the two alerts above — an unbilled order stays
-// outstanding regardless of when it was placed.
-const notInvoiced = (o: Order) => !o.is_fully_invoiced;
+const notInvoiced = (o: Order) => isIn2026(o) && !o.is_fully_invoiced;
 
 export default function OrderAlertsCards() {
   const navigate = useNavigate();
@@ -84,7 +82,7 @@ export default function OrderAlertsCards() {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <RequestQuoteIcon color={notInvoicedCount > 0 ? 'warning' : 'action'} />
               <Typography variant="body2" color="text.secondary">
-                Orders Not Invoiced
+                YTD Open Sales Orders
               </Typography>
             </Box>
             <Typography variant="h4" fontWeight={700}>

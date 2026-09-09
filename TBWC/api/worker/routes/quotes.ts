@@ -3,7 +3,7 @@
  * public.quote_line (PK quote_line_id, FK quote_id ON DELETE CASCADE).
  *
  * Visibility mirrors orders (Worker connects at service level, bypasses RLS):
- *   - admins / can_see_orders -> every quote
+ *   - admins                   -> every quote
  *   - a rep                    -> only their own (rep_id = user.id)
  * Create: any approved user (rep_id forced to caller unless admin overrides).
  * Update/Delete: owner or admin.
@@ -28,7 +28,7 @@ const SEARCH = ['quote_number', 'project_name', 'customer', 'poc'];
 const LIKE_FIELDS = likeFieldsFromSchema(quoteSchema);
 
 function canSeeAll(user: any): boolean {
-  return !!(user?.is_admin || user?.can_see_orders);
+  return !!user?.is_admin;
 }
 
 function num(v: any): number {

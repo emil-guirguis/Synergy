@@ -13,6 +13,9 @@ export interface Order {
   due_date: string | null;
   shipped_date: string | null;
   po_number: string | null;
+  /** Editable — an admin's edit is queued for push to QB (see qbwc_push_queue)
+   *  and shown here immediately; falls back to the last QB-synced value once
+   *  nothing's pending. Same field throughout, no separate "pending" one. */
   memo: string | null;
   sales_rep: string | null;
   sales_rep_list_id: string | null;
@@ -34,6 +37,7 @@ export interface Order {
   lines: OrderLine[] | null;
   // TBWC-owned (survive re-sync, editable in the order form)
   build_notes: string | null;
+  job_name: string | null;
   expedite: boolean;
   jay: boolean;
   ship_no_later_than: string | null;

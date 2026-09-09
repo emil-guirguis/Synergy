@@ -405,6 +405,7 @@ export function DataTable<T extends Record<string, any>>({
                     minWidth: column.minWidth,
                     textAlign: column.align || 'left'
                   }}
+                  title={column.tooltip}
                   onClick={column.sortable ? () => handleSort(column.key.toString()) : undefined}
                 >
                   <span className="data-table__header-content">

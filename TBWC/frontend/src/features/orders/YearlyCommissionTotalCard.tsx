@@ -56,7 +56,7 @@ export default function YearlyCommissionTotalCard() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <SavingsIcon color="action" />
             <Typography variant="body2" color="text.secondary">
-              Total Commission
+              YTD Commission
             </Typography>
           </Box>
           <Select

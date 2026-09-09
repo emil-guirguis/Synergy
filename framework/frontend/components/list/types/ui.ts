@@ -153,6 +153,8 @@ export interface ColumnDefinition<T> {
   render?: (value: any, item: T, index: number) => ReactNode;
   responsive?: 'hide-mobile' | 'hide-tablet' | 'always-show';
   className?: string;
+  /** Native title attribute on the header cell — hover tooltip for abbreviated labels */
+  tooltip?: string;
 }
 
 export interface PaginationConfig {

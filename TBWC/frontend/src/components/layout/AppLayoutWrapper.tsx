@@ -14,6 +14,7 @@ registerIconMappings({
   quotes: 'request_quote',
   inventory: 'inventory_2',
   customers: 'contacts',
+  invoices: 'receipt_long',
   repPortal: 'folder_shared',
   documents: 'folder_shared',
   qbSync: 'sync',
@@ -27,6 +28,7 @@ const NAV: MenuItem[] = [
   { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
   { id: 'customers', label: 'Customers', icon: 'customers', path: '/customers', requiredPermission: 'admin' },
+  { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices', requiredPermission: 'admin' },
   { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'admin' },
   { id: 'qbSync', label: 'QB Sync', icon: 'qbSync', path: '/qb-sync', requiredPermission: 'admin' },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'admin' },
@@ -39,6 +41,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/documents')) return 'Documents';
   if (pathname.startsWith('/inventory')) return 'Inventory';
   if (pathname.startsWith('/customers')) return 'Customers';
+  if (pathname.startsWith('/invoices')) return 'Invoices';
   if (pathname.startsWith('/rep-portal')) return 'Rep Approvals';
   if (pathname.startsWith('/qb-sync')) return 'QB Sync';
   if (pathname.startsWith('/users')) return 'Users';

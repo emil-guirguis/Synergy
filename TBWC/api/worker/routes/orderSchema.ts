@@ -40,14 +40,17 @@ export const orderSchema = defineSchema({
           gridRow: '1 / 3',
           fields: [
             field({ name: 'customer_name', order: 1, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer', dbField: 'customer_name', maxLength: 300, showOn: ['list', 'form'] }),
-            field({ name: 'ref_number', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'SO #', dbField: 'ref_number', maxLength: 100, showOn: ['list', 'form'] }),
-            field({ name: 'po_number', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'PO #', dbField: 'po_number', maxLength: 100, showOn: ['list', 'form'] }),
+            field({ name: 'ref_number', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'SO #', description: 'Sales Order Number', dbField: 'ref_number', maxLength: 100, showOn: ['list', 'form'] }),
+            field({ name: 'po_number', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'PO #', description: 'Purchase Order Number', dbField: 'po_number', maxLength: 100, showOn: ['list', 'form'] }),
+            field({ name: 'job_name', order: 8, type: FieldTypes.STRING, default: '', required: false, label: 'Job Name', dbField: 'job_name', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'sales_rep', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep', maxLength: 200, showOn: ['list', 'form'] }),
             field({ name: 'invoice_number', order: 5, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice #', dbField: 'invoice_number', maxLength: 100, showOn: ['list', 'form'] }),
             // Checkbox in the list per QB's own is_fully_invoiced flag; the finer-
             // grained invoice_status (Paid/Closed/etc) stays on the form only.
             field({ name: 'is_fully_invoiced', order: 6, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Invoiced', dbField: 'is_fully_invoiced', showOn: ['list', 'form'] }),
             field({ name: 'invoice_status', order: 7, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice Status', dbField: 'invoice_status', maxLength: 100, showOn: ['form'], enumValues: ['Not Invoiced', 'Partially Invoiced', 'Invoiced', 'Paid', 'Closed'] }),
+            // No QB source (checked, see migration 014/020) — manually entered,
+            // TBWC-owned like build_notes; survives every re-sync.
           ],
         }),
         section({
@@ -58,7 +61,7 @@ export const orderSchema = defineSchema({
           fields: [
             field({ name: 'txn_date', order: 1, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Order Date', dbField: 'txn_date', showOn: ['list', 'form'] }),
             field({ name: 'due_date', order: 2, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Due Date', dbField: 'due_date', showOn: ['form'] }),
-            field({ name: 'ship_no_later_than', order: 3, type: FieldTypes.DATE, default: null, required: false, label: 'Ship No Later Than', dbField: 'ship_no_later_than', showOn: ['list', 'form'] }),
+            field({ name: 'ship_no_later_than', order: 3, type: FieldTypes.DATE, default: null, required: false, label: 'Ship NLT', description: 'Ship No Later Than', dbField: 'ship_no_later_than', showOn: ['list', 'form'] }),
             // QB's own SalesOrderRet ShipDate — synced, not manually entered.
             field({ name: 'shipped_date', order: 4, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Shipped Date', dbField: 'shipped_date', showOn: ['list', 'form'] }),
           ],
@@ -105,6 +108,10 @@ export const orderSchema = defineSchema({
             // contact line ("Name / email / phone").
             field({ name: 'contact', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Contact', dbField: 'contact', maxLength: 300, showOn: ['form'] }),
             field({ name: 'customer_tax_code', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer Tax Code', dbField: 'customer_tax_code', maxLength: 100, showOn: ['form'] }),
+            // No dbField — UI-only trigger, rendered by OrderForm's
+            // renderCustomField as a "Packing List" button (opens a printable
+            // packing slip built from this order's own fields/lines).
+            field({ name: 'packing_list', order: 5, type: FieldTypes.OBJECT, default: null, showOn: ['form'] }),
           ],
         }),
       ],
@@ -167,10 +174,21 @@ export const orderSchema = defineSchema({
           name: 'Notes',
           order: 1,
           fields: [
-            field({ name: 'build_notes', order: 1, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Build Notes', dbField: 'build_notes', maxLength: 5000, showOn: ['form'], rows: 3 }),
+            field({ name: 'build_notes', order: 1, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Build Notes', dbField: 'build_notes', maxLength: 5000, showOn: ['list', 'form'], rows: 3 }),
             // General free-text notes, distinct from build_notes above.
-            field({ name: 'notes', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Notes', dbField: 'notes', maxLength: 5000, showOn: ['form'], rows: 3 }),
-            field({ name: 'memo', order: 3, type: FieldTypes.TEXTAREA, default: '', required: false, readOnly: true, label: 'QB Memo', dbField: 'memo', maxLength: 5000, showOn: ['form'], rows: 3 }),
+            field({ name: 'notes', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Order Notes', dbField: 'notes', maxLength: 5000, showOn: ['form'], rows: 3 }),
+            // Editable — a save queues it for push to QB via SalesOrderModRq
+            // (see orders.ts's PUSHABLE + migration 023's qbwc_push_queue) rather
+            // than writing this column directly, since QB is the source of truth
+            // and the next full pull would otherwise clobber it. The GET response
+            // shows the queued value in the meantime (falls back to the last-synced
+            // value once it lands) — same field throughout, no separate "pending" one.
+            field({ name: 'memo', order: 3, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'QB Memo', dbField: 'memo', maxLength: 4095, showOn: ['form'], rows: 3 }),
+            // Not memo-specific — this is qb_sales_order.time_modified, refreshed
+            // whenever QB confirms ANY change to the record (a memo push included).
+            // Doubles as "did my memo edit land yet?": if it's still older than
+            // when you saved, the push hasn't gone through (QBWC hasn't run yet).
+            field({ name: 'time_modified', order: 4, type: FieldTypes.DATETIME, default: null, required: false, readOnly: true, label: 'QB Last Synced', dbField: 'time_modified', showOn: ['form'] }),
           ],
         }),
       ],

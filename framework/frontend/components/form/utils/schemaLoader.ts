@@ -253,6 +253,7 @@ function convertFieldDefinition(backendField: BackendFieldDefinition & { validat
     default: backendField.default,
     required: backendField.required,
     label: backendField.label,
+    ...(backendField.description && { description: backendField.description }),
     apiField: backendField.dbField || undefined,
     dbField: backendField.dbField,
     // Add validation rules (check for null/undefined, not falsy, to allow 0)

@@ -73,6 +73,7 @@ export function generateColumnsFromSchema<T extends Record<string, any>>(
       label: fieldName === 'active' ? 'Status' : (fieldDef.label || fieldName),
       sortable: true,
       responsive,
+      tooltip: fieldDef.description || undefined,
     };
 
     // Add custom render based on field type

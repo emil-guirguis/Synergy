@@ -19,6 +19,7 @@ import { orderSchema } from './orderSchema';
 import { inventorySchema } from './inventorySchema';
 import { quoteSchema } from './quoteSchema';
 import { customersSchema } from './customersSchema';
+import { invoicesSchema } from './invoicesSchema';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -29,6 +30,7 @@ const schemas: Record<string, any> = {
   inventory: inventorySchema,
   quote: quoteSchema,
   customer: customersSchema,
+  invoice: invoicesSchema,
 };
 
 /** Load active QB sales reps as SELECT enum values + labels ("BW - Bob Wilson"). */

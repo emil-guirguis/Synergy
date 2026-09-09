@@ -31,6 +31,8 @@ export interface FieldDefinition<TValue = any> {
   showIf?: { fieldName: string; value: any };
   /** Help text shown below the field */
   helpText?: string;
+  /** Field description — used as the list-column header hover tooltip */
+  description?: string;
   /** Form grouping for tab/section organization */
   formGrouping?: {
     tabName: string;

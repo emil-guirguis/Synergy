@@ -11,22 +11,25 @@ import { QbObject } from './types';
 import customer from './customer';
 import salesRep from './salesRep';
 import salesOrder from './salesOrder';
+import salesOrderDeleted from './salesOrderDeleted';
 import item from './item';
+import invoice from './invoice';
 // Parked until proven. Re-add to `registry` to enable.
 // import vendor from './vendor';
-// import invoice from './invoice';
 // import payment from './payment';
 // import estimate from './estimate';
 
-// Scope: Customer + SalesRep + Item + SalesOrder (per current sync target). The
-// other objects (vendor/invoice/payment/estimate) are implemented but held out
-// of the queue so they can't error the session — re-add when ready.
+// Scope: Customer + SalesRep + Item + SalesOrder + Invoice (per current sync
+// target). The other objects (vendor/payment/estimate) are implemented but
+// held out of the queue so they can't error the session — re-add when ready.
 // Order matters: lists before any transactions that reference them.
 export const registry: QbObject[] = [
   customer,
   salesRep,
   item,
   salesOrder,
+  salesOrderDeleted,
+  invoice,
 ];
 
 /** Ordered qbXML requests for this session (one per object that has work). */

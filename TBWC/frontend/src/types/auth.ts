@@ -22,7 +22,6 @@ export interface User {
   approved: boolean;
   is_admin: boolean;
   type: UserType;
-  can_see_orders: boolean;
   can_approve_rep_leads: boolean;
   created_at: string;
   /** Convenience display name (first + last), populated client-side. */

@@ -321,6 +321,14 @@
   padding: 8px 8px;
 }
 
+/* Opt-in per-column wrap: auto table layout otherwise widens the column to
+   fit unbroken content on one line, forcing horizontal scroll. */
+.data-table__cell--wrap {
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
 /* Action Buttons */
 .data-table__actions {
   display: flex;

@@ -37,13 +37,31 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   const { schema } = useSchema('order');
   const [searchParams] = useSearchParams();
 
+  // A rep only ever sees their own orders (server-scoped to rep_id = them), so
+  // the QB rep dropdown has nothing meaningful to filter — lock it to their own
+  // linked rep instead of leaving a picker that can't actually change anything.
+  const canSeeAll = auth.user?.is_admin;
+
+  // Rep list view is a deliberately trimmed-down field set (per rep request) —
+  // distinct from the admin view, which keeps the fuller QB-derived columns.
+  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'shipped_date', 'expedite', 'total', 'build_notes'];
+  const REP_LABEL_OVERRIDES: Partial<Record<keyof Order, string>> = {
+    ref_number: 'TBWC #',
+    txn_date: 'Received',
+    shipped_date: 'Ship Date',
+    total: 'Order Total',
+  };
+
   const columns = useMemo(() => {
     if (!schema) return [];
     const cols = generateColumnsFromSchema<Order>(schema.formFields, {
-      fieldOrder: ['customer_name', 'ref_number', 'po_number', 'sales_rep', 'invoice_number', 'total', 'is_fully_invoiced', 'txn_date', 'ship_no_later_than', 'shipped_date', 'expedite'],
+      fieldOrder: canSeeAll
+        ? ['customer_name', 'build_notes', 'ref_number', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'invoice_number', 'txn_date', 'ship_no_later_than', 'shipped_date', 'expedite']
+        : REP_FIELD_ORDER,
       responsive: 'hide-mobile',
     });
-    for (const col of cols) {
+    const visible = canSeeAll ? cols : cols.filter((col) => REP_FIELD_ORDER.includes(col.key as string));
+    for (const col of visible) {
       if (CHECKBOX_COLUMNS.has(col.key as keyof Order)) {
         col.render = (_value, row) => renderCheckbox(row[col.key as keyof Order] as boolean | null);
       }
@@ -51,14 +69,19 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       if (col.key === 'total') {
         col.render = (_value, row) => renderNumberCell(Number(row.total), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
+      // Long free-text notes: wrap instead of forcing the table wider (auto
+      // table layout otherwise stretches this column to fit it on one line).
+      if (col.key === 'build_notes' || col.key === 'job_name') {
+        col.className = 'data-table__cell--wrap';
+        col.width = col.key === 'build_notes' ? '260px' : '160px';
+      }
+      if (!canSeeAll && REP_LABEL_OVERRIDES[col.key as keyof Order]) {
+        col.label = REP_LABEL_OVERRIDES[col.key as keyof Order]!;
+      }
     }
-    return cols;
-  }, [schema]);
-
-  // A rep only ever sees their own orders (server-scoped to rep_id = them), so
-  // the QB rep dropdown has nothing meaningful to filter — lock it to their own
-  // linked rep instead of leaving a picker that can't actually change anything.
-  const canSeeAll = auth.user?.is_admin || auth.user?.can_see_orders;
+    return visible;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, canSeeAll]);
   const ownRepListId = auth.user?.sales_rep_list_id ?? null;
   const ownRepLabel = [auth.user?.sales_rep_initial, auth.user?.sales_rep_name].filter(Boolean).join(' - ')
     || auth.user?.sales_rep_name || '';
@@ -92,10 +115,10 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
         key: 'sales_rep_list_id',
         label: 'Sales Rep',
         type: 'select',
-        options: [
-          { label: 'All Reps', value: '' },
-          ...repField.enumValues.map((v: string) => ({ label: labels[v] || v, value: v })),
-        ],
+        // Don't include an "All" option here — renderFilters already prepends
+        // one from `placeholder` (or `All ${label}`); adding it here too
+        // rendered two blank "All ..." rows above the rep list.
+        options: repField.enumValues.map((v: string) => ({ label: labels[v] || v, value: v })),
         placeholder: 'All Reps',
       });
     }
@@ -171,7 +194,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
         loading={baseList.loading}
         error={baseList.error}
         emptyMessage="No orders found."
-        onEdit={baseList.handleEdit}
+        onEdit={baseList.canUpdate ? baseList.handleEdit : undefined}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}

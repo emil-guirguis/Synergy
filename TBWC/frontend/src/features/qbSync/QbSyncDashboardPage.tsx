@@ -18,8 +18,8 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { getSummary, getRuns, type SyncRun, type SyncSummary } from '../../services/qbSyncService';
 
-/** Tiles shown on dashboard; Invoice/Payment/Vendor excluded per request. */
-const OBJECTS = ['Customer', 'SalesRep', 'Item', 'SalesOrder'];
+/** Tiles shown on dashboard; Payment/Vendor excluded per request. */
+const OBJECTS = ['Customer', 'SalesRep', 'Item', 'SalesOrder', 'Invoice'];
 
 const RUNS_PAGE_SIZE = 100;
 

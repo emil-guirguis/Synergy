@@ -5,6 +5,7 @@ import { OrderManagementPage } from '../features/orders/OrderManagementPage';
 import { InventoryManagementPage } from '../features/inventory/InventoryManagementPage';
 import { QuoteManagementPage } from '../features/quotes/QuoteManagementPage';
 import { CustomerManagementPage } from '../features/customers/CustomerManagementPage';
+import { InvoiceManagementPage } from '../features/invoices/InvoiceManagementPage';
 import { QbSyncDashboardPage } from '../features/qbSync/QbSyncDashboardPage';
 import { UserManagementPage } from '../features/users/UserManagementPage';
 import RepPortalPage from '../features/repPortal/RepPortalPage';
@@ -26,6 +27,10 @@ export default function AppRoutes() {
       <Route
         path="/customers"
         element={isAdmin ? <CustomerManagementPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/invoices"
+        element={isAdmin ? <InvoiceManagementPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/qb-sync"

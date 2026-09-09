@@ -3,7 +3,7 @@
  * Creates MUI theme with Material Design 3 tokens
  */
 
-import { createTheme, type ThemeOptions } from '@mui/material/styles';
+import { createTheme, darken, type ThemeOptions } from '@mui/material/styles';
 import { lightColorTokens, darkColorTokens, type ColorTokens } from './colors';
 import { typographyScales, fontFamily } from './typography';
 import { elevationShadows } from './elevation';
@@ -38,13 +38,13 @@ export const createLightTheme = (colorOverrides?: ColorTokenOverrides): ReturnTy
       primary: {
         main: lightColorTokensMerged.primary,
         light: lightColorTokensMerged.primaryContainer,
-        dark: '#4F378B',
+        dark: colorOverrides?.primary ? darken(lightColorTokensMerged.primary, 0.2) : '#4F378B',
         contrastText: lightColorTokensMerged.onPrimary,
       },
       secondary: {
         main: lightColorTokensMerged.secondary,
         light: lightColorTokensMerged.secondaryContainer,
-        dark: '#4A4458',
+        dark: colorOverrides?.secondary ? darken(lightColorTokensMerged.secondary, 0.2) : '#4A4458',
         contrastText: lightColorTokensMerged.onSecondary,
       },
       error: {
@@ -189,13 +189,13 @@ export const createDarkTheme = (colorOverrides?: ColorTokenOverrides): ReturnTyp
       primary: {
         main: darkColorTokensMerged.primary,
         light: darkColorTokensMerged.primaryContainer,
-        dark: '#371E55',
+        dark: colorOverrides?.primary ? darken(darkColorTokensMerged.primary, 0.2) : '#371E55',
         contrastText: darkColorTokensMerged.onPrimary,
       },
       secondary: {
         main: darkColorTokensMerged.secondary,
         light: darkColorTokensMerged.secondaryContainer,
-        dark: '#332D41',
+        dark: colorOverrides?.secondary ? darken(darkColorTokensMerged.secondary, 0.2) : '#332D41',
         contrastText: darkColorTokensMerged.onSecondary,
       },
       error: {

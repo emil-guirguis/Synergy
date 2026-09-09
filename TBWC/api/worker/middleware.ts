@@ -28,7 +28,7 @@ export async function loadProfile(env: Env, userId: string): Promise<any | null>
       env,
       `SELECT u.id, u.email, u.first_name, u.last_name, u.agency_name, u.url, u.title, u.work_phone, u.ext, u.mobile,
               u.addr1, u.addr2, u.city, u.state, u.postal, u.about, u.approved, u.is_admin, u.type,
-              u.can_see_orders, u.can_approve_rep_leads, u.created_at, u.locked_at, u.last_verified_at,
+              u.can_approve_rep_leads, u.created_at, u.locked_at, u.last_verified_at,
               u.qb_sales_rep_id, sr.list_id AS sales_rep_list_id, sr.initial AS sales_rep_initial, sr.name AS sales_rep_name
        FROM public.users u
        LEFT JOIN public.qb_sales_rep sr ON sr.qb_sales_rep_id = u.qb_sales_rep_id
