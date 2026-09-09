@@ -12,6 +12,7 @@
 import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import { qbxmlDoc, tag, blocks, statusCode } from '../qbxml';
+import { logDeletion } from '../syncLog';
 
 const REQUEST_ID = 'salesorderdeleted';
 
@@ -38,10 +39,14 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   const r = await execQuery(
     env,
     `UPDATE public.qb_sales_order SET qb_deleted_at = CURRENT_TIMESTAMP
-     WHERE txn_id = ANY($1) AND qb_deleted_at IS NULL`,
+     WHERE txn_id = ANY($1) AND qb_deleted_at IS NULL
+     RETURNING txn_id, ref_number`,
     [txnIds],
     'qbwc.sodel.update'
   );
+  for (const row of r.rows) {
+    await logDeletion(env, 'SalesOrder', `Deleted order ${row.ref_number ?? row.txn_id}`);
+  }
   console.log(`[QBWC] TxnDeletedQueryRs: ${txnIds.length} deleted SalesOrder(s) from QB, ${r.rowCount ?? 0} newly marked`);
 }
 

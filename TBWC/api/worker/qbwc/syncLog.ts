@@ -20,6 +20,7 @@ export interface SyncRunRow {
   statusCode: string | null;
   rowsProcessed: number;
   error: string | null;
+  detail?: string | null;
 }
 
 /** Map an Rs element name to its object base name + direction. */
@@ -43,6 +44,9 @@ export function parseRsBlocks(responseXml: string): SyncRunRow[] {
     const [, rsName, attrs, selfClose] = m;
     const cls = classifyRs(rsName);
     if (!cls) continue;
+    // TxnDeletedQueryRs: salesOrderDeleted.ts logs one descriptive row per
+    // deleted order itself (via logDeletion) — skip the vague aggregate here.
+    if (cls.objectType === 'TxnDeleted') continue;
 
     const statusCode = attrs.match(/statusCode="([^"]*)"/)?.[1] ?? null;
     const statusMessage = attrs.match(/statusMessage="([^"]*)"/)?.[1] ?? null;
@@ -79,9 +83,9 @@ async function insertRun(env: Env, r: SyncRunRow): Promise<void> {
   await execQuery(
     env,
     `INSERT INTO public.qbwc_sync_run
-       (ticket, object_type, direction, status_code, rows_processed, error)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [r.ticket, r.objectType, r.direction, r.statusCode, r.rowsProcessed, r.error],
+       (ticket, object_type, direction, status_code, rows_processed, error, detail)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [r.ticket, r.objectType, r.direction, r.statusCode, r.rowsProcessed, r.error, r.detail ?? null],
     'qbwc.syncLog.insert'
   );
 }
@@ -92,6 +96,30 @@ export async function logResponse(env: Env, ticket: string, responseXml: string)
     for (const row of parseRsBlocks(responseXml)) {
       await insertRun(env, { ...row, ticket: ticket || null });
     }
+  } catch (e) {
+    console.error('[QBWC] sync log write failed:', e);
+  }
+}
+
+/**
+ * Log one descriptive row for a single deleted record (e.g. one SalesOrder QB
+ * reported via TxnDeletedQueryRs) — used instead of the generic aggregate
+ * scanner so the sync log reads "Deleted order TBWC 5687" per row rather than
+ * one opaque "TxnDeleted: 3" row. No ticket: parseResponse() isn't handed the
+ * QBWC session ticket, and the log table already allows a null one for
+ * connection-level rows. Never throws.
+ */
+export async function logDeletion(env: Env, objectType: string, detail: string): Promise<void> {
+  try {
+    await insertRun(env, {
+      ticket: null,
+      objectType,
+      direction: 'pull',
+      statusCode: '0',
+      rowsProcessed: 1,
+      error: null,
+      detail,
+    });
   } catch (e) {
     console.error('[QBWC] sync log write failed:', e);
   }

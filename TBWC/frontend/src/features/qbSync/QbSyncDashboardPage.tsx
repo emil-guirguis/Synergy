@@ -205,7 +205,14 @@ export function QbSyncDashboardPage() {
                     {runs.map((r) => (
                       <TableRow key={r.qbwc_sync_run_id} hover>
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtTime(r.created_at)}</TableCell>
-                        <TableCell>{LABELS[r.object_type] ?? r.object_type}</TableCell>
+                        <TableCell>
+                          {LABELS[r.object_type] ?? r.object_type}
+                          {r.detail && (
+                            <Typography variant="caption" color="text.secondary" component="div">
+                              {r.detail}
+                            </Typography>
+                          )}
+                        </TableCell>
                         <TableCell><DirectionChip direction={r.direction} /></TableCell>
                         <TableCell align="right">{r.rows_processed}</TableCell>
                         <TableCell><RunStatus run={r} /></TableCell>

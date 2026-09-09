@@ -31,7 +31,7 @@ app.get('/summary', async (c) => {
   const latest = await execQuery(
     c.env,
     `SELECT DISTINCT ON (object_type, direction)
-       object_type, direction, status_code, rows_processed, error, created_at
+       object_type, direction, status_code, rows_processed, error, detail, created_at
      FROM public.qbwc_sync_run
      ORDER BY object_type, direction, created_at DESC`,
     [],
@@ -73,7 +73,7 @@ app.get('/runs', async (c) => {
   const r = await execQuery(
     c.env,
     `SELECT qbwc_sync_run_id, ticket, object_type, direction, status_code,
-            rows_processed, error, created_at
+            rows_processed, error, detail, created_at
      FROM public.qbwc_sync_run
      ${where}
      ORDER BY created_at DESC

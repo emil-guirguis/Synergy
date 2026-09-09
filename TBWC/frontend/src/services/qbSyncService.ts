@@ -13,6 +13,7 @@ export interface SyncRun {
   status_code: string | null;
   rows_processed: number;
   error: string | null;
+  detail: string | null;
   created_at: string;
 }
 
