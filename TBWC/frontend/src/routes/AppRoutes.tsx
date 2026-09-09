@@ -10,6 +10,7 @@ import { QbSyncDashboardPage } from '../features/qbSync/QbSyncDashboardPage';
 import { UserManagementPage } from '../features/users/UserManagementPage';
 import RepPortalPage from '../features/repPortal/RepPortalPage';
 import SettingsPage from '../pages/SettingsPage';
+import { AiChatPage } from '../features/ai/AiChatPage';
 import { useAuth } from '../hooks/useAuth';
 
 export default function AppRoutes() {
@@ -20,6 +21,7 @@ export default function AppRoutes() {
       <Route path="/orders" element={<OrderManagementPage />} />
       <Route path="/quotes" element={<QuoteManagementPage />} />
       <Route path="/documents" element={<DocumentsPage />} />
+      <Route path="/ai-chat" element={<AiChatPage />} />
       <Route
         path="/inventory"
         element={isAdmin ? <InventoryManagementPage /> : <Navigate to="/dashboard" replace />}

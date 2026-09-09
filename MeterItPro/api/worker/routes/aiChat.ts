@@ -13,6 +13,7 @@ import OpenAI from 'openai';
 import { Env, execQuery } from '../db';
 import { authenticateToken, AuthVariables } from '../middleware';
 import { logError } from '../errorHandler';
+import { runAiChatLoop, AiChatMessage, describeAiChatError } from '@meterit/framework-backend/api/base/aiChat';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -286,78 +287,30 @@ Guidelines:
 - If a meter has not reported in over 48 hours, flag it as potentially offline.
 - Today's date: ${new Date().toISOString().split('T')[0]}`;
 
-  // Build message history � validate roles
-  const allowedRoles = new Set(['user', 'assistant']);
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt },
-    ...history
-      .filter((h) => allowedRoles.has(h.role) && typeof h.content === 'string')
-      .map((h) => ({
-        role: h.role as 'user' | 'assistant',
-        content: h.content,
-      })),
-    { role: 'user', content: message.trim() },
-  ];
-
-  // Agentic loop � run until the model stops calling tools
-  const toolsUsed: string[] = [];
-  const MAX_ITERATIONS = 8;
-
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages,
-      tools: TOOLS,
-      tool_choice: 'auto',
+  try {
+    const { response, toolsUsed } = await runAiChatLoop(message, history as any, {
+      systemPrompt,
+      tools: TOOLS as any,
+      complete: async (messages) => {
+        // Groq retired llama-3.3-70b-versatile (404s as of 2026-09-09, confirmed
+        // via GET /v1/models) — gpt-oss-120b is the current tool-calling model.
+        const res = await client.chat.completions.create({
+          model: 'openai/gpt-oss-120b',
+          messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
+          tools: TOOLS,
+          tool_choice: 'auto',
+        });
+        return res.choices[0].message as unknown as AiChatMessage;
+      },
+      executeTool: (toolName, toolInput) => executeTool(c.env, tenantId, toolName, toolInput),
     });
 
-    const choice = response.choices[0];
-    const assistantMsg = choice.message;
-    messages.push(assistantMsg);
-
-    // No tool calls � we're done
-    if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
-      return c.json({
-        success: true,
-        response: assistantMsg.content ?? '',
-        tools_used: toolsUsed,
-      });
-    }
-
-    // Execute all tool calls in parallel (only function-type calls)
-    const functionCalls = assistantMsg.tool_calls.filter((t) => t.type === 'function') as OpenAI.Chat.ChatCompletionMessageFunctionToolCall[];
-    const toolResults = await Promise.all(
-      functionCalls.map(async (toolCall) => {
-        toolsUsed.push(toolCall.function.name);
-        let toolInput: Record<string, any> = {};
-        try {
-          toolInput = JSON.parse(toolCall.function.arguments);
-        } catch {
-          // leave as empty object
-        }
-        const result = await executeTool(c.env, tenantId, toolCall.function.name, toolInput);
-        return {
-          role: 'tool' as const,
-          tool_call_id: toolCall.id,
-          content: result,
-        };
-      })
-    );
-
-    messages.push(...toolResults);
+    return c.json({ success: true, response, tools_used: toolsUsed });
+  } catch (err) {
+    logError('[AI_CHAT] loop failed:', err);
+    const { status, message } = describeAiChatError(err);
+    return c.json({ success: false, message }, status);
   }
-
-  // Exhausted iterations � return whatever text we have
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant') as
-    | OpenAI.Chat.ChatCompletionAssistantMessageParam
-    | undefined;
-  return c.json({
-    success: true,
-    response:
-      (typeof lastAssistant?.content === 'string' ? lastAssistant.content : '') ||
-      'I was unable to complete the analysis. Please try again.',
-    tools_used: toolsUsed,
-  });
 });
 
 export default app;

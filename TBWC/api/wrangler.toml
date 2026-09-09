@@ -25,6 +25,10 @@ PORTAL_URL = "http://localhost:5174/"
 # mail.ts/reverification.ts); harmless since `wrangler dev` doesn't fire
 # scheduled events unless run with --test-scheduler.
 
+# Groq API key for /api/ai/chat — set as a secret before deploy, do NOT put here:
+#   wrangler secret put GROQ_API_KEY
+# Unset => the route returns 503 instead of calling out.
+
 # QBWC SOAP credentials — set as secrets before deploy, do NOT put here:
 #   wrangler secret put QBWC_USERNAME
 #   wrangler secret put QBWC_PASSWORD

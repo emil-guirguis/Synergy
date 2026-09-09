@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { BaseList } from '@meterit/framework-frontend/components/list';
 import { useBaseList } from '@meterit/framework-frontend/components/list/hooks';
 import { useSchema } from '@meterit/framework-frontend/components/form/utils/schemaLoader';
@@ -21,6 +22,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onInventoryEdit, o
   const realAuth = useAuth();
   const auth = authProp ?? realAuth;
   const { schema } = useSchema('inventory');
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const columns = useMemo(() => {
     if (!schema) return [];
@@ -85,6 +87,30 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onInventoryEdit, o
     onCreate: onInventoryCreate,
     authContext: auth,
   });
+
+  // AI chat search results link here with ?openId=<qb_item_id> to open a
+  // specific inventory item's form directly (see features/ai/AiChatPage.tsx)
+  // — fetch that one record (not necessarily on the current page/filter) and
+  // open it the same way a row click does, then drop the param so it doesn't
+  // reopen on every future visit to this page.
+  const inventoryHook = useInventoryEnhanced();
+  useEffect(() => {
+    const openId = searchParams.get('openId');
+    if (!openId || !onInventoryEdit) return;
+    inventoryHook
+      .fetchItem(openId)
+      .then((entity) => entity && onInventoryEdit(entity as unknown as Inventory))
+      .catch((err) => console.error('[InventoryList] Failed to open item from AI chat link:', err));
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('openId');
+        return next;
+      },
+      { replace: true }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   return (
     <div className="inventory-list">

@@ -37,6 +37,10 @@ export interface Env {
   // re-verification link mailed to locked-out reps. Distinct from
   // FRONTEND_URL, which is CORS-origin-only (no path).
   PORTAL_URL?: string;
+  // Groq API key for /api/ai/chat (tool-use assistant). Set via
+  // `wrangler secret put GROQ_API_KEY` in prod; local dev uses .dev.vars.
+  // Unset => the route returns 503 instead of calling out.
+  GROQ_API_KEY?: string;
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {

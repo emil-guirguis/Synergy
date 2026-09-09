@@ -26,6 +26,7 @@ const NAV: MenuItem[] = [
   { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes', disabled: true },
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders' },
   { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
+  { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
   { id: 'customers', label: 'Customers', icon: 'customers', path: '/customers', requiredPermission: 'admin' },
   { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices', requiredPermission: 'admin' },
@@ -39,6 +40,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/quotes')) return 'Quotes';
   if (pathname.startsWith('/orders')) return 'Orders';
   if (pathname.startsWith('/documents')) return 'Documents';
+  if (pathname.startsWith('/ai-chat')) return 'Ask AI';
   if (pathname.startsWith('/inventory')) return 'Inventory';
   if (pathname.startsWith('/customers')) return 'Customers';
   if (pathname.startsWith('/invoices')) return 'Invoices';

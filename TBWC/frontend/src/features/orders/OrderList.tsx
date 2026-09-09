@@ -35,7 +35,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   const realAuth = useAuth();
   const auth = authProp ?? realAuth;
   const { schema } = useSchema('order');
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // A rep only ever sees their own orders (server-scoped to rep_id = them), so
   // the QB rep dropdown has nothing meaningful to filter — lock it to their own
@@ -172,6 +172,30 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     if (searchParams.get('is_fully_invoiced') === 'false') baseList.setFilter('is_fully_invoiced', 'false');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, searchParams]);
+
+  // AI chat search results link here with ?openId=<qb_sales_order_id> to open
+  // a specific order's form directly (see features/ai/AiChatPage.tsx) — fetch
+  // that one record (not necessarily on the current page/filter) and open it
+  // the same way a row click does, then drop the param so it doesn't reopen
+  // on every future visit to this page.
+  const ordersHook = useOrdersEnhanced();
+  useEffect(() => {
+    const openId = searchParams.get('openId');
+    if (!openId || !onOrderEdit) return;
+    ordersHook
+      .fetchItem(openId)
+      .then((entity) => entity && onOrderEdit(entity as unknown as Order))
+      .catch((err) => console.error('[OrderList] Failed to open order from AI chat link:', err));
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('openId');
+        return next;
+      },
+      { replace: true }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Keep the locked rep filter pinned even if something clears filters —
   // the select is disabled, but "Clear Filters" isn't.
