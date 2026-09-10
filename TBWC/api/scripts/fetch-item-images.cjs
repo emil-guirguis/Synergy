@@ -95,7 +95,7 @@ const OPTS = {
  * outlives the process. So calls are serialised with a gap and a slow retry —
  * a 433-row sweep is a background job, not something worth getting blocked for.
  */
-const DDG_GAP_MS = 4000;
+const DDG_GAP_MS = 8000;
 let ddgNextAt = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -424,7 +424,11 @@ async function main() {
     throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required (see README-item-images.md)');
   }
 
-  const db = new Client({ connectionString: DATABASE_URL, ssl: false });
+  const db = new Client({ connectionString: DATABASE_URL, ssl: false, keepAlive: true });
+  // A DDG throttle can park this loop for four minutes, which is long enough for
+  // the pooler to drop an idle socket. Without a listener pg re-emits that as an
+  // unhandled 'error' event and takes the whole sweep down mid-run.
+  db.on('error', (e) => log(`  DB connection error (will reconnect on next write): ${e.message}`));
   await db.connect();
 
   // 'approved' and 'rejected' are human verdicts — never in the work set, even
