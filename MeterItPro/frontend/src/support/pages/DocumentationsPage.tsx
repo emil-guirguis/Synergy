@@ -26,7 +26,7 @@ interface DocItem {
 
 // BASE_URL is '/' in dev and '/Synergy/' on GitHub Pages — keep links correct in both.
 const APP_SHEET = `${import.meta.env.BASE_URL}docs/MeterItPro-Application-Sheet`;
-const APP_SHEET_REV_B = `${APP_SHEET}-RevB`;
+const APP_SHEET_REV_B1 = `${APP_SHEET}-RevB1`;
 
 const docs: DocItem[] = [
   {
@@ -34,8 +34,8 @@ const docs: DocItem[] = [
     description: 'Current product cut sheet: features, specs, and deployment overview.',
     icon: <DescriptionIcon color="primary" sx={{ fontSize: 40 }} />,
     formats: [
-      { label: 'HTML', href: `${APP_SHEET_REV_B}.html`, icon: <HtmlIcon />, view: true },
-      { label: 'PDF',  href: `${APP_SHEET_REV_B}.pdf`,  icon: <PictureAsPdfIcon />, view: true },
+      { label: 'HTML', href: `${APP_SHEET_REV_B1}.html`, icon: <HtmlIcon />, view: true },
+      { label: 'PDF',  href: `${APP_SHEET_REV_B1}.pdf`,  icon: <PictureAsPdfIcon />, view: true },
     ],
   },
   {

@@ -4,10 +4,8 @@ Product spec / cut sheet for MeterIt Pro (electricity meter management platform)
 
 ## Revisions
 
-- **Rev B1** (`*-RevB.*`) — current, 13 pages. Built from `src/`. HTML and PDF
-  only; see *Exporting* for why there is no `.docx` or Markdown. The revision
-  stamp lives in `REV` in `src/build.mjs`; filenames stay `-RevB` so published
-  links keep working across point revisions.
+- **Rev B1** (`*-RevB1.*`) — current, 13 pages. Built from `src/`. HTML and PDF
+  only; see *Exporting* for why there is no `.docx` or Markdown.
 - **Rev A** (no suffix) — original 9-page issue, kept as an archive. Hand-authored
   HTML, no build step. Do not edit.
 
@@ -20,8 +18,15 @@ deployed site.
 ## Building Rev B
 
 ```sh
-node src/build.mjs        # -> MeterItPro-Application-Sheet-RevB.html
+node src/build.mjs        # -> MeterItPro-Application-Sheet-RevB1.html
 ```
+
+The revision lives in one place: `REV` in `src/build.mjs`. It stamps the header
+band and every footer, **and** it names the output file — `Rev B1` produces
+`MeterItPro-Application-Sheet-RevB1.html`. Bumping it therefore changes the
+published URL, so update the links in
+`frontend/src/support/pages/DocumentationsPage.tsx` in the same commit, and
+`git mv` the previous PDF to match.
 
 `src/` is the source of truth. Never edit the generated `.html` — it is
 overwritten.
@@ -76,8 +81,8 @@ reflowing into extra pages. It is inert in a browser on screen.
 
 ```sh
 chrome --headless=new --disable-gpu --no-pdf-header-footer \
-  --print-to-pdf="MeterItPro-Application-Sheet-RevB.pdf" \
-  "file:///ABSOLUTE/PATH/MeterItPro-Application-Sheet-RevB.html"
+  --print-to-pdf="MeterItPro-Application-Sheet-RevB1.pdf" \
+  "file:///ABSOLUTE/PATH/MeterItPro-Application-Sheet-RevB1.html"
 ```
 
 **Word** — Rev B ships no `.docx`, deliberately. Word's HTML import is a

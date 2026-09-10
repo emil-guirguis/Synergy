@@ -1,5 +1,5 @@
 /**
- * Builds MeterItPro-Application-Sheet-RevB.html from:
+ * Builds MeterItPro-Application-Sheet-<Rev>.html from:
  *   src/application-sheet.template.html   shell + all CSS
  *   src/pages*.html                       page bodies, in filename order
  *   images/*                              screenshots and product photos,
@@ -17,10 +17,14 @@ import { fileURLToPath } from 'url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const OUT = path.join(ROOT, 'MeterItPro-Application-Sheet-RevB.html');
-
 const DOC_ID = 'MIP-AS-001';
 const REV = 'Rev B1';
+
+// Output name is derived from REV so the stamp and the filename cannot drift.
+// Bumping REV renames the file, which changes its published URL — update the
+// links in frontend/src/support/pages/DocumentationsPage.tsx to match.
+const SLUG = REV.replace(/\s+/g, '');
+const OUT = path.join(ROOT, `MeterItPro-Application-Sheet-${SLUG}.html`);
 const YEAR = new Date().getFullYear();
 
 const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml' };
