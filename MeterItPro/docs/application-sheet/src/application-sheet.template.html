@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeterIt Pro — Application Sheet</title>
+<style>
+  /* ============================================================
+     MeterIt Pro — Application Sheet
+     Authored at true A4 geometry (210 × 297 mm) so the on-screen
+     page and the printed sheet are the same box. Do not reintroduce
+     pixel page heights: a px min-height taller than 1123px (A4 at
+     96dpi) spills every page onto a second sheet.
+     ============================================================ */
+  :root {
+    /* --- ground --- */
+    --paper:#ffffff;
+    --canvas:#c9d1de;
+
+    /* --- ink & cool-biased neutrals (picked toward the accent, not stock grey) --- */
+    --ink:#0e1a2b;
+    --ink-2:#31405a;
+    --muted:#5c6879;
+    --faint:#8d97a6;
+    --rule:#d3dae4;
+    --rule-2:#e8edf3;
+    --wash:#f4f7fb;
+
+    /* --- accent --- */
+    --navy:#0f2f63;
+    --blue:#1f56c8;
+    --blue-dk:#17429c;
+
+    /* --- semantic (separate from the accent) --- */
+    --good:#127a3c; --good-w:#e6f3ea; --good-e:#b9dcc6;
+    --warn:#9a5c08; --warn-w:#f7efe0; --warn-e:#e6cfa4;
+    --crit:#b32d26; --crit-w:#f7e7e6; --crit-e:#e5bbb8;
+
+    --mono:"Cascadia Mono","Cascadia Code",ui-monospace,"SF Mono","Segoe UI Mono",Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,Helvetica,Arial,sans-serif;
+
+    /* --- A4 --- */
+    --pw:210mm;
+    --ph:297mm;
+    --pad:13mm;
+
+    --shadow:0 1px 3px rgba(14,26,43,.10),0 18px 44px -20px rgba(14,26,43,.40);
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --canvas:#0b1220; } }
+  :root[data-theme="dark"]{ --canvas:#0b1220; }
+  :root[data-theme="light"]{ --canvas:#c9d1de; }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{
+    font-family:var(--sans);
+    background:var(--canvas);
+    color:var(--ink);
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    padding:8mm 4mm 12mm;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  h1,h2,h3,h4{ margin:0; line-height:1.15; letter-spacing:-0.012em; text-wrap:balance; }
+  p{ margin:0; }
+  ul,ol{ margin:0; }
+  a{ color:var(--blue-dk); text-decoration:none; }
+
+  /* ---------- THE SHEET ---------- */
+  .page{
+    width:var(--pw);
+    height:var(--ph);
+    margin:0 auto 7mm;
+    background:var(--paper);
+    color:var(--ink);
+    box-shadow:var(--shadow);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    position:relative;
+    /* Declared outside @media print because Word reads screen CSS only. It is
+       inert in a browser on screen (no fragmentation context) and is what makes
+       the .docx export land one section per sheet instead of reflowing. */
+    break-after:page;
+    page-break-after:always;
+  }
+  /* no break after the final sheet, or every export gains a trailing blank page */
+  .page:last-of-type{ break-after:auto; page-break-after:auto; margin-bottom:0; }
+
+  /* ---------- HEADER: flat navy bar, no gradient ---------- */
+  .band{
+    flex:none;
+    background:var(--navy);
+    color:#fff;
+    padding:5.5mm var(--pad);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8mm;
+    border-bottom:1.4mm solid var(--blue);
+  }
+  .mark{ display:flex; align-items:center; gap:2.6mm; }
+  .mark svg{ width:6mm; height:6mm; flex:none; }
+  .mark .nm{ font-size:12.5pt; font-weight:700; letter-spacing:-0.01em; line-height:1.1; }
+  .mark .nm small{
+    display:block; font-family:var(--mono); font-size:5.6pt; font-weight:400;
+    letter-spacing:.18em; text-transform:uppercase; opacity:.72; margin-top:.6mm;
+  }
+  .kicker{ text-align:right; font-family:var(--mono); line-height:1.5; }
+  .kicker .k1{ font-size:7pt; letter-spacing:.16em; text-transform:uppercase; opacity:.95; }
+  .kicker .k2{ font-size:6.2pt; letter-spacing:.1em; opacity:.62; }
+
+  /* ---------- CONTENT ---------- */
+  .content{ flex:1; min-height:0; padding:7mm var(--pad) 4mm; display:flex; flex-direction:column; }
+
+  /* page-number eyebrow encodes real document position, not decoration */
+  .phead{ display:flex; align-items:baseline; gap:3.4mm; border-bottom:.35mm solid var(--ink); padding-bottom:2.2mm; }
+  .phead .num{
+    font-family:var(--mono); font-size:8pt; font-weight:700; color:var(--blue);
+    letter-spacing:.06em; flex:none;
+  }
+  .phead h2{ font-size:16pt; font-weight:700; letter-spacing:-0.02em; }
+  .dek{ font-size:9pt; color:var(--muted); max-width:150mm; margin-top:2.6mm; }
+  .dek b{ color:var(--ink-2); font-weight:600; }
+
+  .sec{ margin-top:5.5mm; }
+  .sec-t{
+    font-family:var(--mono); font-size:7pt; font-weight:700; letter-spacing:.15em;
+    text-transform:uppercase; color:var(--blue-dk); padding-bottom:1.4mm;
+    border-bottom:.25mm solid var(--rule); margin-bottom:2.8mm;
+  }
+  .body{ font-size:9pt; color:var(--ink-2); max-width:150mm; }
+  .body + .body{ margin-top:2mm; }
+  .body b{ color:var(--ink); font-weight:600; }
+
+  /* ---------- KEY FIGURES (used only where the figures are the point) ---------- */
+  .figs{ display:grid; grid-template-columns:repeat(4,1fr); border-top:.35mm solid var(--ink); border-bottom:.25mm solid var(--rule); }
+  .figs .c{ padding:3mm 4mm 3.4mm; border-right:.25mm solid var(--rule-2); }
+  .figs .c:last-child{ border-right:0; }
+  .figs .big{ font-size:19pt; font-weight:700; color:var(--navy); letter-spacing:-0.03em; font-variant-numeric:tabular-nums; line-height:1; }
+  .figs .lbl{ font-size:7.4pt; color:var(--muted); margin-top:1.6mm; line-height:1.3; }
+
+  /* ---------- CAPABILITY LIST: rules, not cards ---------- */
+  .caps{ display:grid; grid-template-columns:1fr 1fr; gap:0 8mm; }
+  .cap-i{ padding:3mm 0; border-top:.25mm solid var(--rule-2); display:flex; gap:3mm; }
+  .cap-i .ic{ width:5.4mm; height:5.4mm; flex:none; color:var(--blue); margin-top:.4mm; }
+  .cap-i .ic svg{ width:100%; height:100%; display:block; }
+  .cap-i h4{ font-size:9.5pt; font-weight:650; margin-bottom:1mm; }
+  .cap-i p{ font-size:8pt; color:var(--muted); line-height:1.4; }
+
+  /* ---------- LABELLED BULLET COLUMNS ---------- */
+  .cols2{ display:grid; grid-template-columns:1fr 1fr; gap:4mm 8mm; }
+  .cols3{ display:grid; grid-template-columns:repeat(3,1fr); gap:4mm 7mm; }
+  .bullets{ list-style:none; padding:0; display:grid; gap:1.8mm; }
+  .bullets li{ font-size:8.6pt; color:var(--ink-2); padding-left:4.2mm; position:relative; line-height:1.38; }
+  .bullets li::before{ content:""; position:absolute; left:0; top:1.5mm; width:1.6mm; height:1.6mm; background:var(--blue); }
+  .bullets li b{ color:var(--ink); font-weight:650; }
+
+  .deflist dt{ font-size:8.8pt; font-weight:650; color:var(--ink); }
+  .deflist dd{ margin:.8mm 0 3mm; font-size:8pt; color:var(--muted); line-height:1.4; }
+
+  /* ---------- NUMBERED SEQUENCE (real ordered procedure) ---------- */
+  .steps{ display:grid; gap:0; border-top:.25mm solid var(--rule); }
+  .steps .row{ display:flex; gap:3.4mm; align-items:baseline; padding:2.1mm 0; border-bottom:.25mm solid var(--rule-2); }
+  .steps .n{ font-family:var(--mono); font-size:7.4pt; font-weight:700; color:var(--blue); width:7mm; flex:none; }
+  .steps .d{ font-size:8.6pt; color:var(--ink-2); }
+
+  /* ---------- SCREENSHOT ---------- */
+  /* screenshot follows its section normally; leftover space falls at the
+     bottom of the sheet as a margin, not as a hole mid-page */
+  .shot{ margin-top:6mm; }
+  .frame{ border:.3mm solid var(--rule); }
+  .frame .bar{ display:flex; align-items:center; gap:1.6mm; padding:1.6mm 2.6mm; background:var(--wash); border-bottom:.3mm solid var(--rule); }
+  .frame .dot{ width:1.7mm; height:1.7mm; border-radius:50%; flex:none; background:var(--faint); opacity:.55; }
+  .frame .url{ flex:1; margin-left:1.4mm; font-family:var(--mono); font-size:6.2pt; color:var(--muted); background:#fff; border:.25mm solid var(--rule); padding:.7mm 2mm; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .frame img{ width:100%; display:block; }
+  .cap{ font-size:7.4pt; color:var(--muted); margin-top:1.8mm; max-width:165mm; line-height:1.4; }
+  .cap b{ color:var(--ink-2); font-weight:650; }
+
+  /* ---------- TABLES: hairline, dense, mono values ---------- */
+  .tbl{ width:100%; }
+  table{ width:100%; border-collapse:collapse; font-size:8pt; }
+  thead th{
+    text-align:left; font-family:var(--mono); font-size:6.4pt; letter-spacing:.13em;
+    text-transform:uppercase; color:#fff; font-weight:600; padding:1.9mm 2.6mm;
+    background:var(--navy); white-space:nowrap;
+  }
+  tbody td{ padding:1.7mm 2.6mm; border-bottom:.25mm solid var(--rule-2); color:var(--ink-2); vertical-align:top; line-height:1.35; }
+  tbody tr:last-child td{ border-bottom:.3mm solid var(--rule); }
+  tbody td.m{ font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:7.4pt; }
+  tbody td b{ color:var(--ink); font-weight:650; }
+  td.num{ text-align:right; font-variant-numeric:tabular-nums; }
+
+  /* two-column key/value spec block */
+  .specs{ display:grid; grid-template-columns:1fr 1fr; column-gap:8mm; border-top:.35mm solid var(--ink); }
+  .specs.one{ grid-template-columns:1fr; }
+  .specs .r{ display:flex; justify-content:space-between; align-items:baseline; gap:4mm; padding:1.6mm 0; border-bottom:.25mm solid var(--rule-2); }
+  .specs .k{ font-size:8pt; color:var(--muted); }
+  .specs .v{ font-size:8pt; color:var(--ink); font-weight:600; text-align:right; }
+  .specs .v.m{ font-family:var(--mono); font-weight:500; font-size:7.4pt; font-variant-numeric:tabular-nums; }
+
+  /* ---------- INLINE TAGS ---------- */
+  .tags{ display:flex; gap:1.6mm; flex-wrap:wrap; }
+  .tag{
+    font-family:var(--mono); font-size:6.8pt; letter-spacing:.06em; font-weight:600;
+    border:.25mm solid var(--rule); color:var(--ink-2); padding:1mm 2.2mm; background:var(--wash);
+  }
+  .tag.on{ border-color:var(--blue); color:var(--blue-dk); background:#fff; }
+  .pill{ display:inline-block; font-family:var(--mono); font-size:6.4pt; font-weight:700; padding:.5mm 1.8mm; letter-spacing:.05em; }
+  .pill.good{ background:var(--good-w); color:var(--good); }
+  .pill.warn{ background:var(--warn-w); color:var(--warn); }
+  .pill.crit{ background:var(--crit-w); color:var(--crit); }
+  .pill.info{ background:#e8effc; color:var(--blue-dk); }
+  .tick{ color:var(--good); font-weight:700; }
+  .dash{ color:var(--faint); }
+
+  /* ---------- STATE FLOW (sync server) ---------- */
+  .flow{ display:grid; grid-template-columns:repeat(3,1fr); gap:4mm; }
+  .fc{ border-top:.7mm solid var(--rule); padding-top:2.6mm; }
+  .fc .st{ display:flex; align-items:center; gap:2mm; margin-bottom:1.6mm; }
+  .fc .ic{ width:4.6mm; height:4.6mm; flex:none; }
+  .fc .ic svg{ width:100%; height:100%; display:block; }
+  .fc .tag2{ font-family:var(--mono); font-size:6.4pt; letter-spacing:.12em; text-transform:uppercase; font-weight:700; }
+  .fc h4{ font-size:9pt; font-weight:650; margin-bottom:1.2mm; }
+  .fc p{ font-size:7.8pt; color:var(--muted); line-height:1.4; }
+  .fc.on{ border-top-color:var(--good); } .fc.on .ic{ color:var(--good); } .fc.on .tag2{ color:var(--good); }
+  .fc.out{ border-top-color:var(--warn); } .fc.out .ic{ color:var(--warn); } .fc.out .tag2{ color:var(--warn); }
+  .fc.up{ border-top-color:var(--blue); } .fc.up .ic{ color:var(--blue); } .fc.up .tag2{ color:var(--blue-dk); }
+
+  /* ---------- HARDWARE PANELS ---------- */
+  .hw{ display:grid; grid-template-columns:1fr 1fr; gap:5mm; }
+  .panel{ border:.3mm solid var(--rule); padding:3mm; display:flex; flex-direction:column; background:var(--wash); }
+  .panel .ph{ font-family:var(--mono); font-size:6.4pt; letter-spacing:.13em; text-transform:uppercase; color:var(--muted); font-weight:600; margin-bottom:2.4mm; }
+  .pcimgs{ display:flex; gap:4mm; align-items:flex-end; justify-content:center; flex:1; }
+  .pcimgs figure{ margin:0; text-align:center; }
+  .pcimgs img{ height:34mm; width:auto; display:block; }
+  .pcimgs figcaption{ font-size:6.4pt; color:var(--muted); margin-top:1.6mm; font-family:var(--mono); }
+  .encl{ display:grid; place-items:center; flex:1; }
+  .encl img{ max-width:100%; max-height:46mm; width:auto; height:auto; display:block; }
+
+  /* ---------- DIAGRAMS ---------- */
+  .diagram{ width:100%; height:auto; display:block; }
+  .diagram text{ font-family:var(--sans); }
+  .diagram .dmono{ font-family:var(--mono); }
+
+  /* ---------- FOOTER ---------- */
+  .foot{
+    flex:none; margin-top:auto; border-top:.35mm solid var(--ink);
+    display:flex; align-items:center; justify-content:space-between; gap:4mm;
+    padding:2.4mm var(--pad) 3mm; font-family:var(--mono); font-size:6.4pt;
+    letter-spacing:.05em; color:var(--muted);
+  }
+  .foot .mid{ color:var(--ink); font-weight:700; }
+
+  /* ---------- SCREEN-ONLY AFFORDANCES ---------- */
+  @media (max-width:230mm){
+    body{ padding:4mm 0 8mm; }
+    .page{ box-shadow:0 1px 3px rgba(14,26,43,.16); }
+  }
+
+  /* ---------- PRINT ----------
+     @page margin:0 means the sheet box IS 210×297mm, which is exactly
+     what .page already is — so one section prints as one sheet. */
+  @media print{
+    @page{ size:A4; margin:0; }
+    body{ background:#fff; padding:0; }
+    .page{ box-shadow:none; margin:0; }
+    .page:last-child{ break-after:auto; page-break-after:auto; }
+    .frame,.figs,.specs,.tbl,.steps,.flow,.hw,.shot{ break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+@@PAGES@@
+</body>
+</html>

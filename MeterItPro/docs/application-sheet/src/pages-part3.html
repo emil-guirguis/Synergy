@@ -1,0 +1,384 @@
+
+<!-- ===================== 09 — LOCATIONS, CONTACTS & ORGANIZATION (new in Rev B) ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">09</span>
+      <h2>Locations, Contacts &amp; Organization</h2>
+    </div>
+    <p class="dek">A portfolio is not a flat list of meters. Every meter belongs to a location, every location to a tenant, and the people responsible are recorded alongside — so a reading always answers <b>where</b> and <b>whose</b>, not just how much.</p>
+
+    <div class="sec">
+      <div class="sec-t">How the records nest</div>
+      <svg class="diagram" viewBox="0 0 720 96" role="img" aria-label="A tenant contains locations, each location contains meters, and each meter contains registers; contacts attach at the tenant level">
+        <defs>
+          <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8d97a6"/></marker>
+        </defs>
+        <rect x="1" y="14" width="150" height="46" fill="#0f2f63"/>
+        <text class="dmono" x="13" y="31" font-size="7.5" fill="#9fb6e4" letter-spacing="1.4">TENANT</text>
+        <text x="13" y="48" font-size="10" font-weight="650" fill="#ffffff">Company</text>
+
+        <line x1="155" y1="37" x2="196" y2="37" stroke="#8d97a6" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="200" y="14" width="150" height="46" fill="#ffffff" stroke="#1f56c8" stroke-width="1.2"/>
+        <text class="dmono" x="212" y="31" font-size="7.5" fill="#17429c" letter-spacing="1.4">LOCATION</text>
+        <text x="212" y="48" font-size="10" font-weight="650" fill="#0e1a2b">Site / building</text>
+
+        <line x1="354" y1="37" x2="395" y2="37" stroke="#8d97a6" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="399" y="14" width="150" height="46" fill="#f4f7fb" stroke="#d3dae4"/>
+        <text class="dmono" x="411" y="31" font-size="7.5" fill="#5c6879" letter-spacing="1.4">METER</text>
+        <text x="411" y="48" font-size="10" font-weight="650" fill="#0e1a2b">Physical or virtual</text>
+
+        <line x1="553" y1="37" x2="594" y2="37" stroke="#8d97a6" stroke-width="1.2" marker-end="url(#ar3)"/>
+
+        <rect x="598" y="14" width="121" height="46" fill="#f4f7fb" stroke="#d3dae4"/>
+        <text class="dmono" x="609" y="31" font-size="7.5" fill="#5c6879" letter-spacing="1.4">REGISTER</text>
+        <text x="609" y="48" font-size="10" font-weight="650" fill="#0e1a2b">Circuit / element</text>
+
+        <path d="M76 60 L76 78 L275 78 L275 62" fill="none" stroke="#8d97a6" stroke-width="1.2" stroke-dasharray="3 3"/>
+        <text class="dmono" x="286" y="82" font-size="7.5" fill="#5c6879">contacts attach at tenant level and are referenced from any site</text>
+      </svg>
+    </div>
+
+    <div class="sec">
+      <div class="cols2">
+        <div>
+          <div class="sec-t">Location record</div>
+          <div class="specs one">
+            <div class="r"><span class="k">Type</span><span class="v m">Warehouse · Apartment · Office</span></div>
+            <div class="r"><span class="k"></span><span class="v m">Retail · Hotel · Building · Other</span></div>
+            <div class="r"><span class="k">Address</span><span class="v m">street, unit, city, state, zip, country</span></div>
+            <div class="r"><span class="k">State</span><span class="v m">active / inactive</span></div>
+            <div class="r"><span class="k">Attached</span><span class="v m">meters, notes, audit stamps</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="sec-t">Contact record</div>
+          <div class="specs one">
+            <div class="r"><span class="k">Role</span><span class="v m">Customer · Client · Vendor</span></div>
+            <div class="r"><span class="k"></span><span class="v m">Contractor · Technician · Sales Manager</span></div>
+            <div class="r"><span class="k">Reach</span><span class="v m">email, phone, company</span></div>
+            <div class="r"><span class="k">Address</span><span class="v m">full postal address</span></div>
+            <div class="r"><span class="k">State</span><span class="v m">active / inactive</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Organization settings — applied across the tenant</div>
+      <div class="specs">
+        <div class="r"><span class="k">Timezone</span><span class="v m">IANA zone</span></div>
+        <div class="r"><span class="k">Currency</span><span class="v m">per tenant</span></div>
+        <div class="r"><span class="k">Language</span><span class="v m">per tenant</span></div>
+        <div class="r"><span class="k">Date format</span><span class="v m">e.g. MM/DD/YYYY</span></div>
+        <div class="r"><span class="k">Time format</span><span class="v m">12-hour / 24-hour</span></div>
+        <div class="r"><span class="k">Default page size</span><span class="v m">rows per list</span></div>
+        <div class="r"><span class="k">Reading batch count</span><span class="v m">capture batching</span></div>
+        <div class="r"><span class="k">Identity</span><span class="v m">company name, contact email, website</span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">A portfolio, as the platform sees it</div>
+      <div class="tbl">
+        <table>
+          <thead>
+            <tr><th>Location</th><th>Type</th><th class="num">Meters</th><th class="num">Registers</th><th>State</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>Riverside Distribution</b></td><td>Warehouse</td><td class="m num">4</td><td class="m num">48</td><td><span class="pill good">active</span></td></tr>
+            <tr><td><b>Harbour Point Apartments</b></td><td>Apartment</td><td class="m num">12</td><td class="m num">36</td><td><span class="pill good">active</span></td></tr>
+            <tr><td><b>Fifth Street Retail</b></td><td>Retail</td><td class="m num">3</td><td class="m num">24</td><td><span class="pill good">active</span></td></tr>
+            <tr><td><b>Old Mill Office</b></td><td>Office</td><td class="m num">2</td><td class="m num">12</td><td><span class="pill warn">inactive</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">Example figures, shown to illustrate the shape of the records. Deactivating a location keeps its history rather than deleting it.</p>
+    </div>
+
+    <div class="sec">
+      <p class="body">Timezone and formats are set once per tenant and applied everywhere — reading timestamps, report windows, alert history and exports — so a site in one zone and an accountant in another read the same figures without converting them by hand.</p>
+    </div>
+  </div>
+  @@FOOT@@
+</section>
+
+<!-- ===================== 10 — SECURITY & ADMINISTRATION (new in Rev B) ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">10</span>
+      <h2>Security &amp; Administration</h2>
+    </div>
+    <p class="dek">Access is decided in two independent layers: a <b>role</b> decides what a person can do, and the <b>tenant</b> decides which records exist for them at all. The second layer is enforced in the database, not only in the application.</p>
+
+    <div class="sec">
+      <div class="sec-t">Roles</div>
+      <div class="tags">
+        <span class="tag on">superadmin</span>
+        <span class="tag on">supersupport</span>
+        <span class="tag on">adminsupport</span>
+        <span class="tag on">admin</span>
+        <span class="tag">manager</span>
+        <span class="tag">technician</span>
+        <span class="tag">viewer</span>
+        <span class="tag">user</span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">What each role may do</div>
+      <div class="tbl">
+        <table>
+          <thead>
+            <tr><th>Resource</th><th>Admin</th><th>Manager</th><th>Technician</th><th>Viewer</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>Dashboard</b></td><td class="m">read</td><td class="m">read</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Meters &amp; registers</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td></tr>
+            <tr><td><b>Notification rules</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td></tr>
+            <tr><td><b>Reports</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td></tr>
+            <tr><td><b>Locations</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Contacts</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Email templates</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Users</b></td><td class="m">create read update delete</td><td class="m">create read update</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Settings</b></td><td class="m">read update</td><td class="m">read update</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Devices</b></td><td class="m">read</td><td class="m">read</td><td class="m">read</td><td class="m">read</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">Rows are ordered by how much the roles diverge. <b>superadmin</b> carries every permission, the same set as <b>admin</b>. Each cell is a set of named permissions — <span class="tag">report:create</span>, <span class="tag">meter:delete</span> — so a role can be widened or narrowed without a code change.</p>
+    </div>
+
+    <div class="sec">
+      <div class="cols2">
+        <div>
+          <div class="sec-t">Isolation &amp; transport</div>
+          <ul class="bullets">
+            <li>Every record carries its tenant; queries are scoped to it</li>
+            <li>Row-level security enforced in PostgreSQL itself</li>
+            <li>HTTPS / TLS on every connection</li>
+            <li>Rate limiting on authentication endpoints</li>
+          </ul>
+        </div>
+        <div>
+          <div class="sec-t">Audit &amp; support</div>
+          <ul class="bullets">
+            <li>Authentication events logged with status</li>
+            <li>IP address and user agent recorded per event</li>
+            <li>Created and updated stamps on every record</li>
+            <li>In-platform support tickets, admin-triaged</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">What an authentication event records</div>
+      <div class="specs">
+        <div class="r"><span class="k">User</span><span class="v m">account the event belongs to</span></div>
+        <div class="r"><span class="k">Event type</span><span class="v m">what was attempted</span></div>
+        <div class="r"><span class="k">Status</span><span class="v m">outcome of the attempt</span></div>
+        <div class="r"><span class="k">IP address</span><span class="v m">origin of the request</span></div>
+        <div class="r"><span class="k">User agent</span><span class="v m">client that made it</span></div>
+        <div class="r"><span class="k">Timestamp</span><span class="v m">when it happened</span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <p class="body">Because tenant isolation lives in the database, a bug in application code cannot leak one customer's meters to another. Role checks then run on top of that, on both the interface and the API — a hidden button is never the only thing standing between a user and a record.</p>
+    </div>
+  </div>
+  @@FOOT@@
+</section>
+
+<!-- ===================== 11 — ON-SITE SYNC SERVER ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">11</span>
+      <h2>On-Site Sync Server</h2>
+    </div>
+    <p class="dek">A compact, sealed, <b>Linux-based</b> appliance installed on site. It talks to meters over <b>BACnet and IP</b> and — the part that matters — <b>keeps metering when the internet goes down</b>, then catches the cloud up automatically once the link returns.</p>
+
+    <div class="sec">
+      <div class="sec-t">Resilient by design — no data gaps</div>
+      <div class="flow">
+        <div class="fc on">
+          <div class="st">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h.01"/><path d="M5 13a10 10 0 0114 0"/><path d="M8.5 16a5.5 5.5 0 017 0"/></svg></span>
+            <span class="tag2">Online · normal</span>
+          </div>
+          <h4>Meter &amp; stream live</h4>
+          <p>Polls every meter on the local network at 15-minute intervals and streams readings to the cloud in real time.</p>
+        </div>
+        <div class="fc out">
+          <div class="st">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M12 19h.01"/><path d="M8.5 16a5.5 5.5 0 017 0"/></svg></span>
+            <span class="tag2">Internet outage</span>
+          </div>
+          <h4>Keeps metering offline</h4>
+          <p>If the site loses its link the appliance keeps polling and buffers every reading to local storage. Nothing is lost.</p>
+        </div>
+        <div class="fc up">
+          <div class="st">
+            <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V8"/><path d="M7 13l5-5 5 5"/><path d="M5 4h14"/></svg></span>
+            <span class="tag2">Reconnected</span>
+          </div>
+          <h4>Auto-uploads &amp; back-fills</h4>
+          <p>Buffered readings upload automatically and back-fill the timeline in order — no gaps, no manual steps.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="hw">
+        <div class="panel">
+          <div class="ph">Sync server — Dell micro desktop</div>
+          <div class="pcimgs">
+            <figure>@@IMG:07-syncserver-front@@<figcaption>Front I/O</figcaption></figure>
+            <figure>@@IMG:08-syncserver-rear@@<figcaption>Rear I/O</figcaption></figure>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="ph">Enclosure — Altelix 14×11×5 vented NEMA</div>
+          <div class="encl">@@IMG:09-enclosure@@</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Appliance specifications</div>
+      <div class="specs">
+        <div class="r"><span class="k">Processor</span><span class="v m">Intel Core i5-8400T</span></div>
+        <div class="r"><span class="k">Cores / clock</span><span class="v m">6C · 3.3 GHz · 35 W</span></div>
+        <div class="r"><span class="k">Memory</span><span class="v m">16 GB DDR4</span></div>
+        <div class="r"><span class="k">Storage</span><span class="v m">512 GB SSD</span></div>
+        <div class="r"><span class="k">Operating system</span><span class="v m">Linux-based, hardened</span></div>
+        <div class="r"><span class="k">Networking</span><span class="v m">Gigabit Ethernet (RJ-45)</span></div>
+        <div class="r"><span class="k">Ports</span><span class="v m">USB 3.1 · USB-C · 2× DP · HDMI</span></div>
+        <div class="r"><span class="k">Form factor</span><span class="v m">Micro, ≈1.2 L</span></div>
+        <div class="r"><span class="k">Dimensions</span><span class="v m">36 × 182 × 178 mm</span></div>
+        <div class="r"><span class="k">Power</span><span class="v m">65 W external adapter</span></div>
+        <div class="r"><span class="k">Meter protocols</span><span class="v m">BACnet · IP</span></div>
+        <div class="r"><span class="k">Local buffering</span><span class="v m">full readings retained offline</span></div>
+        <div class="r"><span class="k">Recovery</span><span class="v m">fast reimage &amp; redeploy</span></div>
+        <div class="r"><span class="k">Uptime</span><span class="v m">24/7 unattended</span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Enclosure specifications</div>
+      <div class="specs">
+        <div class="r"><span class="k">Model</span><span class="v m">Altelix 14×11×5 PC+ABS vented</span></div>
+        <div class="r"><span class="k">Exterior</span><span class="v m">13.4 × 11.6 × 6.3 in</span></div>
+        <div class="r"><span class="k">Interior</span><span class="v m">12.0 × 8.0 × 4.0 in</span></div>
+        <div class="r"><span class="k">Material</span><span class="v m">Polycarbonate + ABS, UV-resistant</span></div>
+        <div class="r"><span class="k">Flame rating</span><span class="v m">meets UL94-V0</span></div>
+        <div class="r"><span class="k">Environmental</span><span class="v m">NEMA 3R / 3RX · IP24</span></div>
+        <div class="r"><span class="k">Door</span><span class="v m">gasketed hinge, dual latch, key/padlock</span></div>
+        <div class="r"><span class="k">Ventilation</span><span class="v m">2× 3&quot; vents, rain shields, screens</span></div>
+        <div class="r"><span class="k">Mounting</span><span class="v m">wall; optional pole kit to 8&quot; dia.</span></div>
+        <div class="r"><span class="k">Weight</span><span class="v m">3.2 lb (1.4 kg)</span></div>
+        <div class="r"><span class="k">RF</span><span class="v m">transparent for on-site wireless</span></div>
+        <div class="r"><span class="k">Included</span><span class="v m">grommets, ties, ground plate &amp; wire</span></div>
+      </div>
+    </div>
+  </div>
+  @@FOOT@@
+</section>
+
+<!-- ===================== 12 — SPECIFICATIONS ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">12</span>
+      <h2>Specifications</h2>
+    </div>
+    <p class="dek">Supported hardware and platform characteristics, current at this revision. Additional device models are added on request — the register model is generic, so a new meter is a configuration change rather than a release.</p>
+
+    <div class="sec">
+      <div class="sec-t">Device compatibility</div>
+      <div class="tbl">
+        <table>
+          <thead>
+            <tr><th>Manufacturer</th><th>Description</th><th>Model no.</th><th>Type</th><th class="num">Elements</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>DENT Instruments</b></td><td>PowerScout 48HD</td><td class="m">PowerScout48HD</td><td>Electric</td><td class="m num">48</td></tr>
+            <tr><td><b>TBWC, Inc.</b></td><td>PS24</td><td class="m">DI-MMU8</td><td>Electric</td><td class="m num">24</td></tr>
+            <tr><td><b>TBWC, Inc.</b></td><td>PS48</td><td class="m">DI-MMU16</td><td>Electric</td><td class="m num">16</td></tr>
+            <tr><td><b>TBWC, Inc.</b></td><td>PS12</td><td class="m">DI-MMU4</td><td>Electric</td><td class="m num">12</td></tr>
+            <tr><td><b>TBWC, Inc.</b></td><td>PS3</td><td class="m">DI-SAKIT</td><td>Electric</td><td class="m num">3</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Platform</div>
+      <div class="specs">
+        <div class="r"><span class="k">Deployment</span><span class="v m">fully cloud-hosted (SaaS)</span></div>
+        <div class="r"><span class="k">On-premises servers</span><span class="v m">none required</span></div>
+        <div class="r"><span class="k">Access</span><span class="v m">any modern browser</span></div>
+        <div class="r"><span class="k">Tenancy</span><span class="v m">multi-tenant, row-level isolated</span></div>
+        <div class="r"><span class="k">Access control</span><span class="v m">role-based, 8 roles</span></div>
+        <div class="r"><span class="k">Transport security</span><span class="v m">HTTPS / TLS</span></div>
+        <div class="r"><span class="k">Meter focus</span><span class="v m">electricity</span></div>
+        <div class="r"><span class="k">Meter models</span><span class="v m">physical &amp; virtual</span></div>
+        <div class="r"><span class="k">Reading interval</span><span class="v m">15 min typical</span></div>
+        <div class="r"><span class="k">Export formats</span><span class="v m">PDF · CSV · HTML · email</span></div>
+        <div class="r"><span class="k">Site sync</span><span class="v m">edge sync-server appliance</span></div>
+        <div class="r"><span class="k">Meter protocols</span><span class="v m">BACnet · IP</span></div>
+        <div class="r"><span class="k">Scheduling</span><span class="v m">cron, server-side</span></div>
+        <div class="r"><span class="k">Integrations</span><span class="v m">AI querying · CSV · REST API</span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Capability summary</div>
+      <div class="cols2">
+        <ul class="bullets">
+          <li>Physical &amp; virtual electricity meters</li>
+          <li>Per-register readings, graphs &amp; alerts</li>
+          <li>Custom dashboards &amp; analytics</li>
+          <li>Scheduled cost &amp; revenue reports</li>
+          <li>Multi-site portfolio management</li>
+        </ul>
+        <ul class="bullets">
+          <li>Threshold, no-reading &amp; zero-reading alerts</li>
+          <li>PDF / CSV export &amp; scheduled email</li>
+          <li>Zenith AI plain-language querying</li>
+          <li>On-site sync server with offline resilience</li>
+          <li>Row-level tenant isolation &amp; auth audit log</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Revision history</div>
+      <div class="tbl">
+        <table>
+          <thead>
+            <tr><th>Rev</th><th>Pages</th><th>Changes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="m"><b>A</b></td><td class="m num">9</td><td>First issue. Overview, capabilities, meters &amp; registers, captured data, dashboards, alerts, Zenith AI, sync server, specifications.</td></tr>
+            <tr><td class="m"><b>B</b></td><td class="m num">12</td><td>Added Scheduled Reports, Locations &amp; Organization, and Security &amp; Administration. Reset to A4 page geometry, restyled to a technical datasheet, refreshed portfolio-home screenshot.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sec">
+      <p class="cap">Enclosure specification source: <a href="https://enclosurehub.com/products/altelix-14x11x5-pc-abs-weatherproof-vented-utlity-box-nema-enclosure-with-hinged-door">enclosurehub.com — Altelix 14×11×5 PC+ABS Weatherproof Vented Utility Box</a>. Specifications are subject to change without notice.</p>
+    </div>
+  </div>
+  @@FOOT@@
+</section>

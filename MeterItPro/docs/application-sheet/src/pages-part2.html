@@ -1,0 +1,264 @@
+
+<!-- ===================== 05 — DASHBOARDS & ANALYTICS ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">05</span>
+      <h2>Dashboards &amp; Analytics</h2>
+    </div>
+    <p class="dek">Compose dashboards from configurable chart widgets. Range, chart type, granularity and aggregation are set per widget — so each team builds the exact view it needs instead of negotiating over one shared layout.</p>
+
+    <div class="sec">
+      <div class="cols2">
+        <div>
+          <div class="sec-t">Per-widget controls</div>
+          <div class="specs one">
+            <div class="r"><span class="k">Range</span><span class="v m">since install · daily · custom</span></div>
+            <div class="r"><span class="k">Granularity</span><span class="v m">down to 15 min</span></div>
+            <div class="r"><span class="k">Aggregation</span><span class="v m">max · min · avg · sum</span></div>
+            <div class="r"><span class="k">Chart type</span><span class="v m">bar · line · area · pie · table</span></div>
+            <div class="r"><span class="k">Actions</span><span class="v m">refresh · export · email</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="sec-t">Composition</div>
+          <ul class="bullets">
+            <li>Multiple dashboards per user</li>
+            <li>Drag-and-drop widget layout</li>
+            <li>Any register or meter as a series</li>
+            <li>Favourites pinned to the portfolio home</li>
+            <li>Read-only sharing with stakeholders</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="frame">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">meteritpro.com/dashboard</span></div>
+        @@IMG:04-custom-dashboard@@
+      </div>
+      <p class="cap"><b>Custom dashboard</b> — a Peak kW widget with its range, chart type, granularity and aggregation exposed directly on the widget.</p>
+    </div>
+  </div>
+  @@FOOT@@
+</section>
+
+<!-- ===================== 06 — SCHEDULED REPORTS (new in Rev B) ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">06</span>
+      <h2>Scheduled Reports</h2>
+    </div>
+    <p class="dek">Dashboards are for looking; reports are for sending. Define a report once — meters, window, shape, format, recipients — and the platform runs it on a cron schedule and records what actually reached each address.</p>
+
+    <div class="sec">
+      <div class="sec-t">Report definition</div>
+      <div class="specs">
+        <div class="r"><span class="k">Report type</span><span class="v m">cost · revenue</span></div>
+        <div class="r"><span class="k">Schedule</span><span class="v m">cron expression</span></div>
+        <div class="r"><span class="k">Time frame</span><span class="v m">today · weekly · monthly · yearly · custom</span></div>
+        <div class="r"><span class="k">Grouping</span><span class="v m">hourly · daily · weekly · monthly</span></div>
+        <div class="r"><span class="k">Visualization</span><span class="v m">bar · line · pie · csv</span></div>
+        <div class="r"><span class="k">Attach as</span><span class="v m">html · pdf · csv</span></div>
+        <div class="r"><span class="k">Meter selection</span><span class="v m">any meters / registers</span></div>
+        <div class="r"><span class="k">Recipients</span><span class="v m">multiple addresses</span></div>
+        <div class="r"><span class="k">State</span><span class="v m">active / inactive per report</span></div>
+        <div class="r"><span class="k">Cadence</span><span class="v m">recurring, or one-time</span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Run and delivery pipeline</div>
+      <svg class="diagram" viewBox="0 0 720 112" role="img" aria-label="A report definition fires on its cron schedule; the run is recorded as success or failed with an error message; each recipient then gets its own delivery record of sent, delivered or failed">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#8d97a6"/></marker>
+        </defs>
+        <rect x="1" y="22" width="152" height="64" fill="#ffffff" stroke="#d3dae4"/>
+        <text class="dmono" x="13" y="39" font-size="8" fill="#17429c" letter-spacing="1.4">DEFINITION</text>
+        <text x="13" y="57" font-size="10.5" font-weight="650" fill="#0e1a2b">Report</text>
+        <text x="13" y="73" font-size="8.5" fill="#5c6879">type · window · meters</text>
+
+        <line x1="157" y1="54" x2="206" y2="54" stroke="#8d97a6" stroke-width="1.2" marker-end="url(#ar2)"/>
+        <text class="dmono" x="163" y="47" font-size="7.5" fill="#5c6879">cron</text>
+
+        <rect x="210" y="22" width="152" height="64" fill="#f4f7fb" stroke="#d3dae4"/>
+        <text class="dmono" x="222" y="39" font-size="8" fill="#17429c" letter-spacing="1.4">EXECUTION</text>
+        <text x="222" y="57" font-size="10.5" font-weight="650" fill="#0e1a2b">Run history</text>
+        <text x="222" y="73" font-size="8.5" fill="#5c6879">executed at · status · error</text>
+
+        <line x1="366" y1="54" x2="415" y2="54" stroke="#8d97a6" stroke-width="1.2" marker-end="url(#ar2)"/>
+
+        <rect x="419" y="22" width="152" height="64" fill="#f4f7fb" stroke="#d3dae4"/>
+        <text class="dmono" x="431" y="39" font-size="8" fill="#17429c" letter-spacing="1.4">PER RECIPIENT</text>
+        <text x="431" y="57" font-size="10.5" font-weight="650" fill="#0e1a2b">Email log</text>
+        <text x="431" y="73" font-size="8.5" fill="#5c6879">address · sent at · status</text>
+
+        <line x1="575" y1="54" x2="624" y2="54" stroke="#8d97a6" stroke-width="1.2" marker-end="url(#ar2)"/>
+
+        <rect x="628" y="22" width="91" height="64" fill="#0f2f63"/>
+        <text class="dmono" x="639" y="39" font-size="8" fill="#9fb6e4" letter-spacing="1.4">OUTCOME</text>
+        <text x="639" y="55" font-size="8.5" fill="#ffffff">sent</text>
+        <text x="639" y="68" font-size="8.5" fill="#ffffff">delivered</text>
+        <text x="639" y="81" font-size="8.5" fill="#ffffff">failed</text>
+      </svg>
+    </div>
+
+    <div class="sec">
+      <div class="cols2">
+        <div>
+          <div class="sec-t">Why the delivery log matters</div>
+          <ul class="bullets">
+            <li>A run that succeeded is not the same as an email that arrived</li>
+            <li>Failures keep the error text, per address</li>
+            <li>Execution history is indexed by report and by date</li>
+            <li>Deleting a report cascades its history and its logs</li>
+          </ul>
+        </div>
+        <div>
+          <div class="sec-t">Typical uses</div>
+          <ul class="bullets">
+            <li>Monthly tenant cost recovery, grouped daily</li>
+            <li>Weekly revenue summary to the account manager</li>
+            <li>Yearly consumption CSV for the auditor</li>
+            <li>Custom-window PDF after a tariff change</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-t">Two reports, fully specified</div>
+      <div class="tbl">
+        <table>
+          <thead>
+            <tr><th>Report</th><th>Type</th><th>Window</th><th>Grouping</th><th>Shape</th><th>Goes out as</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>Tenant cost recovery</b><br><span class="pill info">active</span></td>
+              <td class="m">cost</td><td class="m">monthly</td><td class="m">daily</td><td class="m">bar</td><td class="m">pdf</td>
+            </tr>
+            <tr>
+              <td><b>Portfolio revenue summary</b><br><span class="pill info">active</span></td>
+              <td class="m">revenue</td><td class="m">weekly</td><td class="m">daily</td><td class="m">line</td><td class="m">html</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cap">Both are ordinary records — editable, disableable, and duplicable per client. A <span class="tag">csv</span> visualization with a <span class="tag">csv</span> attachment produces a raw interval extract instead of a chart.</p>
+    </div>
+
+    <div class="sec">
+      <p class="body">Reports run server-side on the platform's own schedule, so nothing depends on a browser being open or a workstation being awake. Recipients do not need MeterIt&nbsp;Pro accounts.</p>
+    </div>
+  </div>
+  @@FOOT@@
+</section>
+
+<!-- ===================== 07 — ALERTS & NOTIFICATIONS ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">07</span>
+      <h2>Alerts &amp; Notifications</h2>
+    </div>
+    <p class="dek">Define rules once and the platform watches every register around the clock — so a stalled meter or a runaway load is caught before the client notices it.</p>
+
+    <div class="sec">
+      <div class="sec-t">Rule types</div>
+      <div class="tbl">
+        <table>
+          <thead>
+            <tr><th>Rule type</th><th>Fires when</th><th>What it catches</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>Custom</b> <span class="pill info">threshold</span></td><td>A parameter crosses the configured threshold on a register</td><td>Runaway load, demand overshoot, tariff breach</td></tr>
+            <tr><td><b>No reading</b> <span class="pill warn">silence</span></td><td>No reading arrives for a register within the expected interval</td><td>Dead comms, offline sync server, decommissioned device</td></tr>
+            <tr><td><b>Zero reading</b> <span class="pill crit">stalled</span></td><td>A register reports zero where consumption is expected</td><td>Dead CT, stalled channel, mis-wired circuit</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="cols2">
+        <div>
+          <div class="sec-t">Delivery</div>
+          <ul class="bullets">
+            <li>In-app banner on the platform</li>
+            <li>Email with a link straight to the meter in alarm</li>
+            <li>Threshold breach, over-interval and over-time conditions</li>
+            <li>Scheduled scans clear stale notifications</li>
+          </ul>
+        </div>
+        <div>
+          <div class="sec-t">Management</div>
+          <ul class="bullets">
+            <li>Active or inactive per rule — no deleting to silence one</li>
+            <li>Full notification history retained</li>
+            <li>Rules attach to any register, on any meter</li>
+            <li>Create, read, update and delete gated by permission</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="frame">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">meteritpro.com/notification-rules</span></div>
+        @@IMG:05-notification-rules@@
+      </div>
+      <p class="cap"><b>Notification rules</b> — custom, no-reading and zero-reading rule types, each toggled active or inactive per register.</p>
+    </div>
+  </div>
+  @@FOOT@@
+</section>
+
+<!-- ===================== 08 — ZENITH AI ===================== -->
+<section class="page">
+  @@BAND@@
+  <div class="content">
+    <div class="phead">
+      <span class="num">08</span>
+      <h2>Zenith AI Assistant</h2>
+    </div>
+    <p class="dek">Query meters, readings and alerts in plain language — no report to build, no filters to configure. Zenith reads across the portfolio, inside the asking user's own tenant and permissions, and answers in seconds.</p>
+
+    <div class="sec">
+      <div class="cols2">
+        <div>
+          <div class="sec-t">Questions it answers</div>
+          <ul class="bullets">
+            <li>Which meters haven't reported in 48 hours?</li>
+            <li>What is my total consumption today?</li>
+            <li>Which alert rules triggered this week?</li>
+            <li>Summarize peak demand across all sites.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="sec-t">How it stays trustworthy</div>
+          <ul class="bullets">
+            <li>Scoped to the caller's tenant — never across tenants</li>
+            <li>Reads the same records the UI shows, not a stale copy</li>
+            <li>Suggested prompts for a cold start</li>
+            <li>Structured data underneath, so answers are checkable</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="shot">
+      <div class="frame">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">meteritpro.com/ai-chat</span></div>
+        @@IMG:06-zenith-ai@@
+      </div>
+      <p class="cap"><b>Zenith assistant</b> — a plain-language front door to meter data, with suggested prompts to get started.</p>
+    </div>
+  </div>
+  @@FOOT@@
+</section>

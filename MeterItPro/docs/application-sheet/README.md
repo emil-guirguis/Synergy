@@ -3,36 +3,90 @@
 Product spec / cut sheet for MeterIt Pro (electricity meter management platform).
 
 ## Revisions
-- **Rev B** (`*-RevB.*`) — current. Working revision.
-- **Rev A** (no suffix) — original, kept as archive. Do not edit.
 
-Both revisions are published on the app's Documentation page; the Vite `docs-plugin`
-copies every file in this folder into `dist/docs/`, so a new format appears on the
-site as soon as it is committed. The `images/` folder is a directory and is skipped
-by that copy — it holds the screenshots extracted from the HTML (`images/originals/`
-keeps the pre-edit versions) so they can be re-worked and re-embedded.
+- **Rev B** (`*-RevB.*`) — current, 12 pages. Built from `src/`.
+- **Rev A** (no suffix) — original 9-page issue, kept as an archive. Hand-authored
+  HTML, no build step. Do not edit.
 
-## Files
-- `MeterItPro-Application-Sheet.html` — self-contained page. All screenshots and
-  product photos are embedded as base64 data URIs, so it opens offline with no
-  external assets. Print-friendly (A4, colored bands via `print-color-adjust`).
-- `MeterItPro-Application-Sheet.pdf` — exported PDF (headless Chrome).
+Both revisions are listed on the app's Documentation page
+(`/support/documentations`). The Vite `docs-plugin` copies every *file* in this
+folder into `dist/docs/`, so a format appears on the site as soon as it is
+committed. Sub-directories (`src/`, `images/`) are skipped and stay out of the
+deployed site.
 
-## Contents (9 sections)
-1. Overview · 2. Core capabilities · 3. Meters & registers · 4. Metering data captured
-5. Dashboards & analytics · 6. Alerts & notifications · 7. Zenith AI assistant
-8. On-site Sync Server (Linux, BACnet/IP, offline resilience) · 9. Specifications
+## Building Rev B
 
-## Regenerate the PDF
-Open the HTML in a browser and Print → Save as PDF (enable "Background graphics"),
-or headless Chrome:
+```sh
+node src/build.mjs        # -> MeterItPro-Application-Sheet-RevB.html
+node src/to-markdown.mjs  # -> MeterItPro-Application-Sheet-RevB.md
+```
+
+`src/` is the source of truth. Never edit the generated `.html` or `.md` — they
+are overwritten.
+
+| Path | What it is |
+|------|------------|
+| `src/application-sheet.template.html` | Page shell and all CSS |
+| `src/pages.html`, `src/pages-part2.html`, `src/pages-part3.html` | Page bodies, concatenated in filename order |
+| `src/build.mjs` | Expands macros, inlines images, writes the HTML |
+| `src/to-markdown.mjs` | Emits the Markdown mirror from the same sources |
+| `images/` | Screenshots, extracted from the original base64 |
+| `images/originals/` | Pre-edit versions, kept so an edit can be reverted |
+
+Macros inside the page sources, each written as `@@NAME@@`:
+
+- `BAND` — the navy header bar
+- `FOOT` — the running footer; page numbers are counted automatically
+- `IMG:<basename>` — inlines `images/<basename>.jpg` as a data URI, with alt text
+  from the `ALT` map in `build.mjs`
+
+The build fails loudly on an unexpanded macro, a missing image, or a page without
+a footer — so a mistake never reaches the output silently.
+
+## Page geometry — read before touching the CSS
+
+Pages are authored at **true A4, 210 × 297 mm**, so the on-screen page and the
+printed sheet are the same box and one section prints as exactly one sheet.
+
+Rev A used `min-height: 1180px`, which is taller than A4's 1123px at 96dpi. Every
+page therefore spilled onto a second sheet and its 9 pages printed as 13. Do not
+reintroduce a pixel page height.
+
+A section that outgrows 297 mm is **clipped, not reflowed**. To check every page
+still fits, load the built HTML and measure the gap under each page's last block:
+
+```js
+document.querySelectorAll('.page').forEach((p, i) => {
+  const c = p.querySelector('.content');
+  const pad = parseFloat(getComputedStyle(c).paddingBottom);
+  const free = c.getBoundingClientRect().bottom - pad
+             - c.lastElementChild.getBoundingClientRect().bottom;
+  console.log(i + 1, Math.round(free));   // negative means content is being cut off
+});
+```
+
+`.page` carries `page-break-after` *outside* the print media query on purpose:
+Word reads screen CSS only, and that rule is what keeps the `.docx` export from
+reflowing into extra pages. It is inert in a browser on screen.
+
+## Exporting
+
+**PDF** — headless Chrome, exact at 12 sheets:
 
 ```sh
 chrome --headless=new --disable-gpu --no-pdf-header-footer \
-  --print-to-pdf="MeterItPro-Application-Sheet.pdf" \
-  "file:///ABSOLUTE/PATH/MeterItPro-Application-Sheet.html"
+  --print-to-pdf="MeterItPro-Application-Sheet-RevB.pdf" \
+  "file:///ABSOLUTE/PATH/MeterItPro-Application-Sheet-RevB.html"
 ```
 
-## Editing
-Edit the HTML directly. Screenshots are inline data URIs; to swap one, replace the
-matching `data:image/...` string (each `<img>` has a descriptive `alt`).
+**Word** — open the HTML in Word, set A4 with **all four margins to 0** (the sheet
+is already 210 × 297 mm), then Save As `.docx`. Without the zero margins Word
+applies its own 1-inch margins and the content reflows onto extra pages. Word
+approximates the layout rather than reproducing it exactly; the PDF is the
+faithful one.
+
+## Screenshots
+
+Images are inlined as base64 in the built HTML, so the file opens offline with no
+external assets. To replace one, drop a new file over `images/<name>.jpg` and
+re-run the build — there is no need to hand-edit a data URI.
