@@ -2,6 +2,16 @@
 
 Product spec / cut sheet for MeterIt Pro (electricity meter management platform).
 
+## Revisions
+- **Rev B** (`*-RevB.*`) — current. Working revision.
+- **Rev A** (no suffix) — original, kept as archive. Do not edit.
+
+Both revisions are published on the app's Documentation page; the Vite `docs-plugin`
+copies every file in this folder into `dist/docs/`, so a new format appears on the
+site as soon as it is committed. The `images/` folder is a directory and is skipped
+by that copy — it holds the screenshots extracted from the HTML (`images/originals/`
+keeps the pre-edit versions) so they can be re-worked and re-embedded.
+
 ## Files
 - `MeterItPro-Application-Sheet.html` — self-contained page. All screenshots and
   product photos are embedded as base64 data URIs, so it opens offline with no

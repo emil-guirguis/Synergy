@@ -26,12 +26,24 @@ interface DocItem {
 
 // BASE_URL is '/' in dev and '/Synergy/' on GitHub Pages — keep links correct in both.
 const APP_SHEET = `${import.meta.env.BASE_URL}docs/MeterItPro-Application-Sheet`;
+const APP_SHEET_REV_B = `${APP_SHEET}-RevB`;
 
 const docs: DocItem[] = [
   {
-    title: 'MeterIt Pro — Application Sheet',
-    description: 'Product cut sheet: features, specs, and deployment overview.',
+    title: 'MeterIt Pro — Application Sheet (Rev B)',
+    description: 'Current product cut sheet: features, specs, and deployment overview.',
     icon: <DescriptionIcon color="primary" sx={{ fontSize: 40 }} />,
+    formats: [
+      { label: 'HTML', href: `${APP_SHEET_REV_B}.html`, icon: <HtmlIcon />, view: true },
+      { label: 'PDF',  href: `${APP_SHEET_REV_B}.pdf`,  icon: <PictureAsPdfIcon />, view: true },
+      { label: 'Markdown', href: `${APP_SHEET_REV_B}.md`, icon: <NotesIcon />, view: true },
+      { label: 'Word',  href: `${APP_SHEET_REV_B}.docx`, icon: <ArticleIcon /> },
+    ],
+  },
+  {
+    title: 'MeterIt Pro — Application Sheet (Rev A)',
+    description: 'Previous revision, kept for reference.',
+    icon: <DescriptionIcon color="disabled" sx={{ fontSize: 40 }} />,
     formats: [
       { label: 'HTML', href: `${APP_SHEET}.html`, icon: <HtmlIcon />, view: true },
       { label: 'PDF',  href: `${APP_SHEET}.pdf`,  icon: <PictureAsPdfIcon />, view: true },
