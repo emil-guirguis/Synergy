@@ -44,7 +44,9 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
 
   // Rep list view is a deliberately trimmed-down field set (per rep request) —
   // distinct from the admin view, which keeps the fuller QB-derived columns.
-  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'shipped_date', 'expedite', 'total', 'build_notes'];
+  // Build notes are internal-to-TBWC: dropped from the rep list here and from
+  // the rep form by the Notes tab's visibleFor: ['admin'] (see orderSchema.ts).
+  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'shipped_date', 'expedite', 'total'];
   const REP_LABEL_OVERRIDES: Partial<Record<keyof Order, string>> = {
     ref_number: 'TBWC #',
     txn_date: 'Received',
@@ -95,9 +97,12 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     const schemaFilters = generateFiltersFromSchema(schema.formFields).filter((f) => f.key !== 'sales_rep');
 
     if (!canSeeAll) {
+      // Reps only get filters for the columns they can actually see — otherwise
+      // hidden fields (build notes, invoice #) come back as filter boxes.
+      const repFilters = schemaFilters.filter((f) => REP_FIELD_ORDER.includes(f.key as string));
       // Rep view: no picker, just a locked display of who this data belongs to.
       if (ownRepListId) {
-        schemaFilters.push({
+        repFilters.push({
           key: 'sales_rep_list_id',
           label: 'Sales Rep',
           type: 'select',
@@ -105,7 +110,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
           disabled: true,
         });
       }
-      return schemaFilters;
+      return repFilters;
     }
 
     const repField = schema.entityFields?.sales_rep_list_id;
@@ -144,7 +149,12 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     },
     permissions: {
       create: Permission.ORDER_CREATE,
-      update: Permission.ORDER_UPDATE,
+      // AuthContext.checkPermission grants every permission to admins only, so
+      // requiring ORDER_UPDATE here left canUpdate false for reps — useBaseList
+      // then withheld onEdit entirely and a rep's row click did nothing. Reps
+      // open the record read-only (see OrderForm), so gate the row on nothing
+      // and let the form + the API decide what they may change.
+      update: canSeeAll ? Permission.ORDER_UPDATE : undefined,
       delete: Permission.ORDER_DELETE,
     },
     columns,
@@ -218,7 +228,11 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
         loading={baseList.loading}
         error={baseList.error}
         emptyMessage="No orders found."
-        onEdit={baseList.canUpdate ? baseList.handleEdit : undefined}
+        // Same handler either way (it opens the modal); the prop chosen decides
+        // the row affordance — a pencil titled "Edit" for admins, an eye titled
+        // "View" for reps, whose form is read-only.
+        onEdit={canSeeAll && baseList.canUpdate ? baseList.handleEdit : undefined}
+        onView={!canSeeAll ? baseList.handleEdit : undefined}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}

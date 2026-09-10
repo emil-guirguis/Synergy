@@ -6,6 +6,7 @@ import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
+import { useAuth } from '../../hooks/useAuth';
 import type { Order } from '../../types/order';
 
 interface OrderFormProps {
@@ -72,6 +73,16 @@ function openPackingList(order: Order): void {
  */
 export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading = false }) => {
   const orders = useOrdersEnhanced();
+  const { user } = useAuth();
+  // Reps get a cut-down form: the general Order tab and the Line Items tab only.
+  // The other tabs carry visibleFor: ['admin'] in orderSchema.ts, and BaseForm's
+  // `variant` filter drops any tab whose visibleFor doesn't include the variant
+  // (tabs without visibleFor are always shown), so 'rep' leaves exactly those two.
+  const isAdmin = !!user?.is_admin;
+  const variant = isAdmin ? 'admin' : 'rep';
+  // PUT /api/orders/:id is requireAdmin, so a rep's form is a viewer: every
+  // field disabled, and OrderManagementPage hides the Save button to match.
+  const readOnly = !isAdmin;
   const [freshOrder, setFreshOrder] = React.useState<Order | undefined>(order?.id ? undefined : order);
   const [fetching, setFetching] = React.useState(!!order?.id);
 
@@ -108,6 +119,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
       className="order-form"
       loading={loading}
       showTabs={true}
+      variant={variant}
+      isDisabled={readOnly}
       fieldsToClean={['id', 'lines', 'packing_list', 'documents']}
       renderCustomField={(fieldName, _fieldDef, value) => {
         if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} />;

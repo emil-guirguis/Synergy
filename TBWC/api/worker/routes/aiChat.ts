@@ -13,15 +13,21 @@
  * number lives free-text inside a line's `desc`, not its own column, so line
  * search is jsonb_array_elements + ILIKE, not an exact-match query) — plus
  * inventory/product-catalog search (public.qb_item, pricing questions).
+ *
+ * Admin-only. None of the tools below scope their queries to the caller's own
+ * sales rep, so a rep asking a question would read every rep's orders plus the
+ * whole invoice/customer set — the rest of the rep portal is scoped to their
+ * own rep_id. The Ask AI nav item and /ai-chat route are admin-gated to match.
  */
 import { Hono } from 'hono';
 import OpenAI from 'openai';
 import { Env, execQuery } from '../db';
-import { authenticateToken, AuthVariables } from '../middleware';
+import { authenticateToken, requireAdmin, AuthVariables } from '../middleware';
 import { runAiChatLoop, AiChatMessage, describeAiChatError } from '@meterit/framework-backend/api/base/aiChat';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
+app.use('*', requireAdmin);
 
 // --- Tool definitions ---------------------------------------------------------
 

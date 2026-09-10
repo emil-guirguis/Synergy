@@ -73,7 +73,9 @@ export const orderSchema = defineSchema({
           gridRow: '2',
           fields: [
             field({ name: 'expedite', order: 1, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Expedite', dbField: 'expedite', showOn: ['list', 'form'] }),
-            field({ name: 'jay', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Jay', dbField: 'jay', showOn: ['form'] }),
+            // Internal TBWC flag — admin-only, same variant filter as the
+            // admin-only tabs below (OrderForm passes 'admin' vs 'rep').
+            field({ name: 'jay', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Jay', dbField: 'jay', showOn: ['form'], visibleFor: ['admin'] }),
           ],
         }),
       ],
@@ -81,6 +83,10 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Shipping',
       order: 2,
+      // Reps get a trimmed order form: only this general Order tab and the QB
+      // line items. Everything else (addresses, money, notes, documents) is
+      // admin-only -- OrderForm passes variant='admin' for admins, 'rep' otherwise.
+      visibleFor: ['admin'],
       // QB's "TBWC Sales Order" template layout: addresses on the left,
       // shipping/tax details stacked on the right.
       columns: '1fr 1fr',
@@ -134,6 +140,7 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Financials',
       order: 4,
+      visibleFor: ['admin'],
       // Costs on the left, fees/commission on the right.
       columns: '1fr 1fr',
       sections: [
@@ -169,6 +176,7 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Notes',
       order: 5,
+      visibleFor: ['admin'],
       sections: [
         section({
           name: 'Notes',
@@ -196,6 +204,7 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Documents',
       order: 6,
+      visibleFor: ['admin'],
       sections: [
         section({
           name: 'Documents',

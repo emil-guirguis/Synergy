@@ -57,6 +57,19 @@ export interface EntityService<T> {
   delete: (id: string) => Promise<void>;
 }
 
+// Every store built here registers a resetter, so a session change can wipe all
+// of them at once. These stores are module singletons: logging out only clears
+// the token + auth context, it does not reload the page, so without this the
+// next user to sign in inherits the previous user's rows, filters and lastFetch
+// (a rep landing on Orders would be served the admin's cached, unscoped list
+// straight from `items` because the 5-minute cache was still fresh).
+const entityStoreResetters: Array<() => void> = [];
+
+/** Clear every entity store's data + list state. Call on login and on logout. */
+export function resetAllEntityStores(): void {
+  for (const reset of entityStoreResetters) reset();
+}
+
 // Create entity store
 export const createEntityStore = <T extends { id: string }>(
   service: EntityService<T>,
@@ -78,7 +91,7 @@ export const createEntityStore = <T extends { id: string }>(
   // is applied; earlier ones are discarded on arrival.
   let latestRequestId = 0;
 
-  return create<EntityStoreSlice<T>>()(
+  const useStore = create<EntityStoreSlice<T>>()(
     (set, get) => ({
       // Initial state
       ...createEntityState<T>(),
@@ -134,6 +147,11 @@ export const createEntityStore = <T extends { id: string }>(
       setLastFetch: (timestamp) => set({ lastFetch: timestamp }),
 
       reset: () => {
+        // Invalidate anything already in flight: a request issued by the previous
+        // session can still be on the wire, and its response would repopulate the
+        // store we just cleared (the requestId check below discards it instead).
+        latestRequestId++;
+        fetchingPromise = null;
         set({ ...createEntityState<T>() as any, list: createListState() });
       },
 
@@ -417,6 +435,10 @@ export const createEntityStore = <T extends { id: string }>(
       },
     })
   );
+
+  entityStoreResetters.push(() => useStore.getState().reset());
+
+  return useStore;
 };
 
 // Helper to create entity hook

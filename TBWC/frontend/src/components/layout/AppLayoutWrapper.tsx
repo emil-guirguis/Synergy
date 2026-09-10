@@ -26,7 +26,7 @@ const NAV: MenuItem[] = [
   { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes', disabled: true },
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders' },
   { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
-  { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat' },
+  { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat', requiredPermission: 'admin' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
   { id: 'customers', label: 'Customers', icon: 'customers', path: '/customers', requiredPermission: 'admin' },
   { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices', requiredPermission: 'admin' },

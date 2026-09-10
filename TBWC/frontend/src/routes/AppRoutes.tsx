@@ -21,7 +21,10 @@ export default function AppRoutes() {
       <Route path="/orders" element={<OrderManagementPage />} />
       <Route path="/quotes" element={<QuoteManagementPage />} />
       <Route path="/documents" element={<DocumentsPage />} />
-      <Route path="/ai-chat" element={<AiChatPage />} />
+      <Route
+        path="/ai-chat"
+        element={isAdmin ? <AiChatPage /> : <Navigate to="/dashboard" replace />}
+      />
       <Route
         path="/inventory"
         element={isAdmin ? <InventoryManagementPage /> : <Navigate to="/dashboard" replace />}

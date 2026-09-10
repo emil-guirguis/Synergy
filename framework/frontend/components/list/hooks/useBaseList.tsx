@@ -188,6 +188,20 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
 
     // Don't override filters already set (e.g. user navigated back with existing filters)
     if (Object.keys(filters).length > 0) {
+      // ...but something still has to issue the FIRST fetch. A caller that sets a
+      // filter before the schema resolves (a list pinning a scope filter on mount,
+      // a deep link) lands here with filters already populated, while the [filters]
+      // effect below unconditionally skips its own first run — so neither effect
+      // fetched and the list stayed empty until the user touched a filter. Fetch
+      // here instead, and claim the first run so [filters] doesn't repeat it.
+      if (!filtersInitialisedRef.current) {
+        filtersInitialisedRef.current = true;
+        const cleanedFilters = buildFilters(filters);
+        lastFetchedFiltersKeyRef.current = JSON.stringify(cleanedFilters);
+        console.log('[useBaseList] Filters set before schema resolved — issuing initial fetch:', cleanedFilters);
+        if (store.setFilters) store.setFilters(cleanedFilters);
+        if (store.fetchItems) (store.fetchItems as any)({ _bypassCache: true });
+      }
       return;
     }
 

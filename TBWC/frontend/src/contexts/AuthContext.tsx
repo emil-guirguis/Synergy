@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { authService } from '../services/authService';
 import { tokenStorage } from '../utils/tokenStorage';
+import { resetAllEntityStores } from '../store/slices/createEntitySlice';
 import type { LoginCredentials, User } from '../types/auth';
 
 export interface AuthContextValue {
@@ -36,7 +37,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (active) setIsLoading(false);
     })();
 
-    const onForceLogout = () => setUser(null);
+    const onForceLogout = () => {
+      resetAllEntityStores();
+      setUser(null);
+    };
     window.addEventListener('auth:force-logout', onForceLogout);
     return () => {
       active = false;
@@ -44,13 +48,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // The entity stores (orders, invoices, users, ...) are module singletons that
+  // outlive a session: signing out clears the token and this context, but never
+  // reloads the page, so their cached rows/filters/lastFetch survive into the
+  // next sign-in. That let a rep open Orders and be served the admin's cached,
+  // unscoped list (cache still fresh, so no request was made at all), or land on
+  // an empty list left filtered by the previous session. Wipe them on both edges
+  // of the session, not just logout — a token can also go away without logout().
   const login = useCallback(async (credentials: LoginCredentials) => {
     const res = await authService.login(credentials);
+    resetAllEntityStores();
     setUser(res.user);
   }, []);
 
   const logout = useCallback(async () => {
     await authService.logout();
+    resetAllEntityStores();
     setUser(null);
   }, []);
 

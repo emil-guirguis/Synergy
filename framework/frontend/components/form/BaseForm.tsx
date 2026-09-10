@@ -141,6 +141,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
   sidebarSections,
   sidebarChildren,
   onCancel,
+  isDisabled = false,
   // Dynamic schema form props
   schemaName,
   entity,
@@ -275,7 +276,10 @@ export const BaseForm: React.FC<BaseFormProps> = ({
   const renderField = (fieldName: string, fieldDef: any) => {
     const value = form?.formData?.[fieldName];
     const error = errors[fieldName];
-    const isFormDisabled = loading || !!form?.isSubmitting;
+    // `isDisabled` renders the whole form read-only — a viewer who may open a
+    // record but not save it (the API rejects their write anyway). Pair it with
+    // EntityManagementPage's showSaveButton={false} so there's no dead button.
+    const isFormDisabled = loading || isDisabled || !!form?.isSubmitting;
 
     const customField = renderCustomField?.(fieldName, fieldDef, value, error, isFormDisabled, (val) =>
       handleInputChange(fieldName, val)
