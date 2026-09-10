@@ -1,11 +1,17 @@
 // Authentication and User Management Types
 
+// Must stay in step with usersSchema.ts enumValues and with ROLE_PERMISSIONS in
+// api/worker/routes/auth.ts — the API is what actually enforces access, and an
+// unknown role there silently falls back to viewer.
 export const UserRole = {
   SUPER_ADMIN: 'superadmin',
+  SUPER_SUPPORT: 'supersupport',
+  ADMIN_SUPPORT: 'adminsupport',
   ADMIN: 'admin',
   MANAGER: 'manager',
   TECHNICIAN: 'technician',
-  VIEWER: 'viewer'
+  VIEWER: 'viewer',
+  USER: 'user'
 } as const;
 
 export type UserRole = typeof UserRole[keyof typeof UserRole];
@@ -238,6 +244,39 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
 
     // Read-only notification rule access
     Permission.NOTIFICATION_RULE_READ
+  ],
+  // Support staff: read-only across a tenant, for triaging tickets. Mirrors
+  // SUPPORT_READ_PERMISSIONS in api/worker/routes/auth.ts — no report or
+  // notification-rule access there, so none here either.
+  [UserRole.SUPER_SUPPORT]: [
+    Permission.DASHBOARD_READ,
+    Permission.USER_READ,
+    Permission.LOCATION_READ,
+    Permission.CONTACT_READ,
+    Permission.METER_READ,
+    Permission.DEVICE_READ,
+    Permission.SETTINGS_READ,
+    Permission.TEMPLATE_READ
+  ],
+  [UserRole.ADMIN_SUPPORT]: [
+    Permission.DASHBOARD_READ,
+    Permission.USER_READ,
+    Permission.LOCATION_READ,
+    Permission.CONTACT_READ,
+    Permission.METER_READ,
+    Permission.DEVICE_READ,
+    Permission.SETTINGS_READ,
+    Permission.TEMPLATE_READ
+  ],
+  // Plain end user: read-only, and cannot see the user directory.
+  [UserRole.USER]: [
+    Permission.DASHBOARD_READ,
+    Permission.LOCATION_READ,
+    Permission.CONTACT_READ,
+    Permission.METER_READ,
+    Permission.DEVICE_READ,
+    Permission.SETTINGS_READ,
+    Permission.TEMPLATE_READ
   ]
 };
 

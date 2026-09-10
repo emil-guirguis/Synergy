@@ -48,7 +48,7 @@ export interface Location {
   location_id?: number;
   name: string;
   tenant_id?: string | number;
-  type: 'Warehouse' | 'Apartment' | 'Ofice' | 'Retail' | 'Hotel' | 'Building' | 'Other';
+  type: 'Warehouse' | 'Apartment' | 'Office' | 'Retail' | 'Hotel' | 'Building' | 'Other';
   active: boolean;
   street?: string;
   street2?: string;
@@ -67,7 +67,7 @@ export interface LocationCreateRequest {
   name: string;
   address: Address;
   contactInfo: ContactInfo;
-  type: 'Warehouse' | 'Apartment' | 'Ofice' | 'Retail' | 'Hotel' | 'Building' | 'Other';
+  type: 'Warehouse' | 'Apartment' | 'Office' | 'Retail' | 'Hotel' | 'Building' | 'Other';
   status?: 'active' | 'inactive' | 'maintenance';
   totalFloors?: number;
   totalUnits?: number;

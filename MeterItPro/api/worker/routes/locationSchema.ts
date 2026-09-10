@@ -20,7 +20,7 @@ export const locationSchema = defineSchema({
           order: 1,
           fields: [
             field({ name: 'name', order: 1, type: FieldTypes.STRING, default: '', required: true, label: 'Name', dbField: 'name', maxLength: 200, placeholder: 'Location', showOn: ['list', 'form'] }),
-            field({ name: 'type', order: 2, type: FieldTypes.STRING, default: '', required: true, label: 'Type', dbField: 'type', maxLength: 20, enumValues: ['Warehouse', 'Apartment', 'Ofice', 'Retail', 'Hotel', 'Building', 'Other'], placeholder: 'Warehouse', showOn: ['list', 'form'] }),
+            field({ name: 'type', order: 2, type: FieldTypes.STRING, default: '', required: true, label: 'Type', dbField: 'type', maxLength: 20, enumValues: ['Warehouse', 'Apartment', 'Office', 'Retail', 'Hotel', 'Building', 'Other'], placeholder: 'Warehouse', showOn: ['list', 'form'] }),
           ],
         }),
         section({

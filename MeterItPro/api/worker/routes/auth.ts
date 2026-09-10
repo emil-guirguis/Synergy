@@ -59,6 +59,23 @@ const ROLE_PERMISSIONS: Record<string, any> = {
     equipment: { create: true, read: true, update: true },
     dashboard: { create: true, read: true, update: true, delete: true },
   },
+  // Field role: owns the meters and everything hanging off them, reads the rest.
+  // Must be listed explicitly — getPermissionsByRole() falls back to viewer for
+  // any role missing here, which silently made technicians read-only.
+  technician: {
+    user: { read: true },
+    meter: { create: true, read: true, update: true, delete: true },
+    report: { create: true, read: true, update: true, delete: true },
+    notification_rule: { create: true, read: true, update: true, delete: true },
+    device: { read: true },
+    location: { read: true },
+    contact: { read: true },
+    template: { read: true },
+    settings: { read: true },
+    building: { read: true },
+    equipment: { read: true },
+    dashboard: { read: true },
+  },
   viewer: {
     meter: { read: true },
     device: { read: true },

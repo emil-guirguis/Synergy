@@ -53,7 +53,7 @@ export const locationFilters: FilterDefinition[] = [
     options: [
       { label: 'Warehouse', value: 'Warehouse' },
       { label: 'Apartment', value: 'Apartment' },
-      { label: 'Office', value: 'Ofice' },
+      { label: 'Office', value: 'Office' },
       { label: 'Retail', value: 'Retail' },
       { label: 'Hotel', value: 'Hotel' },
       { label: 'Building', value: 'Building' },

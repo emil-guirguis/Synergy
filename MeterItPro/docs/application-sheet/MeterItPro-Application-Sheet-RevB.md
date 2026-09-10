@@ -62,12 +62,6 @@ One platform for capture, validation, analytics, alerting and reporting — purp
 
 > _Diagram: Meters connect over BACnet and IP to an on-site sync server, which streams to the MeterIt Pro cloud, which serves browsers, scheduled email reports and the Zenith assistant._
 
-### Where it fits
-
-- **Meter manufacturers & resellers** — Ship hardware with a data platform already attached, branded per tenant, instead of leaving the customer to source one.
-- **ESCOs & property managers** — Recover costs per tenant and per circuit, with the interval evidence to back an invoice when it is questioned.
-- **Utilities & facility teams** — Watch demand across a whole estate and catch a stalled meter the same day rather than at month end.
-
 Nothing in the stack above is optional-extra licensing: capture, dashboards, reporting, alerting and the assistant are the same product. The only hardware decision is whether a site needs its own sync-server appliance.
 
 ---
@@ -328,18 +322,18 @@ Access is decided in two independent layers: a **role** decides what a person ca
 
 | Resource | Admin | Manager | Technician | Viewer |
 |---|---|---|---|---|
-| **Dashboard** | read | read | read | read |
-| **Meters & registers** | create read update delete | create read update delete | create read update delete | read |
-| **Notification rules** | create read update delete | create read update delete | create read update delete | read |
-| **Reports** | create read update delete | create read update delete | create read update delete | read |
-| **Locations** | create read update delete | create read update delete | read | read |
-| **Contacts** | create read update delete | create read update delete | read | read |
-| **Email templates** | create read update delete | create read update delete | read | read |
-| **Users** | create read update delete | create read update | read | read |
-| **Settings** | read update | read update | read | read |
-| **Devices** | read | read | read | read |
+| **Meters & registers** | create read update delete | create read update | create read update delete | read |
+| **Reports** | create read update delete | — | create read update delete | — |
+| **Notification rules** | create read update delete | — | create read update delete | — |
+| **Locations** | create read update delete | create read update | read | read |
+| **Contacts** | create read update delete | create read update | read | read |
+| **Devices** | create read update delete | create read update | read | read |
+| **Users** | create read update delete | read | read | — |
+| **Email templates** | create read update delete | read | read | read |
+| **Dashboards** | create read update delete | create read update delete | read | read |
+| **Settings** | read update | read | read | read |
 
-_Rows are ordered by how much the roles diverge. **superadmin** carries every permission, the same set as **admin**. Each cell is a set of named permissions — report:create, meter:delete — so a role can be widened or narrowed without a code change._
+_**superadmin** matches admin. The two **support** roles and the plain **user** role are read-only, and only support may list users. Each cell is a set of named permissions — report:create, meter:delete — checked on every API call, so a role can be widened or narrowed without a code change._
 
 ### Isolation & transport
 
@@ -469,12 +463,5 @@ Supported hardware and platform characteristics, current at this revision. Addit
 - Zenith AI plain-language querying
 - On-site sync server with offline resilience
 - Row-level tenant isolation & auth audit log
-
-### Revision history
-
-| Rev | Pages | Changes |
-|---|---|---|
-| **A** | 9 | First issue. Overview, capabilities, meters & registers, captured data, dashboards, alerts, Zenith AI, sync server, specifications. |
-| **B** | 12 | Added Scheduled Reports, Locations & Organization, and Security & Administration. Reset to A4 page geometry, restyled to a technical datasheet, refreshed portfolio-home screenshot. |
 
 _Enclosure specification source: enclosurehub.com — Altelix 14×11×5 PC+ABS Weatherproof Vented Utility Box. Specifications are subject to change without notice._

@@ -4,7 +4,8 @@ Product spec / cut sheet for MeterIt Pro (electricity meter management platform)
 
 ## Revisions
 
-- **Rev B** (`*-RevB.*`) — current, 12 pages. Built from `src/`.
+- **Rev B** (`*-RevB.*`) — current, 12 pages. Built from `src/`. HTML, PDF and
+  Markdown only; see *Exporting* for why there is no `.docx`.
 - **Rev A** (no suffix) — original 9-page issue, kept as an archive. Hand-authored
   HTML, no build step. Do not edit.
 
@@ -79,11 +80,13 @@ chrome --headless=new --disable-gpu --no-pdf-header-footer \
   "file:///ABSOLUTE/PATH/MeterItPro-Application-Sheet-RevB.html"
 ```
 
-**Word** — open the HTML in Word, set A4 with **all four margins to 0** (the sheet
-is already 210 × 297 mm), then Save As `.docx`. Without the zero margins Word
-applies its own 1-inch margins and the content reflows onto extra pages. Word
-approximates the layout rather than reproducing it exactly; the PDF is the
-faithful one.
+**Word** — Rev B ships no `.docx`, deliberately. Word's HTML import is a
+converter, not a renderer: it has no support for `display:flex` or `grid` (this
+layout is flex throughout), ignores mm-precise fixed heights, and rebuilds the
+content as Word paragraphs and tables. The result never matches the HTML — that
+is Word, not the reader's viewer. Rev A's `.docx` is kept only as an archive.
+
+Send the PDF when a fixed layout matters, or the HTML when it does not.
 
 ## Screenshots
 

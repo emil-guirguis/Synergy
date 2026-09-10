@@ -37,7 +37,6 @@ const docs: DocItem[] = [
       { label: 'HTML', href: `${APP_SHEET_REV_B}.html`, icon: <HtmlIcon />, view: true },
       { label: 'PDF',  href: `${APP_SHEET_REV_B}.pdf`,  icon: <PictureAsPdfIcon />, view: true },
       { label: 'Markdown', href: `${APP_SHEET_REV_B}.md`, icon: <NotesIcon />, view: true },
-      { label: 'Word',  href: `${APP_SHEET_REV_B}.docx`, icon: <ArticleIcon /> },
     ],
   },
   {

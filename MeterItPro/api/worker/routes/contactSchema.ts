@@ -58,7 +58,7 @@ export const contactSchema = defineSchema({
       ],
     }),
     tab({
-      name: 'Aduit & Notes',
+      name: 'Audit & Notes',
       order: 3,
       sectionOrientation: 'vertical',
       maxWidth: '200px',

@@ -138,20 +138,20 @@
             <tr><th>Resource</th><th>Admin</th><th>Manager</th><th>Technician</th><th>Viewer</th></tr>
           </thead>
           <tbody>
-            <tr><td><b>Dashboard</b></td><td class="m">read</td><td class="m">read</td><td class="m">read</td><td class="m">read</td></tr>
-            <tr><td><b>Meters &amp; registers</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td></tr>
-            <tr><td><b>Notification rules</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td></tr>
-            <tr><td><b>Reports</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td></tr>
-            <tr><td><b>Locations</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td></tr>
-            <tr><td><b>Contacts</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td></tr>
-            <tr><td><b>Email templates</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td></tr>
-            <tr><td><b>Users</b></td><td class="m">create read update delete</td><td class="m">create read update</td><td class="m">read</td><td class="m">read</td></tr>
-            <tr><td><b>Settings</b></td><td class="m">read update</td><td class="m">read update</td><td class="m">read</td><td class="m">read</td></tr>
-            <tr><td><b>Devices</b></td><td class="m">read</td><td class="m">read</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Meters &amp; registers</b></td><td class="m">create read update delete</td><td class="m">create read update</td><td class="m">create read update delete</td><td class="m">read</td></tr>
+            <tr><td><b>Reports</b></td><td class="m">create read update delete</td><td class="dash">—</td><td class="m">create read update delete</td><td class="dash">—</td></tr>
+            <tr><td><b>Notification rules</b></td><td class="m">create read update delete</td><td class="dash">—</td><td class="m">create read update delete</td><td class="dash">—</td></tr>
+            <tr><td><b>Locations</b></td><td class="m">create read update delete</td><td class="m">create read update</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Contacts</b></td><td class="m">create read update delete</td><td class="m">create read update</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Devices</b></td><td class="m">create read update delete</td><td class="m">create read update</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Users</b></td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td><td class="dash">—</td></tr>
+            <tr><td><b>Email templates</b></td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Dashboards</b></td><td class="m">create read update delete</td><td class="m">create read update delete</td><td class="m">read</td><td class="m">read</td></tr>
+            <tr><td><b>Settings</b></td><td class="m">read update</td><td class="m">read</td><td class="m">read</td><td class="m">read</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="cap">Rows are ordered by how much the roles diverge. <b>superadmin</b> carries every permission, the same set as <b>admin</b>. Each cell is a set of named permissions — <span class="tag">report:create</span>, <span class="tag">meter:delete</span> — so a role can be widened or narrowed without a code change.</p>
+      <p class="cap"><b>superadmin</b> matches admin. The two <b>support</b> roles and the plain <b>user</b> role are read-only, and only support may list users. Each cell is a set of named permissions — <span class="tag">report:create</span>, <span class="tag">meter:delete</span> — checked on every API call, so a role can be widened or narrowed without a code change.</p>
     </div>
 
     <div class="sec">
@@ -358,21 +358,6 @@
           <li>On-site sync server with offline resilience</li>
           <li>Row-level tenant isolation &amp; auth audit log</li>
         </ul>
-      </div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-t">Revision history</div>
-      <div class="tbl">
-        <table>
-          <thead>
-            <tr><th>Rev</th><th>Pages</th><th>Changes</th></tr>
-          </thead>
-          <tbody>
-            <tr><td class="m"><b>A</b></td><td class="m num">9</td><td>First issue. Overview, capabilities, meters &amp; registers, captured data, dashboards, alerts, Zenith AI, sync server, specifications.</td></tr>
-            <tr><td class="m"><b>B</b></td><td class="m num">12</td><td>Added Scheduled Reports, Locations &amp; Organization, and Security &amp; Administration. Reset to A4 page geometry, restyled to a technical datasheet, refreshed portfolio-home screenshot.</td></tr>
-          </tbody>
-        </table>
       </div>
     </div>
 
