@@ -2,7 +2,8 @@
  * Builds MeterItPro-Application-Sheet-RevB.html from:
  *   src/application-sheet.template.html   shell + all CSS
  *   src/pages*.html                       page bodies, in filename order
- *   images/*.jpg                          screenshots, inlined as data URIs
+ *   images/*                              screenshots and product photos,
+ *                                         inlined as data URIs
  *
  * The output is a single self-contained file — no external assets — so it opens
  * offline and prints identically anywhere. Edit the sources, never the output.
@@ -19,7 +20,7 @@ const ROOT = path.resolve(HERE, '..');
 const OUT = path.join(ROOT, 'MeterItPro-Application-Sheet-RevB.html');
 
 const DOC_ID = 'MIP-AS-001';
-const REV = 'Rev B';
+const REV = 'Rev B1';
 const YEAR = new Date().getFullYear();
 
 const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml' };
@@ -34,7 +35,7 @@ const ALT = {
   '06-zenith-ai': 'Zenith AI assistant with suggested questions about meters, readings and alerts',
   '07-syncserver-front': 'Dell micro desktop front and side, showing power button, audio jack, USB-A and USB-C ports',
   '08-syncserver-rear': 'Dell micro desktop rear I/O with Gigabit Ethernet, USB, dual DisplayPort and HDMI',
-  '09-enclosure': 'Vented weatherproof wall-mount enclosure housing the on-site sync server',
+  '09-enclosure': 'Integra H161407HLL light grey polycarbonate enclosure with a hinged opaque cover, two stainless steel locking latches and a mounting foot kit',
 };
 
 function dataUri(base) {

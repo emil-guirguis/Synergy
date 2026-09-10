@@ -4,8 +4,10 @@ Product spec / cut sheet for MeterIt Pro (electricity meter management platform)
 
 ## Revisions
 
-- **Rev B** (`*-RevB.*`) — current, 12 pages. Built from `src/`. HTML, PDF and
-  Markdown only; see *Exporting* for why there is no `.docx`.
+- **Rev B1** (`*-RevB.*`) — current, 13 pages. Built from `src/`. HTML and PDF
+  only; see *Exporting* for why there is no `.docx` or Markdown. The revision
+  stamp lives in `REV` in `src/build.mjs`; filenames stay `-RevB` so published
+  links keep working across point revisions.
 - **Rev A** (no suffix) — original 9-page issue, kept as an archive. Hand-authored
   HTML, no build step. Do not edit.
 
@@ -19,20 +21,18 @@ deployed site.
 
 ```sh
 node src/build.mjs        # -> MeterItPro-Application-Sheet-RevB.html
-node src/to-markdown.mjs  # -> MeterItPro-Application-Sheet-RevB.md
 ```
 
-`src/` is the source of truth. Never edit the generated `.html` or `.md` — they
-are overwritten.
+`src/` is the source of truth. Never edit the generated `.html` — it is
+overwritten.
 
 | Path | What it is |
 |------|------------|
 | `src/application-sheet.template.html` | Page shell and all CSS |
 | `src/pages.html`, `src/pages-part2.html`, `src/pages-part3.html` | Page bodies, concatenated in filename order |
-| `src/build.mjs` | Expands macros, inlines images, writes the HTML |
-| `src/to-markdown.mjs` | Emits the Markdown mirror from the same sources |
-| `images/` | Screenshots, extracted from the original base64 |
-| `images/originals/` | Pre-edit versions, kept so an edit can be reverted |
+| `src/build.mjs` | Expands macros, inlines images, writes the HTML; holds `REV` and the alt text |
+| `images/` | Screenshots and product photos, inlined at build time |
+| `images/originals/` | Superseded versions, kept so a swap can be reverted |
 
 Macros inside the page sources, each written as `@@NAME@@`:
 
@@ -72,7 +72,7 @@ reflowing into extra pages. It is inert in a browser on screen.
 
 ## Exporting
 
-**PDF** — headless Chrome, exact at 12 sheets:
+**PDF** — headless Chrome, exact at 13 sheets:
 
 ```sh
 chrome --headless=new --disable-gpu --no-pdf-header-footer \
@@ -88,8 +88,17 @@ is Word, not the reader's viewer. Rev A's `.docx` is kept only as an archive.
 
 Send the PDF when a fixed layout matters, or the HTML when it does not.
 
+**Markdown** — dropped for Rev B1. It could not carry the diagrams, the spec
+blocks or the page structure, so it read as a lossy summary of the real
+document rather than a second edition of it.
+
 ## Screenshots
 
 Images are inlined as base64 in the built HTML, so the file opens offline with no
-external assets. To replace one, drop a new file over `images/<name>.jpg` and
-re-run the build — there is no need to hand-edit a data URI.
+external assets. To replace one, drop a new file over `images/<name>.<ext>` and
+re-run the build — there is no need to hand-edit a data URI. Keep only one file
+per basename; the build takes the first match.
+
+Watch the file size. A product photo saved as a transparent PNG cost 617 KB where
+a JPEG composited onto the panel background costs 28 KB and looks identical,
+because `.panel` is a flat colour. Nothing here renders larger than about 50 mm.

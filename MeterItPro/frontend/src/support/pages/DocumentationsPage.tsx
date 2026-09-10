@@ -30,13 +30,12 @@ const APP_SHEET_REV_B = `${APP_SHEET}-RevB`;
 
 const docs: DocItem[] = [
   {
-    title: 'MeterIt Pro — Application Sheet (Rev B)',
+    title: 'MeterIt Pro — Application Sheet (Rev B1)',
     description: 'Current product cut sheet: features, specs, and deployment overview.',
     icon: <DescriptionIcon color="primary" sx={{ fontSize: 40 }} />,
     formats: [
       { label: 'HTML', href: `${APP_SHEET_REV_B}.html`, icon: <HtmlIcon />, view: true },
       { label: 'PDF',  href: `${APP_SHEET_REV_B}.pdf`,  icon: <PictureAsPdfIcon />, view: true },
-      { label: 'Markdown', href: `${APP_SHEET_REV_B}.md`, icon: <NotesIcon />, view: true },
     ],
   },
   {
