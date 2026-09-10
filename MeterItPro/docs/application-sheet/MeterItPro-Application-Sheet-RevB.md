@@ -424,13 +424,13 @@ Supported hardware and platform characteristics, current at this revision. Addit
 
 ### Device compatibility
 
-| Manufacturer | Description | Model no. | Type | Elements |
-|---|---|---|---|---|
-| **DENT Instruments** | PowerScout 48HD | PowerScout48HD | Electric | 48 |
-| **TBWC, Inc.** | PS24 | DI-MMU8 | Electric | 24 |
-| **TBWC, Inc.** | PS48 | DI-MMU16 | Electric | 16 |
-| **TBWC, Inc.** | PS12 | DI-MMU4 | Electric | 12 |
-| **TBWC, Inc.** | PS3 | DI-SAKIT | Electric | 3 |
+| Manufacturer | Model no. | Type | Elements |
+|---|---|---|---|
+| **DENT Instruments** | PowerScout48HD | Electric | 48 |
+| **TBWC, Inc.** | DI-MMU8 | Electric | 24 |
+| **TBWC, Inc.** | DI-MMU16 | Electric | 16 |
+| **TBWC, Inc.** | DI-MMU4 | Electric | 12 |
+| **TBWC, Inc.** | DI-SAKIT | Electric | 3 |
 
 ### Platform
 
