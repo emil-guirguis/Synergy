@@ -3,3 +3,4 @@
 -- First consumer: salesOrderDeleted.ts logs one row per deleted SalesOrder
 -- instead of one vague aggregate "TxnDeleted: N" row.
 ALTER TABLE public.qbwc_sync_run ADD COLUMN IF NOT EXISTS detail text;
+

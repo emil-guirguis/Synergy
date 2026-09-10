@@ -4,7 +4,17 @@
  * list AND with the doc_type CHECK constraint in framework/backend/db/document.sql.
  */
 
-export const DOC_TYPES = ['cutsheet', 'invoice', 'order', 'design', 'other'] as const;
+export const DOC_TYPES = [
+  'cutsheet',
+  'invoice',
+  'order',
+  'packing_slip',
+  'proof_of_delivery',
+  'shipping',
+  'email',
+  'design',
+  'other',
+] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 export const DEFAULT_DOC_TYPE: DocType = 'other';
 
@@ -12,6 +22,10 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   cutsheet: 'Cutsheet',
   invoice: 'Invoice',
   order: 'Order',
+  packing_slip: 'Packing Slip',
+  proof_of_delivery: 'Proof of Delivery',
+  shipping: 'Shipping',
+  email: 'Email',
   design: 'Design',
   other: 'Other',
 };

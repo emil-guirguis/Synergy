@@ -26,7 +26,8 @@ BEGIN
     created_at     DATETIME2 NOT NULL CONSTRAINT document_created_at_default DEFAULT SYSUTCDATETIME(),
     updated_at     DATETIME2 NOT NULL CONSTRAINT document_updated_at_default DEFAULT SYSUTCDATETIME(),
     CONSTRAINT document_doc_type_check
-      CHECK (doc_type IN ('cutsheet', 'invoice', 'order', 'design', 'other')),
+      CHECK (doc_type IN ('cutsheet', 'invoice', 'order', 'packing_slip', 'proof_of_delivery',
+              'shipping', 'email', 'design', 'other')),
     CONSTRAINT document_payload_check
       CHECK (storage_path IS NOT NULL OR content IS NOT NULL)
   );

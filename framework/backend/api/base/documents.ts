@@ -19,7 +19,17 @@
 import type { ExecQueryFn } from './crud';
 
 /** Line-item classification shown as a dropdown in the documents grid. */
-export const DOC_TYPES = ['cutsheet', 'invoice', 'order', 'design', 'other'] as const;
+export const DOC_TYPES = [
+  'cutsheet',
+  'invoice',
+  'order',
+  'packing_slip',
+  'proof_of_delivery',
+  'shipping',
+  'email',
+  'design',
+  'other',
+] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 export const DEFAULT_DOC_TYPE: DocType = 'other';
 

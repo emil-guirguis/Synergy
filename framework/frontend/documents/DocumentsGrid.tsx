@@ -11,6 +11,11 @@
  * straight to the storage bucket, then POSTs the metadata row; a failed metadata
  * write removes the just-uploaded object so the bucket doesn't collect orphans.
  *
+ * "Add Folder" is the bulk path: a webkitdirectory picker hands back every file
+ * in the chosen folder (subfolders included) and, after a confirm, each one is
+ * uploaded as its own row - the subfolder path becomes the description, and a
+ * failure is collected and reported at the end instead of aborting the batch.
+ *
  * Storage-agnostic by construction: it only knows the DocumentsApi (metadata)
  * and DocumentStorage (bytes) interfaces, so swapping Supabase Storage for R2 or
  * DB blobs is a new DocumentStorage implementation, not a change here.
@@ -27,6 +32,7 @@ import {
   DialogContentText,
   DialogTitle,
   IconButton,
+  LinearProgress,
   MenuItem,
   Paper,
   Select,
@@ -41,6 +47,7 @@ import {
   Typography,
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CloseIcon from '@mui/icons-material/Close';
@@ -80,6 +87,39 @@ const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
 // Matches description varchar(2000) in framework/backend/db/document.sql —
 // cap it in the input rather than let the API bounce a too-long save.
 const MAX_DESCRIPTION = 2000;
+// Parallel folder uploads: enough to hide per-file latency, low enough that a
+// big folder doesn't open dozens of connections to the bucket at once.
+const FOLDER_CONCURRENCY = 3;
+// OS/editor droppings nobody means to attach; dotfiles are dropped as well.
+const IGNORED_FILE_NAMES = new Set(['Thumbs.db', 'desktop.ini', '.DS_Store']);
+
+interface FolderJob {
+  folderName: string;
+  files: File[];
+  /** Files left out before the batch started (too large), kept for the summary. */
+  skipped: string[];
+}
+
+/** "Specs/2024" out of "Folder/Specs/2024/file.pdf" - becomes the row description. */
+function relativeDirOf(file: File): string {
+  return (file.webkitRelativePath || '').split('/').slice(1, -1).join('/');
+}
+
+function folderNameOf(file: File): string {
+  return (file.webkitRelativePath || '').split('/')[0] || 'folder';
+}
+
+/** Run `worker` over `items`, at most `limit` in flight. Worker must not reject. */
+async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      await worker(items[i]);
+    }
+  });
+  await Promise.all(lanes);
+}
 
 function formatDate(value: string | null | undefined): string {
   if (!value) return '';
@@ -111,14 +151,21 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [confirmRow, setConfirmRow] = useState<DocumentRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Folder add: the picked-but-not-yet-confirmed batch, then its live progress.
+  const [pendingFolder, setPendingFolder] = useState<FolderJob | null>(null);
+  const [folderProgress, setFolderProgress] = useState<{ done: number; total: number } | null>(null);
 
   // One hidden input reused by every row; the draft it belongs to is stashed
   // here at click time so the change handler knows which row to complete.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pendingDraftRef = useRef<DraftRow | null>(null);
+  // Its own input: webkitdirectory can't be flipped per click on a live element.
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const cancelFolderRef = useRef(false);
 
   const recordId = entityId != null && entityId !== '' ? String(entityId) : null;
   const disabled = readOnly || !recordId;
+  const folderBusy = folderProgress !== null;
 
   const load = useCallback(async () => {
     if (!recordId) {
@@ -140,6 +187,15 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     void load();
     setDrafts([]);
   }, [load]);
+
+  // React's input typings don't carry the directory attributes and JSX would
+  // warn on the unknown props - set them on the DOM node instead.
+  useEffect(() => {
+    const el = folderInputRef.current;
+    if (!el) return;
+    el.setAttribute('webkitdirectory', '');
+    el.setAttribute('directory', '');
+  }, []);
 
   const patchDraft = (key: string, patch: Partial<DraftRow>) =>
     setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -191,6 +247,94 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     } finally {
       setBusyKey(null);
     }
+  };
+
+  /** Folder picked: triage the files, then confirm before uploading the batch. */
+  const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    // Reset now so re-picking the same folder still fires a change event.
+    e.target.value = '';
+    if (!picked.length || !recordId) return;
+
+    const files: File[] = [];
+    const skipped: string[] = [];
+    for (const file of picked) {
+      if (file.name.startsWith('.') || IGNORED_FILE_NAMES.has(file.name)) continue;
+      if (file.size > maxFileSize) {
+        skipped.push(`${file.name} (${formatFileSize(file.size)})`);
+        continue;
+      }
+      files.push(file);
+    }
+
+    if (!files.length) {
+      setError(
+        skipped.length
+          ? `Every file in that folder is over the ${formatFileSize(maxFileSize)} limit.`
+          : 'That folder has no files to upload.'
+      );
+      return;
+    }
+    setError(null);
+    setPendingFolder({ folderName: folderNameOf(picked[0]), files, skipped });
+  };
+
+  /**
+   * Upload a confirmed folder: one document row per file, subfolder path kept as
+   * the description. Files are independent - a failure is collected and reported
+   * at the end rather than aborting the rest of the batch.
+   */
+  const uploadFolder = async (job: FolderJob) => {
+    if (!recordId) return;
+    setPendingFolder(null);
+    cancelFolderRef.current = false;
+    setFolderProgress({ done: 0, total: job.files.length });
+    const failures: string[] = [];
+
+    await runPool(job.files, FOLDER_CONCURRENCY, async (file) => {
+      if (cancelFolderRef.current) return;
+      const path = storagePathFor(entityType, recordId, file.name);
+      try {
+        await storage.upload(path, file);
+        try {
+          await api.create({
+            entityType,
+            entityId: recordId,
+            fileName: file.name,
+            storageBucket: storage.bucket,
+            storagePath: path,
+            description: relativeDirOf(file) || null,
+            docType: DEFAULT_DOC_TYPE,
+            mimeType: file.type || null,
+            fileSize: file.size,
+          });
+        } catch (metaError) {
+          await storage.remove(path).catch(() => undefined);
+          throw metaError;
+        }
+      } catch (err: any) {
+        failures.push(`${file.name}: ${err?.message || 'upload failed'}`);
+      } finally {
+        setFolderProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+      }
+    });
+
+    const cancelled = cancelFolderRef.current;
+    cancelFolderRef.current = false;
+    setFolderProgress(null);
+    await load();
+
+    const notes: string[] = [];
+    if (cancelled) notes.push('Upload cancelled - files already sent were kept.');
+    if (failures.length) {
+      const head = failures.slice(0, 3).join('; ');
+      notes.push(`${failures.length} of ${job.files.length} file(s) failed: ${head}${failures.length > 3 ? '...' : ''}`);
+    }
+    if (job.skipped.length) {
+      const head = job.skipped.slice(0, 3).join(', ');
+      notes.push(`Skipped (over ${formatFileSize(maxFileSize)}): ${head}${job.skipped.length > 3 ? '...' : ''}`);
+    }
+    setError(notes.length ? notes.join(' ') : null);
   };
 
   const saveRow = async (row: DocumentRecord, patch: { description?: string; docType?: DocType }) => {
@@ -259,6 +403,23 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         </Alert>
       )}
 
+      {folderProgress && (
+        <Box sx={{ mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">
+              Uploading {folderProgress.done} of {folderProgress.total}...
+            </Typography>
+            <Button size="small" onClick={() => { cancelFolderRef.current = true; }}>
+              Cancel
+            </Button>
+          </Box>
+          <LinearProgress
+            variant="determinate"
+            value={folderProgress.total ? (folderProgress.done / folderProgress.total) * 100 : 0}
+          />
+        </Box>
+      )}
+
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
@@ -269,10 +430,28 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
               <TableCell sx={{ width: '10%' }}>Size</TableCell>
               <TableCell sx={{ width: '10%' }}>Uploaded</TableCell>
               {!readOnly && (
-                <TableCell align="right" sx={{ width: '60px' }}>
-                  <Button size="small" onClick={() => setDrafts((ds) => [...ds, newDraft()])} disabled={disabled}>
-                    + Add
-                  </Button>
+                <TableCell align="right" sx={{ width: '190px' }}>
+                  <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
+                    <Button
+                      size="small"
+                      onClick={() => setDrafts((ds) => [...ds, newDraft()])}
+                      disabled={disabled || folderBusy}
+                    >
+                      + Add
+                    </Button>
+                    <Tooltip title="Upload every file in a folder">
+                      <span>
+                        <Button
+                          size="small"
+                          startIcon={<DriveFolderUploadIcon fontSize="small" />}
+                          onClick={() => folderInputRef.current?.click()}
+                          disabled={disabled || folderBusy}
+                        >
+                          Add Folder
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  </Box>
                 </TableCell>
               )}
             </TableRow>
@@ -432,6 +611,29 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       </TableContainer>
 
       <input ref={fileInputRef} type="file" hidden onChange={handleFileChosen} />
+      <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
+
+      <Dialog open={!!pendingFolder} onClose={() => setPendingFolder(null)}>
+        <DialogTitle>Add folder</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Upload {pendingFolder?.files.length} file(s) ({formatFileSize(
+              (pendingFolder?.files ?? []).reduce((sum, f) => sum + f.size, 0)
+            )}) from "{pendingFolder?.folderName}"? Each one becomes its own document row.
+          </DialogContentText>
+          {!!pendingFolder?.skipped.length && (
+            <DialogContentText sx={{ mt: 1 }} color="warning.main">
+              {pendingFolder.skipped.length} file(s) over the {formatFileSize(maxFileSize)} limit will be skipped.
+            </DialogContentText>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingFolder(null)}>Cancel</Button>
+          <Button onClick={() => pendingFolder && void uploadFolder(pendingFolder)} variant="contained">
+            Upload
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!confirmRow} onClose={() => (deleting ? undefined : setConfirmRow(null))}>
         <DialogTitle>Delete document</DialogTitle>

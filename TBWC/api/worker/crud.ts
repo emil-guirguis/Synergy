@@ -8,5 +8,5 @@ import { createCrud } from '@meterit/framework-backend/api/base/crud';
 import { execQuery } from './db';
 
 export const { findAll, findById, create, update, remove, checkDeleteRestrictions } = createCrud(execQuery);
-export { whereFromQuery, likeFieldsFromSchema, fieldMapFromSchema } from '@meterit/framework-backend/api/base/crud';
+export { whereFromQuery, likeFieldsFromSchema, fieldMapFromSchema, NOT_NULL } from '@meterit/framework-backend/api/base/crud';
 export type { FindAllOptions, FindAllResult, DeleteRestriction, DeleteRestrictionViolation } from '@meterit/framework-backend/api/base/crud';

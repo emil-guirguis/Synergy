@@ -70,6 +70,11 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
         desc,
         price,
         isActive == null ? null : isActive === 'true',
+        // Stock level. Only the stock-tracked types (Inventory,
+        // InventoryAssembly) carry it; for the rest the tag is absent and NULL
+        // is the honest answer — 0 would read as "out of stock". See
+        // migration 029, which added the column and backfilled it from `raw`.
+        num(tag(ret, 'QuantityOnHand')),
         qbTimeToTs(tag(ret, 'TimeModified')),
         JSON.stringify({ listId, ret: ret.slice(0, 8000) }),
       ]);
@@ -79,18 +84,19 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
 
   // Batched multi-row upserts: execQuery opens a connection per call, so a page
   // must be a handful of statements, not two per record.
-  const CASTS = ['', '', '', '', '', '', '', '', '', '::jsonb'];
+  const CASTS = ['', '', '', '', '', '', '', '', '', '', '::jsonb'];
   for (const rows of chunk([...byId.values()], BATCH_SIZE)) {
     await execQuery(
       env,
       `INSERT INTO public.qb_item
          (list_id, edit_sequence, item_type, name, full_name, sales_desc, sales_price,
-          is_active, time_modified, raw, synced_at)
+          is_active, quantity_on_hand, time_modified, raw, synced_at)
        VALUES ${multiRowValues(rows.length, CASTS, ', CURRENT_TIMESTAMP')}
        ON CONFLICT (list_id) DO UPDATE SET
          edit_sequence=EXCLUDED.edit_sequence, item_type=EXCLUDED.item_type, name=EXCLUDED.name,
          full_name=EXCLUDED.full_name, sales_desc=EXCLUDED.sales_desc, sales_price=EXCLUDED.sales_price,
-         is_active=EXCLUDED.is_active, time_modified=EXCLUDED.time_modified, raw=EXCLUDED.raw,
+         is_active=EXCLUDED.is_active, quantity_on_hand=EXCLUDED.quantity_on_hand,
+         time_modified=EXCLUDED.time_modified, raw=EXCLUDED.raw,
          synced_at=CURRENT_TIMESTAMP`,
       rows.flat(),
       'qbwc.item.upsert'

@@ -58,6 +58,14 @@ export interface FindAllOptions {
   selectFields?: string;
 }
 
+/**
+ * Where-value sentinel meaning "column IS NOT NULL". `where[col] = null` already
+ * emits IS NULL; the inverse had no spelling, so a route wanting "rows that have
+ * a value here" had to fake it with an ILIKE '%' or drop to raw SQL. Compared by
+ * identity — it is never a legitimate column value.
+ */
+export const NOT_NULL: unique symbol = Symbol('crud.NOT_NULL');
+
 export interface FindAllResult {
   rows: any[];
   pagination: {
@@ -232,7 +240,9 @@ export function createCrud(execQuery: ExecQueryFn) {
 
     // Additional exact-match where conditions
     for (const [key, value] of Object.entries(where)) {
-      if (value === null) {
+      if (value === NOT_NULL) {
+        whereClauses.push(`"${table}".${key} IS NOT NULL`);
+      } else if (value === null) {
         whereClauses.push(`"${table}".${key} IS NULL`);
       } else {
         whereClauses.push(`"${table}".${key} = $${paramIdx}`);

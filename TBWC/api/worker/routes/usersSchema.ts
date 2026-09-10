@@ -58,6 +58,7 @@ export const usersSchema = defineSchema({
           gridRow: '2',
           fields: [
             field({ name: 'type', order: 1, type: FieldTypes.STRING, default: 'rep', required: true, label: 'Type', dbField: 'type', enumValues: ['rep', 'customer', 'employee'], showOn: ['list', 'form'] }),
+            field({ name: 'is_admin', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Admin', dbField: 'is_admin', showOn: ['list', 'form'] }),
          ],
         }),
         section({
@@ -108,7 +109,6 @@ export const usersSchema = defineSchema({
           order: 1,
           fields: [
             field({ name: 'approved', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Approved', dbField: 'approved', showOn: ['list', 'form'] }),
-            field({ name: 'is_admin', order: 3, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Admin', dbField: 'is_admin', showOn: ['list', 'form'], readOnly: true }),
             field({ name: 'can_approve_rep_leads', order: 5, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Approve Rep Leads', dbField: 'can_approve_rep_leads', showOn: ['form'] }),
           ],
         }),
