@@ -1,0 +1,109 @@
+# Publishes the TBWC rep portal to tbwctechnology.com/portal/.
+#
+# The portal's source lives here, but it is served from the tbwc-site repo
+# (tbwc-emil/tbwc-site), which GitHub Pages builds from the root of master — the
+# built app is committed there under portal/. It has to be that origin: the portal
+# reads the marketing site's Supabase session out of a shared localStorage, which
+# only works same-origin (see TBWC/frontend/src/utils/sharedSession.ts).
+#
+# So a push here builds the app and commits the result over there. The two repos
+# have different owners, so GITHUB_TOKEN can't reach tbwc-site: this needs a PAT
+# with contents:write on tbwc-emil/tbwc-site, stored here as the TBWC_SITE_TOKEN
+# secret. `npm run deploy:site` in TBWC/frontend does the same thing by hand.
+name: Deploy TBWC portal to tbwctechnology.com
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'TBWC/frontend/**'
+      - 'framework/frontend/**'
+      - '.github/workflows/deploy-tbwc-portal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SITE_REPO: tbwc-emil/tbwc-site
+  SITE_BRANCH: master
+  BASE_PATH: /portal/
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check deploy token
+        env:
+          TOKEN: ${{ secrets.TBWC_SITE_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::TBWC_SITE_TOKEN is not set. Create a PAT with contents:write on ${SITE_REPO} and add it as a repository secret, or deploy by hand with 'npm run deploy:site' in TBWC/frontend."
+            exit 1
+          fi
+
+      - name: Checkout Synergy
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: TBWC/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ./TBWC/frontend
+
+      - name: Build portal
+        run: npm run build
+        working-directory: ./TBWC/frontend
+        env:
+          VITE_BASE_PATH: ${{ env.BASE_PATH }}
+
+      - name: Checkout tbwc-site
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SITE_REPO }}
+          ref: ${{ env.SITE_BRANCH }}
+          token: ${{ secrets.TBWC_SITE_TOKEN }}
+          path: tbwc-site
+
+      - name: Copy build into tbwc-site/portal
+        run: |
+          test -f TBWC/frontend/dist/index.html
+          rm -rf tbwc-site/portal
+          mkdir -p tbwc-site/portal
+          cp -r TBWC/frontend/dist/. tbwc-site/portal/
+
+      - name: Commit and push
+        working-directory: ./tbwc-site
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add portal
+          if git diff --cached --quiet; then
+            echo "Portal build unchanged — nothing to publish."
+            exit 0
+          fi
+          git commit             -m "Update rep portal build from Synergy ${GITHUB_SHA::7}"             -m "Built from ${GITHUB_REPOSITORY}@${GITHUB_SHA} by .github/workflows/deploy-tbwc-portal.yml"
+          # Someone may have pushed to the site between checkout and now; the build
+          # output is ours alone, so replaying it on top of theirs is safe.
+          git pull --rebase origin ${{ env.SITE_BRANCH }}
+          git push origin ${{ env.SITE_BRANCH }}
+
+      - name: Smoke test
+        run: |
+          url="https://tbwctechnology.com/portal/"
+          echo "Waiting for $url to serve the new build"
+          for i in $(seq 1 30); do
+            if curl -fsSL --max-time 10 "$url" -o /dev/null; then
+              echo "Portal responded"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Portal did not respond at $url"
+          exit 1
