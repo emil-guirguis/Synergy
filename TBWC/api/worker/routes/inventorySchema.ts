@@ -44,7 +44,6 @@ export const inventorySchema = defineSchema({
             field({ name: 'type', order: 4, type: FieldTypes.SELECT, default: 'item', required: true, label: 'Type', dbField: 'type', enumValues: ['item', 'kit'], showOn: ['list', 'form'] }),
             field({ name: 'category', order: 5, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Category', dbField: 'category', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'upc_code', order: 6, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'UPC', dbField: 'upc_code', maxLength: 100, showOn: ['form'] }),
-            field({ name: 'distribution_type', order: 7, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Distribution', dbField: 'distribution_type', maxLength: 100, showOn: ['form'] }),
             field({ name: 'is_active', order: 8, type: FieldTypes.BOOLEAN, default: true, required: false, readOnly: true, label: 'Active', dbField: 'is_active', showOn: ['form'] }),
           ],
         }),
@@ -56,9 +55,7 @@ export const inventorySchema = defineSchema({
             field({ name: 'base_price', order: 2, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Base Price', dbField: 'base_price', showOn: ['form'] }),
             field({ name: 'msrp', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'MSRP', dbField: 'msrp', showOn: ['form'] }),
             field({ name: 'dnet_cost', order: 4, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'D-NET Cost', dbField: 'dnet_cost', showOn: ['form'] }),
-            field({ name: 'moq', order: 5, type: FieldTypes.NUMBER, default: null, required: false, readOnly: true, label: 'MOQ', dbField: 'moq', showOn: ['form'] }),
             field({ name: 'pack_qty', order: 6, type: FieldTypes.NUMBER, default: null, required: false, readOnly: true, label: 'Pack Qty', dbField: 'pack_qty', showOn: ['form'] }),
-            field({ name: 'service_days', order: 7, type: FieldTypes.NUMBER, default: null, required: false, readOnly: true, label: 'Service Days', dbField: 'service_days', showOn: ['form'] }),
             field({ name: 'unit_weight', order: 8, type: FieldTypes.NUMBER, default: null, required: false, readOnly: true, label: 'Unit Weight (lbs)', dbField: 'unit_weight', showOn: ['form'] }),
             // QuickBooks' stock level (migration 029), synced on every Item
             // pull and never written here. NULL for item types QB does not
