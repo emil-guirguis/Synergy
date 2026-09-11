@@ -25,6 +25,7 @@
  *   node scripts/fetch-item-images.cjs --limit 50           # a taste test
  *   node scripts/fetch-item-images.cjs --only '^CT'         # one family
  *   node scripts/fetch-item-images.cjs --refresh --only '^DI-'
+ *   node scripts/fetch-item-images.cjs --search-only --gap 45   # the slow tail
  */
 const fs = require('fs');
 const path = require('path');
@@ -79,6 +80,7 @@ const OPTS = {
   concurrency: Math.max(1, parseInt(opt('concurrency', '3'), 10)),
   size: parseInt(opt('size', '400'), 10),
   provider: opt('provider', 'ddg'),
+  gap: Math.max(0, parseInt(opt('gap', '8'), 10)) * 1000,
 };
 
 // ---------------------------------------------------------------------------
@@ -94,15 +96,21 @@ const OPTS = {
  * an IP-wide 403 ("If this error persists, please let us know: ops@...") that
  * outlives the process. So calls are serialised with a gap and a slow retry —
  * a 433-row sweep is a background job, not something worth getting blocked for.
+ *
+ * 8s was still far too fast in practice: two full sweeps each landed ~5 rows
+ * before the lockout. --gap raises it (`--gap 45`) for the long tail, where the
+ * run is measured in hours anyway and getting blocked costs more than waiting.
  */
-const DDG_GAP_MS = 8000;
+const DDG_GAP_MS = OPTS.gap;
 let ddgNextAt = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function ddgPace() {
   const wait = ddgNextAt - Date.now();
   if (wait > 0) await sleep(wait);
-  ddgNextAt = Date.now() + DDG_GAP_MS + Math.floor(Math.random() * 1500);
+  // The jitter scales with the gap: a fixed 1.5s looks like clockwork next to a
+  // 45s wait, and clockwork is what a rate limiter is built to spot.
+  ddgNextAt = Date.now() + DDG_GAP_MS + Math.floor(Math.random() * Math.max(1500, DDG_GAP_MS * 0.25));
 }
 
 const PROVIDERS = {
