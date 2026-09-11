@@ -53,11 +53,16 @@ export interface UseFormTabsResult {
  * @param formTabs - Array of Tab definitions
  * @param activeTab - Currently active tab name
  * @param variant - Optional opaque variant key for filtering (e.g. 'physical', 'virtual', 'admin')
+ * @param hiddenTabs - Tab names to drop from the form entirely. Unlike `visibleFor`,
+ *   this is the caller's call rather than the schema's: it is for a tab whose fields
+ *   must stay in the schema — list columns and filters are generated from them —
+ *   while the form itself has no use for them.
  */
 function processFormTabs(
   formTabs: Tab[] | undefined,
   activeTab: string,
-  variant?: string | null
+  variant?: string | null,
+  hiddenTabs?: string[]
 ): UseFormTabsResult {
   if (!formTabs || formTabs.length === 0) {
     return { tabs: {}, tabList: [], fieldSections: {} };
@@ -69,7 +74,8 @@ function processFormTabs(
     return visibleFor.includes(variant);
   };
 
-  const filteredTabs = formTabs.filter((tab) => matchesVariant(tab.visibleFor));
+  const hidden = new Set(hiddenTabs ?? []);
+  const filteredTabs = formTabs.filter((tab) => !hidden.has(tab.name) && matchesVariant(tab.visibleFor));
 
   interface FieldWithOrder {
     name: string;
@@ -169,11 +175,16 @@ function processFormTabs(
 export const useFormTabs = (
   formTabs: Tab[] | null | undefined,
   activeTab: string,
-  variant?: string | null
+  variant?: string | null,
+  hiddenTabs?: string[]
 ): UseFormTabsResult => {
+  // Callers pass a literal (`hiddenTabs={['Image']}`), so a fresh array arrives on
+  // every render — key the memo on the contents rather than the identity.
+  const hiddenKey = (hiddenTabs ?? []).join('|');
   return useMemo(() => {
-    return processFormTabs(formTabs || undefined, activeTab, variant);
-  }, [formTabs, activeTab, variant]);
+    return processFormTabs(formTabs || undefined, activeTab, variant, hiddenTabs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formTabs, activeTab, variant, hiddenKey]);
 };
 
 export default useFormTabs;

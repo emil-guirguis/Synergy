@@ -97,6 +97,12 @@ export interface BaseFormProps {
   variant?: string | null;
   /** Optional content rendered on the right side of the tab header bar */
   tabHeaderActions?: React.ReactNode;
+  /**
+   * Tab names to drop from this form. For a tab whose fields have to stay in the
+   * schema because the list's columns and filters are generated from them, while
+   * the form itself shows them somewhere else (or not at all).
+   */
+  hiddenTabs?: string[];
 }
 
 /**
@@ -161,6 +167,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
   formMinWidth,
   variant,
   tabHeaderActions,
+  hiddenTabs,
 }) => {
   const formClassName = className ? `base-form ${className}` : 'base-form';
   const [activeTab, setActiveTab] = useState<string>('');
@@ -183,17 +190,21 @@ export const BaseForm: React.FC<BaseFormProps> = ({
   const effectiveActiveTab = React.useMemo(() => {
     if (activeTab) return activeTab;
     if (schema?.formTabs && schema.formTabs.length > 0) {
-      const sortedTabs = [...schema.formTabs].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
-      return sortedTabs[0].name;
+      const sortedTabs = [...schema.formTabs]
+        .filter((t) => !hiddenTabs?.includes(t.name))
+        .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+      if (sortedTabs.length > 0) return sortedTabs[0].name;
     }
     return '';
-  }, [schema?.formTabs, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema?.formTabs, activeTab, hiddenTabs?.join('|')]);
 
   // Use formTabs from schema if available, otherwise use provided fieldSections
   const { tabs: allTabs, fieldSections: formTabsFieldSections, tabList } = useFormTabs(
     schema?.formTabs,
     effectiveActiveTab,
-    variant
+    variant,
+    hiddenTabs
   );
 
   // Call onTabChange when effectiveActiveTab changes (including initial load)
