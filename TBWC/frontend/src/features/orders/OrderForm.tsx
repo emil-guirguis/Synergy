@@ -123,7 +123,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
       isDisabled={readOnly}
       fieldsToClean={['id', 'lines', 'packing_list', 'documents']}
       renderCustomField={(fieldName, _fieldDef, value) => {
-        if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} />;
+        if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} hideAmounts={readOnly} />;
         if (fieldName === 'packing_list') {
           return (
             <Button

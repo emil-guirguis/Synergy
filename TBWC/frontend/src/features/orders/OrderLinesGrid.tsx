@@ -7,6 +7,8 @@ interface OrderLinesGridProps {
   lines: OrderLine[] | null;
   /** Order.total (QB's TotalAmount) — shown as-is; falls back to the summed line amounts if absent. */
   total?: number | string | null;
+  /** Reps see what was ordered, not what it cost: drops Rate, Amount and the totals footer. */
+  hideAmounts?: boolean;
 }
 
 // pg returns NUMERIC columns (order.total) as strings, not numbers — Number()
@@ -26,8 +28,16 @@ const COLUMNS: GridColumn[] = [
   { key: 'amount', label: 'Amount', editable: false, width: WIDTHS.amount },
 ];
 
+// Without the money columns the remaining three would sit squeezed at 66% of
+// the width, so re-spread them across the space Rate/Amount vacate.
+const COLUMNS_NO_AMOUNTS: GridColumn[] = [
+  { key: 'item', label: 'Item', editable: false, width: '22%' },
+  { key: 'desc', label: 'Description', editable: false, width: '64%' },
+  { key: 'quantity', label: 'Qty', editable: false, width: '14%' },
+];
+
 /** Read-only QB sales-order line items — synced into the `lines` jsonb column, no separate fetch. */
-export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total }) => {
+export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total, hideAmounts = false }) => {
   const rows = lines ?? [];
   const data = useMemo(
     () => rows.map((l, i) => ({
@@ -48,15 +58,15 @@ export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total }) 
     <>
       <EditableDataGrid
         data={data}
-        columns={COLUMNS}
+        columns={hideAmounts ? COLUMNS_NO_AMOUNTS : COLUMNS}
         hideAddButton
         hideDeleteColumn
         emptyMessage="No line items"
       />
-      {[
+      {(hideAmounts ? [] : [
         { label: 'Subtotal', value: subtotal, variant: 'body2' as const },
         { label: 'Total', value: grandTotal, variant: 'subtitle2' as const },
-      ].map(({ label, value, variant }) => (
+      ]).map(({ label, value, variant }) => (
         <Box key={label} sx={{ display: 'flex', mt: label === 'Subtotal' ? 1 : 0.5 }}>
           <Box sx={{ width: `calc(${WIDTHS.item} + ${WIDTHS.desc} + ${WIDTHS.quantity})` }} />
           <Box sx={{ width: WIDTHS.rate, pl: '12px', pr: '12px' }}>

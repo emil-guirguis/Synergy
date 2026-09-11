@@ -46,12 +46,13 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // distinct from the admin view, which keeps the fuller QB-derived columns.
   // Build notes are internal-to-TBWC: dropped from the rep list here and from
   // the rep form by the Notes tab's visibleFor: ['admin'] (see orderSchema.ts).
-  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'shipped_date', 'expedite', 'total'];
+  // Order money is admin-only too — no total here, and OrderLinesGrid drops the
+  // rate/amount columns and the totals footer for the same reason.
+  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'shipped_date', 'expedite'];
   const REP_LABEL_OVERRIDES: Partial<Record<keyof Order, string>> = {
     ref_number: 'TBWC #',
     txn_date: 'Received',
     shipped_date: 'Ship Date',
-    total: 'Order Total',
   };
 
   const columns = useMemo(() => {
