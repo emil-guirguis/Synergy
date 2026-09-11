@@ -390,22 +390,56 @@ async function upload(objectPath, buf) {
   return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${objectPath}`;
 }
 
+/**
+ * DDG's own retry ladder (60s/2m/4m) is what a transient throttle looks like;
+ * exhausting it means the IP is locked out for longer than this sweep, and
+ * every remaining row would spend 7 minutes earning the same error. So the
+ * whole run drops to Commons instead — thinner coverage on private-label SKUs,
+ * but rows land 'pending' rather than 'error', which is the same outcome the
+ * unsearchable rows already get.
+ */
+let ddgLocked = false;
+
+/** Commons is only trusted when the title really echoes the item. */
+const FALLBACK_MIN_CONFIDENCE = 60;
+
+async function searchHits(query) {
+  if (OPTS.provider === 'ddg' && !ddgLocked) {
+    try {
+      return await PROVIDERS.ddg(query, OPTS.size);
+    } catch (e) {
+      if (!/IP throttled/.test(e.message)) throw e;
+      ddgLocked = true;
+      log(`  DDG locked this IP out — falling back to Commons for the rest of the run`);
+    }
+  }
+  const provider = ddgLocked ? PROVIDERS.commons : PROVIDERS[OPTS.provider];
+  if (!provider) throw new Error(`Unknown provider "${OPTS.provider}" (ddg | google | brave | commons)`);
+  return provider(query, OPTS.size);
+}
+
 /** search -> download -> resize -> upload, trying hits in order until one works. */
 async function resolveImage(query, objectPath, row) {
-  const provider = PROVIDERS[OPTS.provider];
-  if (!provider) throw new Error(`Unknown provider "${OPTS.provider}" (ddg | google | brave | commons)`);
-
-  const hits = await provider(query, OPTS.size);
+  const hits = await searchHits(query);
   if (!hits.length) return null;
 
   // A hit can fail for reasons that say nothing about the next one (hotlink
   // block, dead CDN, SVG) — so walk the list rather than giving up on the row.
   for (const hit of hits) {
     if (!hit.imageUrl) continue;
+    const confidence = scoreHit(row, hit);
+    // Commons ranks by word overlap over an encyclopedia, so a private-label SKU
+    // does not miss — it matches something confidently wrong ("Patch Cord" -> a
+    // Roman brooch). A floor only on the fallback path keeps those rows pending,
+    // which is honest, instead of handing a human 200 images to reject.
+    if (ddgLocked && confidence < FALLBACK_MIN_CONFIDENCE) {
+      log(`      fallback hit too weak (${confidence}) — leaving pending`);
+      continue;
+    }
     try {
       const thumb = await toThumb(await download(hit.imageUrl), OPTS.size);
       const url = OPTS.dryRun ? '(dry-run)' : await upload(objectPath, thumb);
-      return { url, sourceUrl: hit.pageUrl || hit.imageUrl, confidence: scoreHit(row, hit) };
+      return { url, sourceUrl: hit.pageUrl || hit.imageUrl, confidence };
     } catch (e) {
       log(`      hit rejected (${hit.imageUrl?.slice(0, 60)}): ${e.message}`);
     }
@@ -418,23 +452,50 @@ async function resolveImage(query, objectPath, row) {
 // ---------------------------------------------------------------------------
 const log = (...a) => console.log(...a);
 
+// ---------------------------------------------------------------------------
+// DB. A DDG backoff can park this sweep for minutes, which is long enough for
+// the pooler to drop an idle socket. pg never reconnects a Client on its own —
+// an 'error' listener alone only keeps the process alive while every later
+// write fails "Client has encountered a connection error and is not queryable",
+// which is how one run uploaded images for rows it then failed to record. So
+// the connection lives behind dbQuery, which reopens it and retries once.
+// ---------------------------------------------------------------------------
+let db = null;
+
+async function connectDb() {
+  db = new Client({ connectionString: DATABASE_URL, ssl: false, keepAlive: true });
+  db.on('error', (e) => log(`  DB connection lost: ${e.message}`));
+  await db.connect();
+}
+
+const DEAD_CONN = /connection|terminated|not queryable|ECONNRESET|EPIPE|socket|closed/i;
+
+async function dbQuery(sql, params) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (!db) await connectDb();
+      return await db.query(sql, params);
+    } catch (e) {
+      if (attempt >= 1 || !DEAD_CONN.test(e.message)) throw e;
+      log(`  reopening DB connection (${e.message})`);
+      try { await db?.end(); } catch { /* already gone */ }
+      db = null;
+    }
+  }
+}
+
 async function main() {
   if (!DATABASE_URL) throw new Error('DATABASE_URL not found');
   if (!OPTS.dryRun && (!SUPABASE_URL || !SERVICE_KEY)) {
     throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required (see README-item-images.md)');
   }
 
-  const db = new Client({ connectionString: DATABASE_URL, ssl: false, keepAlive: true });
-  // A DDG throttle can park this loop for four minutes, which is long enough for
-  // the pooler to drop an idle socket. Without a listener pg re-emits that as an
-  // unhandled 'error' event and takes the whole sweep down mid-run.
-  db.on('error', (e) => log(`  DB connection error (will reconnect on next write): ${e.message}`));
-  await db.connect();
+  await connectDb();
 
   // 'approved' and 'rejected' are human verdicts — never in the work set, even
   // with --refresh. 'none' is a settled non-product. --refresh only re-opens
   // rows the machine itself filled in.
-  const { rows } = await db.query(`
+  const { rows } = await dbQuery(`
     SELECT qb_item_id, name, sales_desc, item_type, image_url, image_status
       FROM qb_item
      WHERE image_status NOT IN ('approved', 'rejected', 'none')
@@ -476,6 +537,7 @@ async function main() {
       log(`    ${p.row.name}  ->  "${buildQuery(p.row)}"`);
     }
     await db.end();
+    db = null;
     return;
   }
 
@@ -488,7 +550,7 @@ async function main() {
 
     // Settled non-products: record the verdict, spend nothing.
     if (family?.none) {
-      await db.query(
+      await dbQuery(
         `UPDATE qb_item SET image_status='none', image_source='family', image_updated_at=now()
           WHERE qb_item_id=$1`,
         [id]
@@ -537,7 +599,7 @@ async function main() {
         return;
       }
 
-      await db.query(
+      await dbQuery(
         `UPDATE qb_item
             SET image_url=$2, image_source_url=$3, image_source=$4,
                 image_confidence=$5, image_status='auto', image_updated_at=now()
@@ -567,7 +629,7 @@ async function main() {
 
   log(`\nDone. set=${stats.ok}  none=${stats.none}  no-result=${stats.miss}  errors=${stats.err}`);
   log(`Review them in the Inventory screen — everything above is image_status='auto' until a human approves it.`);
-  await db.end();
+  await db?.end();
 }
 
 main().catch((e) => {
