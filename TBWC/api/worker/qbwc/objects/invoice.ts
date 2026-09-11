@@ -66,12 +66,16 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
     const txnId = tag(ret, 'TxnID');
     if (!txnId) continue;
     const cust = refField(ret, 'CustomerRef');
+    // QB stamps the rep on the invoice itself — this is what scopes a rep's
+    // invoice list (see routes/invoices.ts). Not every invoice carries one.
+    const rep = refField(ret, 'SalesRepRef');
     byId.set(txnId, [
       txnId,
       tag(ret, 'EditSequence') ?? null,
       tag(ret, 'RefNumber') ?? null,
       cust.listId ?? null,
       cust.fullName ?? null,
+      rep.listId ?? null,
       qbDate(tag(ret, 'TxnDate')),
       qbDate(tag(ret, 'DueDate')),
       num(tag(ret, 'Subtotal')),
@@ -95,17 +99,18 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   // iterator page must be a handful of statements, not one per record (a
   // per-record loop was slow enough to blow the Web Connector's response
   // timeout mid-page, silently truncating large pulls).
-  const CASTS = ['', '', '', '', '', '', '', '', '', '', '', '::jsonb', '::jsonb', '', '::jsonb'];
+  const CASTS = ['', '', '', '', '', '', '', '', '', '', '', '', '::jsonb', '::jsonb', '', '::jsonb'];
   for (const rows of chunk([...byId.values()], BATCH_SIZE)) {
     await execQuery(
       env,
       `INSERT INTO public.qb_invoice
-         (txn_id, edit_sequence, ref_number, customer_list_id, customer_name, txn_date,
+         (txn_id, edit_sequence, ref_number, customer_list_id, customer_name, sales_rep_list_id, txn_date,
           due_date, subtotal, total, balance_remaining, is_paid, lines, linked_txn, time_modified, raw, synced_at)
        VALUES ${multiRowValues(rows.length, CASTS, ', CURRENT_TIMESTAMP')}
        ON CONFLICT (txn_id) DO UPDATE SET
          edit_sequence=EXCLUDED.edit_sequence, ref_number=EXCLUDED.ref_number,
          customer_list_id=EXCLUDED.customer_list_id, customer_name=EXCLUDED.customer_name,
+         sales_rep_list_id=EXCLUDED.sales_rep_list_id,
          txn_date=EXCLUDED.txn_date, due_date=EXCLUDED.due_date, subtotal=EXCLUDED.subtotal,
          total=EXCLUDED.total, balance_remaining=EXCLUDED.balance_remaining, is_paid=EXCLUDED.is_paid,
          lines=EXCLUDED.lines, linked_txn=EXCLUDED.linked_txn, time_modified=EXCLUDED.time_modified,

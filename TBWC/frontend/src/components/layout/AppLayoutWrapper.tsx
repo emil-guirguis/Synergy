@@ -25,11 +25,12 @@ const NAV: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
   { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes', disabled: true },
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders' },
+  // Reps see Invoices too, scoped to their own by the API (see invoices.ts).
+  { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices' },
   { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
   { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat', requiredPermission: 'admin' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
   { id: 'customers', label: 'Customers', icon: 'customers', path: '/customers', requiredPermission: 'admin' },
-  { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices', requiredPermission: 'admin' },
   { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'admin' },
   { id: 'qbSync', label: 'QB Sync', icon: 'qbSync', path: '/qb-sync', requiredPermission: 'admin' },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'admin' },

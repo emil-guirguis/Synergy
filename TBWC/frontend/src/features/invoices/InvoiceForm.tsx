@@ -5,6 +5,7 @@ import { OrderLinesGrid } from '../orders/OrderLinesGrid';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { useInvoices } from './invoiceStore';
+import { useAuth } from '../../hooks/useAuth';
 import type { Invoice } from '../../types/invoice';
 
 interface InvoiceFormProps {
@@ -19,6 +20,7 @@ interface InvoiceFormProps {
  */
 export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) => {
   const invoices = useInvoices();
+  const { isAdmin } = useAuth();
   const [freshInvoice, setFreshInvoice] = React.useState<Invoice | undefined>(invoice?.id ? undefined : invoice);
   const [fetching, setFetching] = React.useState(!!invoice?.id);
 
@@ -64,6 +66,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) =
               entityId={freshInvoice?.id}
               api={documentsApi}
               storage={documentsStorage}
+              // Reps get invoices view-only, attachments included.
+              readOnly={!isAdmin}
             />
           );
         }

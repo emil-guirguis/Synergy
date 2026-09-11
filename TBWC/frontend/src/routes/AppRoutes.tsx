@@ -33,10 +33,8 @@ export default function AppRoutes() {
         path="/customers"
         element={isAdmin ? <CustomerManagementPage /> : <Navigate to="/dashboard" replace />}
       />
-      <Route
-        path="/invoices"
-        element={isAdmin ? <InvoiceManagementPage /> : <Navigate to="/dashboard" replace />}
-      />
+      {/* Read-only for everyone; the API scopes a rep to their own invoices. */}
+      <Route path="/invoices" element={<InvoiceManagementPage />} />
       <Route
         path="/qb-sync"
         element={isAdmin ? <QbSyncDashboardPage /> : <Navigate to="/dashboard" replace />}
