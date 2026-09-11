@@ -65,7 +65,9 @@ crons = ["0 13 * * *"]
 [env.production.vars]
 # CORS origin = the GitHub Pages SITE origin (path doesn't matter for CORS).
 # TBWC portal is served under this origin at /<repo>/TBWCPortal/.
-FRONTEND_URL = "https://emil-guirguis.github.io"
+# The portal is served from the site's own domain (tbwctechnology.com/portal/) so it
+# shares localStorage with it; the github.io copy stays allowed while that deploy exists.
+FRONTEND_URL = "https://tbwctechnology.com,https://www.tbwctechnology.com,https://emil-guirguis.github.io"
 # Unattended sync: the .qbw path as the QB machine sees it (TOML literal string,
 # so backslashes need no escaping). DISABLED 2026-09-04: sending the Q:\ mapped-
 # drive path made BeginSession fail with QBWC1013 0x80040408 "Could not start
@@ -78,7 +80,7 @@ FRONTEND_URL = "https://emil-guirguis.github.io"
 SUPABASE_URL = "https://detwkqhqekaiyuajixhs.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRldHdrcWhxZWthaXl1YWppeGhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MTI4ODIsImV4cCI6MjEwMDM4ODg4Mn0.OUE2KsTclMTqbPZ97_MXXVG4Nqq1ZOIIujdVJWCEx88"
 # Full portal URL incl. subpath (see [vars] comment above for what this is for).
-PORTAL_URL = "https://emil-guirguis.github.io/Synergy/TBWCPortal/"
+PORTAL_URL = "https://tbwctechnology.com/portal/"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE"

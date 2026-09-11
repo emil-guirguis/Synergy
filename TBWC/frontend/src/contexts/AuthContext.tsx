@@ -30,10 +30,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      if (tokenStorage.getToken()) {
-        const u = await authService.loadCurrentUser();
-        if (active) setUser(u);
+      // The portal is served from the same origin as tbwctechnology.com, so the
+      // site's session sits in this localStorage. It outranks anything this app
+      // stored: it names whoever signed in out front most recently, which may be a
+      // different rep than last used this tab. Adopting it is the auto-login.
+      let u: User | null = null;
+      if (authService.hasSharedSession()) {
+        u = await authService.adoptSharedSession();
+        if (u) resetAllEntityStores();
       }
+      if (!u && tokenStorage.getToken()) {
+        u = await authService.loadCurrentUser();
+      }
+      if (active) setUser(u);
       if (active) setIsLoading(false);
     })();
 

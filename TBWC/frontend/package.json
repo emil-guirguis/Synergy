@@ -10,7 +10,8 @@
     "type-check": "tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "deploy:site": "node scripts/deploy-to-site.mjs"
   },
   "dependencies": {
     "@meterit/framework-frontend": "file:../../framework/frontend",
