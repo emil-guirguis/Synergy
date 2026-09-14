@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { Typography } from '@mui/material';
 import { LoginForm as BaseLoginForm, type LoginFormCredentials } from '@framework/components/auth/LoginForm';
 import { useAuth } from '../../hooks/useAuth';
+import { getVersionDisplay } from '../../utils/version';
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -26,6 +28,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess }) => {
       subtitle="Sign in with your rep account."
       onSubmit={handleSubmit}
       errorMessage={error ?? undefined}
+      footer={
+        <Typography variant="caption" color="text.disabled">
+          {getVersionDisplay()}
+        </Typography>
+      }
     />
   );
 };

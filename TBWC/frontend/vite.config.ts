@@ -2,13 +2,14 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { versionPlugin } from './vite-plugins/version-plugin';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // TBWC/frontend sits two levels under the repo root — same depth as
 // MeterItPro/frontend — so the framework path matches MeterItPro exactly.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), versionPlugin()],
   resolve: {
     alias: {
       '@framework': path.resolve(__dirname, '../../framework/frontend'),

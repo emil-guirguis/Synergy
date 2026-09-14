@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "node ../../scripts/generate-version.mjs",
     "build": "npm run clean && vite build",
     "type-check": "tsc --noEmit",
     "preview": "vite preview",
