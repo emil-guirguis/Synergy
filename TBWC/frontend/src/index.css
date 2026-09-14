@@ -10,3 +10,30 @@
   --color-primary-dark: #1B5E20;
   --color-primary-light: rgba(46, 125, 50, 0.12);
 }
+
+/* TBWC-owned order fields (no QB source, editable, survive every re-sync)
+   — outlined green at rest, not just on focus, so they stand out from the
+   QB-synced fields around them. Excludes memo (editable but QB-owned/pushed
+   back via QBWC) and the boolean flags (switches, not outlined textboxes). */
+.order-form [data-field="job_name"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="ship_no_later_than"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="actual_ship_date"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="sold_for"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="d_net_cost"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="overage"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="commission"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="project_admin_fee"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="trade_ally_fee"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="build_notes"] .MuiOutlinedInput-notchedOutline,
+.order-form [data-field="notes"] .MuiOutlinedInput-notchedOutline {
+  border-color: #2ECC71;
+  border-width: 2px;
+}
+
+/* Flags section (expedite/jay/service) — same TBWC-owned, non-QB, editable
+   fields as above; bordered as a group since switches have no outline. */
+.order-form [data-section="Flags"] {
+  border: 2px solid #2ECC71;
+  border-radius: 4px;
+  padding: 8px 12px;
+}

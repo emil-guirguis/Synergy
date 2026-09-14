@@ -1,6 +1,5 @@
 import React from 'react';
-import { Box, Button, CircularProgress } from '@mui/material';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import { Box, CircularProgress } from '@mui/material';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
@@ -14,49 +13,6 @@ interface OrderFormProps {
   order?: Order;
   onCancel: () => void;
   loading?: boolean;
-}
-
-/** Escape text dropped into the packing-list HTML document below. */
-function esc(s: string | null | undefined): string {
-  return String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
-}
-
-/** Opens a printable packing slip for this order in a new tab (no PDF service — just print-to-PDF). */
-function openPackingList(order: Order): void {
-  const rows = (order.lines ?? [])
-    .map((l) => `<tr><td>${esc(l.item)}</td><td>${esc(l.desc)}</td><td class="qty">${esc(String(l.quantity ?? ''))}</td></tr>`)
-    .join('');
-
-  const html = `<!doctype html><html><head><title>Packing List - ${esc(order.ref_number)}</title>
-<style>
-  body { font-family: Arial, sans-serif; margin: 32px; color: #222; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .meta { margin-bottom: 24px; font-size: 13px; color: #555; }
-  .meta div { margin: 2px 0; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
-  th { background: #f2f2f2; }
-  td.qty, th.qty { text-align: right; width: 80px; }
-</style></head>
-<body>
-  <h1>Packing List</h1>
-  <div class="meta">
-    <div><strong>Customer:</strong> ${esc(order.customer_name)}</div>
-    <div><strong>SO #:</strong> ${esc(order.ref_number)} &nbsp; <strong>PO #:</strong> ${esc(order.po_number)}</div>
-    ${order.job_name ? `<div><strong>Job:</strong> ${esc(order.job_name)}</div>` : ''}
-    <div><strong>Ship To:</strong><br/>${esc(order.ship_address_block).replace(/\n/g, '<br/>')}</div>
-  </div>
-  <table>
-    <thead><tr><th>Item</th><th>Description</th><th class="qty">Qty</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="3">No line items</td></tr>'}</tbody>
-  </table>
-  <script>window.onload = () => window.print();</script>
-</body></html>`;
-
-  const win = window.open('', '_blank');
-  if (!win) return;
-  win.document.write(html);
-  win.document.close();
 }
 
 /**
@@ -126,21 +82,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           showTabs={true}
           variant={variant}
           isDisabled={readOnly}
-          fieldsToClean={['id', 'lines', 'packing_list', 'documents']}
+          fieldsToClean={['id', 'lines', 'documents']}
           renderCustomField={(fieldName, _fieldDef, value) => {
             if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} hideAmounts={readOnly} />;
-            if (fieldName === 'packing_list') {
-              return (
-                <Button
-                  variant="outlined"
-                  startIcon={<LocalShippingIcon />}
-                  disabled={!freshOrder}
-                  onClick={() => freshOrder && openPackingList(freshOrder)}
-                >
-                  Packing List
-                </Button>
-              );
-            }
             if (fieldName === 'documents') {
               return (
                 <DocumentsGrid

@@ -133,10 +133,6 @@ export const orderSchema = defineSchema({
             // contact line ("Name / email / phone").
             field({ name: 'contact', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Contact', dbField: 'contact', maxLength: 300, showOn: ['form'] }),
             field({ name: 'customer_tax_code', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer Tax Code', dbField: 'customer_tax_code', maxLength: 100, showOn: ['form'] }),
-            // No dbField — UI-only trigger, rendered by OrderForm's
-            // renderCustomField as a "Packing List" button (opens a printable
-            // packing slip built from this order's own fields/lines).
-            field({ name: 'packing_list', order: 5, type: FieldTypes.OBJECT, default: null, showOn: ['form'] }),
           ],
         }),
       ],

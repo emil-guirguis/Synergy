@@ -539,6 +539,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
       return (
         <div
           key={sectionTitle}
+          data-section={sectionTitle}
           className={`${className}__section${tabUseFlexbox ? ' base-form__section--flex' : ''}`}
           style={Object.keys(sectionStyle).length > 0 ? sectionStyle : undefined}
         >
