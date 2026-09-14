@@ -24,10 +24,11 @@ vi.mock('../meterQueryHelpers', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import { queryConsumption, queryDemand } from '../meterQueryHelpers';
 import meterReadingsApp from './meterReadings';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -46,13 +47,14 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('MeterReadings Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -63,8 +65,7 @@ describe('MeterReadings Routes', () => {
         { meter_reading_id: 1, meter_id: 10, kwh: 100, created_at: '2024-01-01' },
         { meter_reading_id: 2, meter_id: 10, kwh: 110, created_at: '2024-01-02' },
       ];
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any) // requirePermission
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ count: '2' }] } as any) // count
         .mockResolvedValueOnce({ rows: readings } as any); // data
 
@@ -81,8 +82,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('filters by meterId when provided', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ count: '1' }] } as any)
         .mockResolvedValueOnce({ rows: [{ meter_reading_id: 1, meter_id: 5 }] } as any);
 
@@ -96,8 +96,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('supports pagination parameters', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ count: '50' }] } as any)
         .mockResolvedValueOnce({ rows: [] } as any);
 
@@ -117,7 +116,7 @@ describe('MeterReadings Routes', () => {
   describe('GET /consumption', () => {
     it('returns consumption data when all params provided', async () => {
       const consumptionData = [{ label_key: 1, calculated_kwh: 55.5 }];
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
       mockQueryConsumption.mockResolvedValueOnce(consumptionData);
 
       const res = await meterReadingsApp.request(
@@ -133,7 +132,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when required params are missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request('/consumption?meterId=1', {
         headers: { authorization: 'Bearer valid-token' },
@@ -145,7 +144,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when meterId is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request(
         '/consumption?meterElementId=2&startDate=2024-01-01&endDate=2024-01-31',
@@ -161,7 +160,7 @@ describe('MeterReadings Routes', () => {
   describe('GET /demand', () => {
     it('returns demand data when all params provided', async () => {
       const demandData = [{ label_key: 10, power: 12.3 }];
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
       mockQueryDemand.mockResolvedValueOnce(demandData);
 
       const res = await meterReadingsApp.request(
@@ -177,7 +176,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when endDate is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request(
         '/demand?meterId=1&meterElementId=2&startDate=2024-01-01',
@@ -193,8 +192,7 @@ describe('MeterReadings Routes', () => {
   describe('GET /virtual-consumption', () => {
     it('returns aggregated virtual consumption data', async () => {
       const rows = [{ label_key: 1, calculated_kwh: 200 }];
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows } as any);
 
       const res = await meterReadingsApp.request(
@@ -210,7 +208,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when meterId is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request(
         '/virtual-consumption?startDate=2024-01-01&endDate=2024-01-31',
@@ -222,8 +220,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('handles excludeIds parameter', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await meterReadingsApp.request(
@@ -236,8 +233,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('handles overrides parameter', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await meterReadingsApp.request(
@@ -254,8 +250,7 @@ describe('MeterReadings Routes', () => {
   describe('GET /virtual-demand', () => {
     it('returns aggregated virtual demand data', async () => {
       const rows = [{ label_key: 1, power: 50 }];
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows } as any);
 
       const res = await meterReadingsApp.request(
@@ -270,7 +265,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when startDate is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request(
         '/virtual-demand?meterId=5&endDate=2024-01-31',
@@ -286,8 +281,7 @@ describe('MeterReadings Routes', () => {
   describe('GET /last', () => {
     it('returns last reading for a meter element', async () => {
       const reading = { meter_reading_id: 42, meter_id: 1, meter_element_id: 2, kwh: 999, serial_number: 'SN001' };
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [reading] } as any);
 
       const res = await meterReadingsApp.request(
@@ -303,8 +297,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 404 when no readings found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await meterReadingsApp.request(
@@ -317,7 +310,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when meterId is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request('/last?meterElementId=2', {
         headers: { authorization: 'Bearer valid-token' },
@@ -327,7 +320,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when meterElementId is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request('/last?meterId=1', {
         headers: { authorization: 'Bearer valid-token' },
@@ -341,8 +334,7 @@ describe('MeterReadings Routes', () => {
   describe('GET /virtual-last', () => {
     it('returns summed latest readings for a virtual meter', async () => {
       const row = { meter_id: 5, meter_name: 'Virtual A', total_kwh: 350, last_reading_date: '2024-01-31' };
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [row] } as any);
 
       const res = await meterReadingsApp.request('/virtual-last?meterId=5', {
@@ -357,8 +349,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 404 when virtual meter not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await meterReadingsApp.request('/virtual-last?meterId=999', {
@@ -369,7 +360,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when meterId is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request('/virtual-last', {
         headers: { authorization: 'Bearer valid-token' },
@@ -386,8 +377,7 @@ describe('MeterReadings Routes', () => {
         { select_meter_element_id: 10, operation: '+', kwh: 100 },
         { select_meter_element_id: 11, operation: '-', kwh: -30 },
       ];
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows } as any);
 
       const res = await meterReadingsApp.request('/virtual-components-last?meterId=5', {
@@ -401,8 +391,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns empty array when no components configured', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await meterReadingsApp.request('/virtual-components-last?meterId=5', {
@@ -415,7 +404,7 @@ describe('MeterReadings Routes', () => {
     });
 
     it('returns 400 when meterId is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await meterReadingsApp.request('/virtual-components-last', {
         headers: { authorization: 'Bearer valid-token' },

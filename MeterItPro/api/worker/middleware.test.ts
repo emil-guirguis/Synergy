@@ -26,6 +26,7 @@ import { query } from './db';
 import { authenticateToken, requirePermission, authenticateSyncServer, clearUserCache, clearSyncTenantCache } from './middleware';
 import type { Env } from './db';
 import type { AuthVariables } from './middleware';
+import { ADMIN_GRANT_ROWS } from './testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -209,16 +210,19 @@ describe('requirePermission middleware', () => {
   }
 
   it('loads and caches the full user from the DB when context has only JWT claims', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ users_id: 6, role: 'admin', tenant_id: 1, permissions: {}, active: true, is_super_admin: false }],
-    } as any);
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{ users_id: 6, role: 'admin', tenant_id: 1, role_id: 1, active: true, is_super_admin: false }],
+      } as any)
+      .mockResolvedValueOnce({ rows: ADMIN_GRANT_ROWS } as any);
     const app = createPartialUserApp({ users_id: 6, tenant_id: 1 });
     app.get('/test', requirePermission('meter:read'), (c) => c.json({ role: c.get('user').role }));
 
     const res = await app.request('/test', {}, TEST_ENV);
     expect(res.status).toBe(200);
     expect((await res.json()).role).toBe('admin');
-    expect(mockQuery).toHaveBeenCalledTimes(1);
+    // Two lookups now: the user row, then that user's role grants.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 
   it('returns 401 when the cached DB lookup finds no matching user', async () => {
@@ -243,36 +247,35 @@ describe('requirePermission middleware', () => {
     expect((await res.json()).message).toBe('Account is inactive');
   });
 
-  it('should allow admin users regardless of permission', async () => {
-    const app = createAuthenticatedApp({
-      users_id: 1, role: 'admin', tenant_id: 1, permissions: {},
-    });
+  // Access comes from the caller's role grants. Nothing reads users.role or the
+  // legacy users.permissions column any more: a role's *name* is not a
+  // capability, and since roles are user-creatable, a check against one would
+  // silently exclude every role created afterwards.
+  it('allows a caller whose role grants the permission', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ permission: 'meter:delete', scope: 'all', hidden_fields: [] }] } as any);
+    const app = createAuthenticatedApp({ users_id: 1, role: 'admin', tenant_id: 1, role_id: 1, active: true });
     app.get('/test', requirePermission('meter:delete'), (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
     expect(res.status).toBe(200);
   });
 
-  it('should allow users with matching array permission', async () => {
-    const app = createAuthenticatedApp({
-      users_id: 2, role: 'viewer', tenant_id: 1,
-      permissions: ['meter:read', 'location:read'],
-    });
-    app.get('/test', requirePermission('meter:read'), (c) => c.json({ ok: true }));
+  it('denies a caller whose role does not grant it, whatever the role is called', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ permission: 'meter:read', scope: 'all', hidden_fields: [] }] } as any);
+    const app = createAuthenticatedApp({ users_id: 2, role: 'admin', tenant_id: 1, role_id: 2, active: true });
+    app.get('/test', requirePermission('meter:delete'), (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 
-  it('should allow users with matching nested object permission', async () => {
-    const app = createAuthenticatedApp({
-      users_id: 3, role: 'manager', tenant_id: 1,
-      permissions: { meter: { read: true, update: true } },
-    });
-    app.get('/test', requirePermission('meter:read'), (c) => c.json({ ok: true }));
+  it('ignores a granted permission that is not in the code catalog', async () => {
+    mockQuery.mockResolvedValue({ rows: [{ permission: 'meter:teleport', scope: 'all', hidden_fields: [] }] } as any);
+    const app = createAuthenticatedApp({ users_id: 3, role: 'manager', tenant_id: 1, role_id: 3, active: true });
+    app.get('/test', requirePermission('meter:teleport' as any), (c) => c.json({ ok: true }));
 
     const res = await app.request('/test');
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 
   it('should deny users without the required permission (array)', async () => {

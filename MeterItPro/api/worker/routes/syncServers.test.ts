@@ -23,9 +23,10 @@ globalThis.fetch = mockFetch;
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import syncServersApp from './syncServers';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -42,21 +43,21 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('SyncServers Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
     mockFetch.mockReset();
   });
 
   describe('GET /', () => {
     it('returns list of sync servers for tenant', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any) // auth
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [
             {
@@ -91,8 +92,7 @@ describe('SyncServers Routes', () => {
 
   describe('POST /', () => {
     it('creates a sync server', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any) // auth
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any)           // check duplicate
         .mockResolvedValueOnce({
           rows: [{
@@ -121,8 +121,7 @@ describe('SyncServers Routes', () => {
     });
 
     it('auto-generates a sync- name when name is missing', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any) // auth
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any)           // auto-gen uniqueness check
         .mockImplementationOnce((_env: any, _sql: any, params: any = []) => Promise.resolve({
           rows: [{
@@ -150,8 +149,7 @@ describe('SyncServers Routes', () => {
     });
 
     it('returns 409 when server with same name exists', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ '?column?': 1 }] } as any); // existing server found
 
       const res = await syncServersApp.request('/', {
@@ -169,8 +167,7 @@ describe('SyncServers Routes', () => {
 
   describe('PUT /:id', () => {
     it('updates a sync server', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)   // requirePermission user lookup
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any)             // conflict check (no conflict)
         .mockResolvedValueOnce({
           rows: [{
@@ -210,8 +207,7 @@ describe('SyncServers Routes', () => {
     });
 
     it('returns 404 when server not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)   // requirePermission user lookup
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any)             // conflict check (no conflict)
         .mockResolvedValueOnce({ rows: [] } as any);            // update returned nothing
 
@@ -230,8 +226,7 @@ describe('SyncServers Routes', () => {
 
   describe('DELETE /:id', () => {
     it('deletes a sync server without tunnel', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ tunnel_id: null, dns_record_id: null }] } as any) // lookup
         .mockResolvedValueOnce({ rows: [] } as any); // delete
 
@@ -247,8 +242,7 @@ describe('SyncServers Routes', () => {
     });
 
     it('returns 404 when server not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await syncServersApp.request('/999', {
@@ -266,8 +260,7 @@ describe('SyncServers Routes', () => {
         CLOUDFLARE_API_TOKEN: 'tok456',
       } as any;
 
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ tunnel_id: 'tunnel-uuid', dns_record_id: 'dns-uuid' }] } as any)
         .mockResolvedValueOnce({ rows: [] } as any);
 
@@ -278,8 +271,9 @@ describe('SyncServers Routes', () => {
         .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, result: {} }) });
 
       clearUserCache();
+    clearPermissionCache();
       mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
       mockQuery
         .mockResolvedValueOnce({ rows: [{ tunnel_id: 'tunnel-uuid', dns_record_id: 'dns-uuid' }] } as any)
         .mockResolvedValueOnce({ rows: [] } as any);
@@ -295,8 +289,7 @@ describe('SyncServers Routes', () => {
 
   describe('POST /:id/test-connection', () => {
     it('returns success when server health check passes', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ tunnel_url: 'https://server.example.com' }] } as any);
 
       mockFetch.mockResolvedValueOnce({
@@ -316,8 +309,7 @@ describe('SyncServers Routes', () => {
     });
 
     it('returns 404 when server not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await syncServersApp.request('/999/test-connection', {
@@ -329,8 +321,7 @@ describe('SyncServers Routes', () => {
     });
 
     it('returns failure when health check fails', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ tunnel_url: 'https://server.example.com' }] } as any);
 
       mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });

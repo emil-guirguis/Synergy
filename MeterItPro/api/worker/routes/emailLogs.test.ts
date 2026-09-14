@@ -19,9 +19,10 @@ vi.mock('../errorHandler', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import emailLogsApp from './emailLogs';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -38,13 +39,14 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('EmailLogs Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -97,8 +99,7 @@ describe('EmailLogs Routes', () => {
     });
 
     it('respects pagination parameters', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ total: '50' }] } as any)
         .mockResolvedValueOnce({ rows: [] } as any);
 
@@ -125,8 +126,7 @@ describe('EmailLogs Routes', () => {
 
   describe('GET /export', () => {
     it('returns JSON export when format=json', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [
             {
@@ -150,8 +150,7 @@ describe('EmailLogs Routes', () => {
     });
 
     it('returns CSV export by default', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [
             {

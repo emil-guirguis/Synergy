@@ -19,9 +19,10 @@ vi.mock('../errorHandler', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import notificationHistoryApp from './notificationHistory';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -38,13 +39,14 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('NotificationHistory Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -75,8 +77,7 @@ describe('NotificationHistory Routes', () => {
     });
 
     it('filters by meter_id when provided', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any)
         .mockResolvedValueOnce({ rows: [{ count: '0' }] } as any);
 
@@ -213,8 +214,7 @@ describe('NotificationHistory Routes', () => {
     });
 
     it('allows optional fields to be null', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [{
             notification_history_id: 21, tenant_id: 1, notification_rule_id: null,

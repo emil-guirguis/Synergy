@@ -32,10 +32,11 @@ vi.mock('../errorHandler', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import { findAll, findById, create, update, remove } from '../crud';
 import contactsApp from './contacts';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -57,20 +58,20 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('Contacts Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
   describe('GET /stats/overview', () => {
     it('returns contact statistics and top industries', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [{
             totalContacts: '10',
@@ -101,8 +102,7 @@ describe('Contacts Routes', () => {
     });
 
     it('returns zeros when no contacts exist', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any)
         .mockResolvedValueOnce({ rows: [] } as any);
 
@@ -325,7 +325,7 @@ describe('Contacts Routes', () => {
       // JWT claims may decode tenant_id as string "1"; DB returns number 1.
       // The old JS strict-equality check (tenant_id !== tenantId) would incorrectly 403.
       mockVerify.mockResolvedValueOnce({ userId: 1, tenant_id: '1' });
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
       mockFindById.mockResolvedValueOnce({ contact_id: 1, name: 'Test', tenant_id: 1 });
       mockUpdate.mockResolvedValueOnce({ contact_id: 1, name: 'Updated', tenant_id: 1 });
 

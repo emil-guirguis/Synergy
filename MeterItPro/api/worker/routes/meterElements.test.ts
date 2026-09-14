@@ -19,9 +19,10 @@ vi.mock('../errorHandler', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import meterElementsApp from './meterElements';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -38,7 +39,7 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 // meterElements is mounted at /meters/:meterId/elements - we test the sub-app directly
@@ -47,6 +48,7 @@ describe('MeterElements Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -148,8 +150,7 @@ describe('MeterElements Routes', () => {
     });
 
     it('returns 400 when name or element is missing', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER)
 
       const res = await meterElementsApp.request('/', {
         method: 'POST',
@@ -182,8 +183,7 @@ describe('MeterElements Routes', () => {
     });
 
     it('returns 400 when element is duplicate', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 1 }] } as any)
         .mockResolvedValueOnce({ rows: [{ meter_element_id: 5 }] } as any); // duplicate exists
 
@@ -225,9 +225,9 @@ describe('MeterElements Routes', () => {
     });
 
     it('returns 404 when meter not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
-        .mockResolvedValueOnce({ rows: [] } as any);
+      // PUT/DELETE here carry no requirePermission guard, so no auth lookup
+      // happens — the first queued result is the route's own meter query.
+      mockQuery.mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await meterElementsApp.request('/1', {
         method: 'PUT',
@@ -261,8 +261,7 @@ describe('MeterElements Routes', () => {
     });
 
     it('returns 400 when no fields to update', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 1 }] } as any)
         .mockResolvedValueOnce({ rows: [{ meter_element_id: 1, name: 'Old', element: 'A' }] } as any);
 
@@ -283,8 +282,7 @@ describe('MeterElements Routes', () => {
 
   describe('DELETE /:elementId', () => {
     it('deletes a meter element', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 1 }] } as any)
         .mockResolvedValueOnce({ rows: [{ meter_element_id: 1 }] } as any)
         .mockResolvedValueOnce({ rows: [] } as any); // delete
@@ -301,9 +299,9 @@ describe('MeterElements Routes', () => {
     });
 
     it('returns 404 when meter not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
-        .mockResolvedValueOnce({ rows: [] } as any);
+      // PUT/DELETE here carry no requirePermission guard, so no auth lookup
+      // happens — the first queued result is the route's own meter query.
+      mockQuery.mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await meterElementsApp.request('/1', {
         method: 'DELETE',

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import BusinessIcon from '@mui/icons-material/Business';
 import SyncIcon from '@mui/icons-material/Sync';
+import SecurityIcon from '@mui/icons-material/Security';
 import TuneIcon from '@mui/icons-material/Tune';
 import {
   SettingsPageShell,
@@ -8,6 +9,7 @@ import {
   SystemConfigForm,
 } from '@meterit/framework-frontend/components/settings';
 import SyncServersPanel from '../features/syncServers/SyncServersPanel';
+import RolesPanel from '../features/roles/RolesPanel';
 import './SettingsPage.css';
 import { useSettings } from '../store/entities/settingsStore';
 
@@ -129,6 +131,13 @@ const SettingsPage: React.FC = () => {
           icon: <SyncIcon fontSize="small" />,
           description: 'Manage sync servers connected via Cloudflare Tunnel.',
           content: <SyncServersPanel />,
+        },
+        {
+          key: 'roles',
+          label: 'Roles',
+          icon: <SecurityIcon fontSize="small" />,
+          description: 'What each role may do. Add a role and tick its permissions — no deploy needed.',
+          content: <RolesPanel />,
         },
       ]}
     />

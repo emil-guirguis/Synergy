@@ -40,11 +40,12 @@ vi.mock('../errorHandler', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import { findAll, findById, create, update, remove } from '../crud';
 import bcrypt from 'bcryptjs';
 import usersApp from './users';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -67,13 +68,14 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('Users Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -260,7 +262,7 @@ describe('Users Routes', () => {
       // JWT claims may decode tenant_id as string "1"; DB returns number 1.
       // The old JS strict-equality check (tenant_id !== tenantId) would incorrectly 403.
       mockVerify.mockResolvedValueOnce({ userId: 1, tenant_id: '1' });
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
       mockFindById.mockResolvedValueOnce({ users_id: 2, name: 'Bob', tenant_id: 1 });
       mockUpdate.mockResolvedValueOnce({ users_id: 2, name: 'Robert', tenant_id: 1 });
 
@@ -365,7 +367,7 @@ describe('Users Routes', () => {
       mockBcrypt.genSalt.mockResolvedValueOnce('salt' as any);
       mockBcrypt.hash.mockResolvedValueOnce('new-hash' as any);
       // requirePermission queries the user from DB before the route runs
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await usersApp.request('/1/password', {
         method: 'PUT',
@@ -417,8 +419,7 @@ describe('Users Routes', () => {
       mockBcrypt.genSalt.mockResolvedValueOnce('salt' as any);
       mockBcrypt.hash.mockResolvedValueOnce('token-hash' as any);
       // requirePermission does user DB lookup, then route does 2 more queries
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any); // requirePermission user lookup
+      queueAuth(mockQuery, ADMIN_USER)
 
       const res = await usersApp.request('/2/reset-password', {
         method: 'POST',

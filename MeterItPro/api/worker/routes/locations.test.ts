@@ -32,10 +32,11 @@ vi.mock('../crud', async (importOriginal) => {
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import { findAll, findById, create, update, remove, checkDeleteRestrictions } from '../crud';
 import locationsApp from './locations';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -58,13 +59,14 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('Locations Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -160,7 +162,7 @@ describe('Locations Routes', () => {
       // JWT claims may decode tenant_id as string "1"; DB returns number 1.
       // The old JS strict-equality check (tenant_id !== tenantId) would incorrectly 403.
       mockVerify.mockResolvedValueOnce({ userId: 1, tenant_id: '1' });
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
       mockFindById.mockResolvedValueOnce({ location_id: 1, name: 'Test', tenant_id: 1 });
       mockUpdate.mockResolvedValueOnce({ location_id: 1, name: 'Updated', tenant_id: 1 });
 
@@ -205,8 +207,7 @@ describe('Locations Routes', () => {
       mockFindById.mockResolvedValueOnce({
         location_id: 1, name: 'Empty Building', tenant_id: 1,
       });
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any) // auth
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ count: '0' }] } as any); // meter count
 
       mockRemove.mockResolvedValueOnce({ location_id: 1 });
@@ -225,7 +226,7 @@ describe('Locations Routes', () => {
       mockFindById.mockResolvedValueOnce({
         location_id: 1, name: 'Busy Building', tenant_id: 1,
       });
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any); // auth
+      queueAuth(mockQuery, ADMIN_USER); // auth
       mockCheckDeleteRestrictions.mockResolvedValueOnce({
         table: 'meter',
         count: 3,

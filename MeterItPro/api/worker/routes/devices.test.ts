@@ -32,6 +32,7 @@ import { clearUserCache } from '../middleware';
 import { findAll, findById } from '../crud';
 import devicesApp from './devices';
 import type { Env } from '../db';
+import { authQuery } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -50,7 +51,7 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('Devices Routes', () => {

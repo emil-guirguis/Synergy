@@ -35,10 +35,11 @@ vi.mock('../crud', async (importOriginal) => {
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import { findAll, findById, create, update, remove } from '../crud';
 import metersApp from './meters';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -60,13 +61,14 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('Meters Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -306,8 +308,7 @@ describe('Meters Routes', () => {
 
   describe('GET /:meterId/virtual-config', () => {
     it('should return selected items for a virtual meter', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)   // auth
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 5 }] } as any) // meter check
         .mockResolvedValueOnce({
           rows: [
@@ -359,8 +360,7 @@ describe('Meters Routes', () => {
     });
 
     it('should return empty selectedItems when no config saved', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 5 }] } as any)
         .mockResolvedValueOnce({ rows: [] } as any);
 
@@ -375,8 +375,7 @@ describe('Meters Routes', () => {
     });
 
     it('should return 404 when meter does not exist', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any); // meter not found
 
       const res = await metersApp.request('/999/virtual-config', {
@@ -389,8 +388,7 @@ describe('Meters Routes', () => {
     });
 
     it('should default operation to + when null', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 5 }] } as any)
         .mockResolvedValueOnce({
           rows: [{
@@ -420,8 +418,7 @@ describe('Meters Routes', () => {
         await fn(client as any);
       });
 
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 5 }] } as any);
 
       const res = await metersApp.request('/5/virtual-config', {
@@ -451,8 +448,7 @@ describe('Meters Routes', () => {
         await fn(client as any);
       });
 
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await metersApp.request('/999/virtual-config', {
@@ -468,8 +464,7 @@ describe('Meters Routes', () => {
     });
 
     it('should return 400 when arrays have mismatched lengths', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER)
 
       const res = await metersApp.request('/5/virtual-config', {
         method: 'POST',
@@ -495,8 +490,7 @@ describe('Meters Routes', () => {
         await fn({ query: clientQueryMock } as any);
       });
 
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ meter_id: 5 }] } as any);
 
       const res = await metersApp.request('/5/virtual-config', {
@@ -520,8 +514,7 @@ describe('Meters Routes', () => {
 
   describe('GET /elements', () => {
     it('should return meter elements for selection', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any) // auth
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [
             { id: 1, name: 'Meter A', identifier: 'SN001' },

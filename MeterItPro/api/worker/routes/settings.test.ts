@@ -19,9 +19,10 @@ vi.mock('../errorHandler', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import settingsApp from './settings';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -47,20 +48,20 @@ const SAMPLE_TENANT = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('Settings Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
   describe('GET /company', () => {
     it('returns company settings in the expected shape', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [SAMPLE_TENANT] } as any);
 
       const res = await settingsApp.request('/company', {
@@ -81,8 +82,7 @@ describe('Settings Routes', () => {
     });
 
     it('returns 404 when tenant not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await settingsApp.request('/company', {
@@ -108,8 +108,7 @@ describe('Settings Routes', () => {
   describe('PUT /company', () => {
     it('updates company settings', async () => {
       const updatedTenant = { ...SAMPLE_TENANT, name: 'Updated Company', city: 'New City' };
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [updatedTenant] } as any);
 
       const res = await settingsApp.request('/company', {
@@ -133,8 +132,7 @@ describe('Settings Routes', () => {
     });
 
     it('maps nested fields correctly (systemConfig, address, contactInfo)', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [SAMPLE_TENANT] } as any);
 
       await settingsApp.request('/company', {
@@ -194,8 +192,7 @@ describe('Settings Routes', () => {
 
   describe('GET / (legacy)', () => {
     it('returns company settings nested under company key', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [SAMPLE_TENANT] } as any);
 
       const res = await settingsApp.request('/', {
@@ -210,8 +207,7 @@ describe('Settings Routes', () => {
     });
 
     it('returns 404 when tenant not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any);
 
       const res = await settingsApp.request('/', {

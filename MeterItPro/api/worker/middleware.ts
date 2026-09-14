@@ -7,6 +7,12 @@ import { Context, Next } from 'hono';
 import { verify } from 'hono/jwt';
 import { execQuery, Env } from './db';
 import { checkRateLimit, ipRateLimit, createEntityCache, extractBearerToken } from '@meterit/framework-backend/api/base/auth';
+import {
+  createPermissions,
+  fullAccess,
+  type PermissionSet,
+} from '@meterit/framework-backend/api/base/permissions';
+import { PERMISSIONS } from './permissions';
 
 export { ipRateLimit };
 
@@ -24,7 +30,15 @@ export async function getCachedUser(env: Env, userId: string): Promise<any | nul
   return userCache.get(userId, async () => {
     const result = await execQuery(
       env,
-      `SELECT users_id, name, email, phone, role, active, tenant_id, permissions, is_super_admin, is_support_admin
+      `SELECT users_id, name, email, phone, role, active, tenant_id, permissions, is_super_admin, is_support_admin,
+              permission_overrides,
+              COALESCE(role_id, (
+                SELECT r.role_id FROM public.role r
+                 WHERE r.tenant_id IS NULL
+                   AND r.code = CASE WHEN users.role IN ('admin', 'manager', 'technician', 'viewer',
+                                                         'user', 'superadmin', 'supersupport')
+                                     THEN users.role ELSE 'viewer' END
+              )) AS role_id
        FROM users WHERE users_id = $1`,
       [userId],
       'getCachedUser'
@@ -37,6 +51,7 @@ export async function getCachedUser(env: Env, userId: string): Promise<any | nul
 // Hono context variables set by middleware
 export type AuthVariables = {
   user: any;
+  permissions: PermissionSet;
   tenantId: number;
   requestId: string;
 };
@@ -98,9 +113,29 @@ export async function authenticateToken(c: Context<{ Bindings: Env; Variables: A
  * Permission check middleware factory.
  * Usage: requirePermission('meter:read')
  *
- * This is where the DB lookup happens — lazily and cached. Routes that don't
- * call requirePermission() never hit the users table.
+ * Still where the DB lookup happens — lazily and cached, so routes that never
+ * check a permission (the polling endpoints) never touch the users table.
+ *
+ * Grants come from the caller's role via the shared model; nothing here reads
+ * the users.role string. A role's name is not a capability, and roles are
+ * user-creatable, so branching on one would exclude every role added later.
  */
+const permissionModel = createPermissions(execQuery);
+
+export function clearPermissionCache(): void {
+  permissionModel.clearCache();
+}
+
+/**
+ * Resolve a caller's permissions. is_super_admin is the one bypass: it is a
+ * platform-operator flag for cross-tenant administration (see adminRoutes.ts),
+ * deliberately outside the tenant role model rather than a role inside it.
+ */
+export async function permissionsFor(env: Env, user: any): Promise<PermissionSet> {
+  if (user?.is_super_admin) return fullAccess(PERMISSIONS);
+  return permissionModel.resolveFor(env, user, PERMISSIONS);
+}
+
 export function requirePermission(permission: string) {
   return async (c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) => {
     const partial = c.get('user');
@@ -108,12 +143,10 @@ export function requirePermission(permission: string) {
       return c.json({ success: false, message: 'Authentication required' }, 401);
     }
 
-    // Load full user (cached) to get role, permissions, and active flag.
-    // Skip if user is already fully loaded (has role set).
-    let user: any;
-    if (partial.role !== undefined) {
-      user = partial;
-    } else {
+    // Load the full user (cached) unless authenticateToken's JWT-only object has
+    // already been promoted by an earlier requirePermission on the same request.
+    let user: any = partial;
+    if (partial.role === undefined) {
       try {
         user = await getCachedUser(c.env, String(partial.users_id));
         if (!user) {
@@ -126,31 +159,18 @@ export function requirePermission(permission: string) {
       if (!user.active) {
         return c.json({ success: false, message: 'Account is inactive' }, 401);
       }
-      // Promote context to full user so downstream handlers can read name/email/etc.
       c.set('user', user);
     }
 
-    // Super admin and admin bypass permission checks
-    if (user.is_super_admin || user.role === 'admin') {
-      return next();
+    let set = c.get('permissions');
+    if (!set) {
+      set = await permissionsFor(c.env, user);
+      c.set('permissions', set);
     }
-
-    // Parse permission string like "meter:read"
-    const [module, action] = permission.split(':');
-    const perms = user.permissions;
-
-    // Handle array format: ["dashboard:read", "meter:read"]
-    if (Array.isArray(perms)) {
-      if (perms.includes(permission)) {
-        return next();
-      }
+    if (!set.has(permission)) {
+      return c.json({ success: false, message: 'Insufficient permissions' }, 403);
     }
-    // Handle nested object format: { dashboard: { read: true } }
-    else if (perms && typeof perms === 'object' && perms[module] && perms[module][action]) {
-      return next();
-    }
-
-    return c.json({ success: false, message: 'Insufficient permissions' }, 403);
+    return next();
   };
 }
 

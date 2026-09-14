@@ -27,6 +27,7 @@ import { clearUserCache } from '../middleware';
 import aiChatApp from './aiChat';
 import type { Env } from '../db';
 import OpenAI from 'openai';
+import { authQuery } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -52,7 +53,7 @@ let mockCreate: ReturnType<typeof vi.fn>;
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('AI Chat Routes', () => {

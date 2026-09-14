@@ -19,9 +19,10 @@ vi.mock('hono/jwt', () => ({
 
 import { verify } from 'hono/jwt';
 import { query, transaction } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import favoritesApp from './favorites';
 import type { Env } from '../db';
+import { queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -44,6 +45,7 @@ describe('Favorites Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -68,7 +70,7 @@ describe('Favorites Routes', () => {
     });
 
     it('should return 400 when users_id is missing', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [ADMIN_USER] } as any);
+      queueAuth(mockQuery, ADMIN_USER);
 
       const res = await favoritesApp.request('/?tenant_id=1', {
         headers: { authorization: 'Bearer valid-token' },

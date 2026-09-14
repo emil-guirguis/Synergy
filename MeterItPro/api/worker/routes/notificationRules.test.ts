@@ -23,10 +23,11 @@ vi.mock('../notificationRunner', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import { runNotificationRule } from '../notificationRunner';
 import notificationRulesApp from './notificationRules';
 import type { Env } from '../db';
+import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -44,13 +45,14 @@ const ADMIN_USER = {
 
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
-  mockQuery.mockResolvedValue({ rows: [ADMIN_USER] } as any);
+  mockQuery.mockImplementation(authQuery(ADMIN_USER));
 }
 
 describe('NotificationRules Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -82,8 +84,7 @@ describe('NotificationRules Routes', () => {
     });
 
     it('filters by active param', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [] } as any)
         .mockResolvedValueOnce({ rows: [{ count: '0' }] } as any);
 
@@ -206,8 +207,7 @@ describe('NotificationRules Routes', () => {
 
   describe('PUT /:id', () => {
     it('updates a notification rule', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [{
             notification_rule_id: 1, tenant_id: 1, name: 'Updated Rule',
@@ -259,8 +259,7 @@ describe('NotificationRules Routes', () => {
     });
 
     it('updates recipients when provided', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({
           rows: [{
             notification_rule_id: 1, name: 'Rule', tenant_id: 1, rule_type: 'meter_no_reading',
@@ -332,8 +331,7 @@ describe('NotificationRules Routes', () => {
     });
 
     it('returns 404 when rule not found', async () => {
-      mockQuery
-        .mockResolvedValueOnce({ rows: [ADMIN_USER] } as any)
+      queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rowCount: 0, rows: [] } as any);
 
       const res = await notificationRulesApp.request('/999', {
