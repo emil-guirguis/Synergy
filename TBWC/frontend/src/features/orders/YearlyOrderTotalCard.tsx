@@ -1,5 +1,7 @@
 /**
- * Dashboard card: total order value for a selected year, picked via dropdown.
+ * Dashboard card: total order value AND order count for a selected year,
+ * picked via dropdown. Both figures come off the single fetch below — a
+ * separate count card would mean a second unfiltered 1000-row pull.
  * Admin-only — /orders is unscoped for admins so a plain fetch covers every
  * order. Year options are derived from the distinct years present in txn_date.
  * Fetches via ordersService directly (not the shared useOrders store) — that
@@ -43,10 +45,12 @@ export default function YearlyOrderTotalCard() {
     return Array.from(set).sort((a, b) => Number(b) - Number(a));
   }, [orders]);
 
-  const yearTotal = useMemo(() => {
-    return orders
-      .filter((o) => o.txn_date?.startsWith(year))
-      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const { yearTotal, yearCount } = useMemo(() => {
+    const inYear = orders.filter((o) => o.txn_date?.startsWith(year));
+    return {
+      yearTotal: inYear.reduce((sum, o) => sum + (Number(o.total) || 0), 0),
+      yearCount: inYear.length,
+    };
   }, [orders, year]);
 
   return (
@@ -75,6 +79,9 @@ export default function YearlyOrderTotalCard() {
         <CardActionArea onClick={() => navigate('/orders')} sx={{ borderRadius: 1 }}>
           <Typography variant="h4" fontWeight={700}>
             {loading ? '…' : currency(yearTotal)}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {loading ? '…' : `${yearCount.toLocaleString()} ${yearCount === 1 ? 'order' : 'orders'}`}
           </Typography>
         </CardActionArea>
       </CardContent>

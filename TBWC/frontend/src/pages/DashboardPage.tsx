@@ -4,7 +4,6 @@ import RepInquiriesCard from '../features/repPortal/RepInquiriesCard';
 import RepStatsCards from '../features/repPortal/RepStatsCards';
 import OrderAlertsCards from '../features/orders/OrderAlertsCards';
 import YearlyOrderTotalCard from '../features/orders/YearlyOrderTotalCard';
-import YearlyCommissionTotalCard from '../features/orders/YearlyCommissionTotalCard';
 
 export default function DashboardPage() {
   const { user, isAdmin } = useAuth();
@@ -19,10 +18,7 @@ export default function DashboardPage() {
       {isAdmin ? (
         <Stack spacing={3}>
           <RepInquiriesCard />
-          <Stack direction="row" spacing={2} flexWrap="wrap">
-            <YearlyOrderTotalCard />
-            <YearlyCommissionTotalCard />
-          </Stack>
+          <YearlyOrderTotalCard />
           <OrderAlertsCards />
         </Stack>
       ) : (
