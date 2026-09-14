@@ -19,6 +19,9 @@ import {
   getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
 } from '../services/rolesService';
 
+// Roles tab disabled for now — flip back to true to re-enable.
+const ROLES_TAB_ENABLED = false;
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [roles, setRoles] = useState<ManagedRole[]>([]);
@@ -60,7 +63,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    loadRoles();
+    if (ROLES_TAB_ENABLED) loadRoles();
   }, [loadRoles]);
 
   /** Every role mutation re-reads the list: grants are stored server-side and
@@ -167,7 +170,7 @@ export default function SettingsPage() {
             />
           ),
         },
-        {
+        ...(ROLES_TAB_ENABLED ? [{
           key: 'roles',
           label: 'Roles',
           icon: <SecurityIcon fontSize="small" />,
@@ -185,7 +188,7 @@ export default function SettingsPage() {
               onDelete={(roleId) => withRoleRefresh(() => deleteRole(roleId), 'Role deleted')}
             />
           ),
-        },
+        }] : []),
       ]}
     />
   );
