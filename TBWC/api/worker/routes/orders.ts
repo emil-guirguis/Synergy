@@ -17,7 +17,7 @@
  * Writes are admin-only.
  */
 import { Hono } from 'hono';
-import { Env } from '../db';
+import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
 import { findAll, findById, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { orderSchema } from './orderSchema';
@@ -82,7 +82,9 @@ const WRITABLE = new Set([
   'job_name',
   'expedite',
   'jay',
+  'service',
   'ship_no_later_than',
+  'actual_ship_date',
   'sold_for',
   'd_net_cost',
   'overage',
@@ -150,6 +152,64 @@ app.get('/:id', async (c) => {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
   return c.json({ success: true, data: row });
+});
+
+// Invoices linked to this order, for the order form's right-hand panel.
+// Linkage is QB's LinkedTxn where present, falling back to (customer + PO) —
+// see the comment on the query below for why the fallback has to exist.
+// Both groups come from one query; the form splits them (total > 0 = invoice,
+// total = 0 = packing slip) so there is one round trip, not two.
+// Scope: reuses the order's own visibility check below — if the caller can see
+// the order, they can see what it was invoiced on. Deliberately NOT scoped by
+// qb_invoice.sales_rep_list_id the way /invoices is: ~350 invoices carry no rep
+// (see invoices.ts) and hiding those from a rep's own order would make the
+// panel silently incomplete.
+app.get('/:id/invoices', async (c) => {
+  const user = c.get('user');
+  const order = await findById(c.env, TABLE, PK, c.req.param('id'));
+  if (!order || order.qb_deleted_at) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (!canSeeAll(user) && (!user.sales_rep_list_id || order.sales_rep_list_id !== user.sales_rep_list_id)) {
+    return c.json({ success: false, message: 'Not found' }, 404);
+  }
+  // Two ways an invoice belongs to this order:
+  //   'link' — QB's own LinkedTxn (authoritative).
+  //   'po'   — same customer + same PO number (inferred). Needed because QB
+  //            only returns LinkedTxn when asked, and InvoiceQueryRq didn't ask
+  //            until this change, so linked_txn is empty on every invoice
+  //            synced before it and stays empty until that invoice is touched
+  //            in QB again. 4449 of 4583 orders match this way (migration 037).
+  // matched_by says which, and flags the only case actually worth a warning in
+  // the UI: 'ambiguous' — a PO match where that same customer+PO appears on
+  // more than one order, so this invoice may well belong to one of the others
+  // (~270 invoices company-wide). A plain 'po' match is inferred but unshared,
+  // and while linked_txn is empty everywhere that describes nearly every row —
+  // badging all of them would be noise.
+  const po = (order.po_number ?? '').trim() || null;
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT i.qb_invoice_id, i.ref_number, i.txn_date, i.due_date, i.total,
+            i.balance_remaining, i.is_paid,
+            CASE
+              WHEN i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', $1::text))
+                THEN 'link'
+              WHEN (SELECT count(*) FROM public.qb_sales_order o2
+                     WHERE o2.qb_deleted_at IS NULL
+                       AND o2.customer_list_id = i.customer_list_id
+                       AND nullif(btrim(o2.po_number), '') = nullif(btrim(i.po_number), '')) > 1
+                THEN 'ambiguous'
+              ELSE 'po'
+            END AS matched_by
+     FROM public.qb_invoice i
+     WHERE i.qb_deleted_at IS NULL
+       AND (i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', $1::text))
+            OR ($2::text IS NOT NULL
+                AND i.customer_list_id = $3::text
+                AND nullif(btrim(i.po_number), '') = $2::text))
+     ORDER BY i.txn_date DESC NULLS LAST, i.qb_invoice_id DESC`,
+    [order.txn_id, po, order.customer_list_id],
+    'orders.linkedInvoices'
+  );
+  return c.json({ success: true, data: { items: rows } });
 });
 
 app.put('/:id', requireAdmin, async (c) => {

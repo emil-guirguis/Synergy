@@ -4,6 +4,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
+import OrderInvoicesPanel from './OrderInvoicesPanel';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { useAuth } from '../../hooks/useAuth';
@@ -110,45 +111,54 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
     );
   }
 
+  // Form on the left, QB-style billing panel pinned right (linked invoices +
+  // packing slips). Only for a saved order — the panel keys off the record id.
   return (
-    <BaseForm
-      schemaName="order"
-      entity={freshOrder}
-      store={orders}
-      onCancel={onCancel}
-      className="order-form"
-      loading={loading}
-      showTabs={true}
-      variant={variant}
-      isDisabled={readOnly}
-      fieldsToClean={['id', 'lines', 'packing_list', 'documents']}
-      renderCustomField={(fieldName, _fieldDef, value) => {
-        if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} hideAmounts={readOnly} />;
-        if (fieldName === 'packing_list') {
-          return (
-            <Button
-              variant="outlined"
-              startIcon={<LocalShippingIcon />}
-              disabled={!freshOrder}
-              onClick={() => freshOrder && openPackingList(freshOrder)}
-            >
-              Packing List
-            </Button>
-          );
-        }
-        if (fieldName === 'documents') {
-          return (
-            <DocumentsGrid
-              entityType="order"
-              entityId={freshOrder?.id}
-              api={documentsApi}
-              storage={documentsStorage}
-            />
+    <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <BaseForm
+          schemaName="order"
+          entity={freshOrder}
+          store={orders}
+          onCancel={onCancel}
+          className="order-form"
+          loading={loading}
+          showTabs={true}
+          variant={variant}
+          isDisabled={readOnly}
+          fieldsToClean={['id', 'lines', 'packing_list', 'documents']}
+          renderCustomField={(fieldName, _fieldDef, value) => {
+            if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} hideAmounts={readOnly} />;
+            if (fieldName === 'packing_list') {
+              return (
+                <Button
+                  variant="outlined"
+                  startIcon={<LocalShippingIcon />}
+                  disabled={!freshOrder}
+                  onClick={() => freshOrder && openPackingList(freshOrder)}
+                >
+                  Packing List
+                </Button>
+              );
+            }
+            if (fieldName === 'documents') {
+              return (
+                <DocumentsGrid
+                  entityType="order"
+                  entityId={freshOrder?.id}
+                  api={documentsApi}
+                  storage={documentsStorage}
+                />
           );
         }
         return null;
       }}
     />
+      </Box>
+      {freshOrder?.id && (
+        <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={isAdmin} />
+      )}
+    </Box>
   );
 };
 

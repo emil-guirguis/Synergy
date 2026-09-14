@@ -9,8 +9,7 @@ import {
   qbTimeToTs, qbDate, num, txnModifiedFilter, QB_MAX_RETURNED,
 } from '../qbxml';
 import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
-import { sinceModified } from '../incremental';
-import { getPullCursor } from '../pullCursor';
+import { pullSince } from '../incremental';
 import { multiRowValues, chunk, BATCH_SIZE } from '../batchSql';
 
 /** LinkedTxn blocks (header + per-line), deduped by TxnID — links this invoice
@@ -27,25 +26,27 @@ function linkedTxns(ret: string): { txn_id: string; txn_type: string | null }[] 
 const REQUEST_ID = 'invoice';
 
 async function buildRequest(env: Env): Promise<string> {
-  // Trust qb_invoice's own MAX(time_modified) only once a prior pull's iterator
-  // is confirmed fully drained. If the last sequence left more pages pending
-  // (QB never reported iteratorRemainingCount=0, or a session died mid-Continue),
-  // that MAX() already advanced past whatever backlog didn't get fetched -- using
-  // it here would permanently skip those records. Fall back to the last
-  // confirmed-safe point instead (see migration 025 / pullCursor.ts).
-  const cursor = await getPullCursor(env, 'Invoice');
-  const since = cursor.drainPending
-    ? cursor.confirmedThrough
-    : await sinceModified(env, 'qb_invoice', 'qbwc.invoice.since');
+  // pullSince() decides the window: a queued full reload (dashboard reload
+  // button) pulls everything, a pending drain falls back to the last
+  // confirmed-safe point rather than this table's own MAX(time_modified), and
+  // otherwise it's that MAX(). See incremental.ts / migration 025.
+  const since = await pullSince(env, 'Invoice', 'qb_invoice', 'qbwc.invoice.since');
   const filter = txnModifiedFilter(since);
   // Paged via iterator, same as customer/item/salesOrder — without it QB caps
   // an un-iterated InvoiceQueryRq well short of the full result set (seen:
   // 187 back when the whole company file has far more invoices than that).
-  // qbXML schema order: MaxReturned before the date filter, IncludeLineItems last.
+  // qbXML schema order: MaxReturned before the date filter, then
+  // IncludeLineItems and IncludeLinkedTxns last, in that order.
+  // IncludeLinkedTxns is what makes QB emit the <LinkedTxn> blocks tying an
+  // invoice back to the sales order it was created from. Without it QB omits
+  // them silently -- which left linked_txn as [] on all 7.8k synced rows, so
+  // the order module's invoice_number/invoice_status (orderInvoiceStatus.ts)
+  // and the order form billing panel had nothing to join on.
   return qbxmlDoc(
     `    <InvoiceQueryRq requestID="${REQUEST_ID}" iterator="Start">\n` +
     `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>${filter}\n` +
     `      <IncludeLineItems>true</IncludeLineItems>\n` +
+    `      <IncludeLinkedTxns>true</IncludeLinkedTxns>\n` +
     `    </InvoiceQueryRq>`
   );
 }
@@ -73,6 +74,10 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       txnId,
       tag(ret, 'EditSequence') ?? null,
       tag(ret, 'RefNumber') ?? null,
+      // Migration 037: the billing panel falls back to (customer + PO) when
+      // linked_txn is empty, as it is on every invoice QB returned before
+      // IncludeLinkedTxns was added above.
+      tag(ret, 'PONumber') ?? null,
       cust.listId ?? null,
       cust.fullName ?? null,
       rep.listId ?? null,
@@ -99,16 +104,16 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   // iterator page must be a handful of statements, not one per record (a
   // per-record loop was slow enough to blow the Web Connector's response
   // timeout mid-page, silently truncating large pulls).
-  const CASTS = ['', '', '', '', '', '', '', '', '', '', '', '', '::jsonb', '::jsonb', '', '::jsonb'];
+  const CASTS = ['', '', '', '', '', '', '', '', '', '', '', '', '', '::jsonb', '::jsonb', '', '::jsonb'];
   for (const rows of chunk([...byId.values()], BATCH_SIZE)) {
     await execQuery(
       env,
       `INSERT INTO public.qb_invoice
-         (txn_id, edit_sequence, ref_number, customer_list_id, customer_name, sales_rep_list_id, txn_date,
+         (txn_id, edit_sequence, ref_number, po_number, customer_list_id, customer_name, sales_rep_list_id, txn_date,
           due_date, subtotal, total, balance_remaining, is_paid, lines, linked_txn, time_modified, raw, synced_at)
        VALUES ${multiRowValues(rows.length, CASTS, ', CURRENT_TIMESTAMP')}
        ON CONFLICT (txn_id) DO UPDATE SET
-         edit_sequence=EXCLUDED.edit_sequence, ref_number=EXCLUDED.ref_number,
+         edit_sequence=EXCLUDED.edit_sequence, ref_number=EXCLUDED.ref_number, po_number=EXCLUDED.po_number,
          customer_list_id=EXCLUDED.customer_list_id, customer_name=EXCLUDED.customer_name,
          sales_rep_list_id=EXCLUDED.sales_rep_list_id,
          txn_date=EXCLUDED.txn_date, due_date=EXCLUDED.due_date, subtotal=EXCLUDED.subtotal,
@@ -137,6 +142,8 @@ const invoice: QbObject = {
   requestID: REQUEST_ID,
   buildRequest,
   parseResponse,
-  iteratorExtra: '      <IncludeLineItems>true</IncludeLineItems>\n',
+  iteratorExtra:
+    '      <IncludeLineItems>true</IncludeLineItems>\n' +
+    '      <IncludeLinkedTxns>true</IncludeLinkedTxns>\n',
 };
 export default invoice;

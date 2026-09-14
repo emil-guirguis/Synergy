@@ -40,13 +40,35 @@ export interface Order {
   job_name: string | null;
   expedite: boolean;
   jay: boolean;
+  /** Service work rather than a product build (migration 036) — admin-only. */
+  service: boolean;
   ship_no_later_than: string | null;
+  /** Manually entered actual ship date (migration 035) — distinct from
+   *  shipped_date, which is QB's own synced <ShipDate>. */
+  actual_ship_date: string | null;
   d_net_cost: number | null;
   overage: number | null;
   project_admin_fee: number | null;
   commission_total: number | null;
   trade_ally_fee: number | null;
   rep_id: string | null;
+}
+
+/** One invoice QB has linked to an order (GET /api/orders/:id/invoices).
+ *  A zero-total row is a packing slip, which this company records in QB as a
+ *  zero-total invoice — see OrderInvoicesPanel.tsx. */
+export interface LinkedInvoice {
+  qb_invoice_id: number;
+  ref_number: string | null;
+  txn_date: string | null;
+  due_date: string | null;
+  total: number | null;
+  balance_remaining: number | null;
+  is_paid: boolean | null;
+  /** How this invoice was tied to the order: 'link' = QB's own LinkedTxn;
+   *  'po' = inferred from customer + PO number; 'ambiguous' = that same
+   *  customer+PO is on more than one order, so the match may be the wrong one. */
+  matched_by?: 'link' | 'po' | 'ambiguous';
 }
 
 export interface OrderLine {

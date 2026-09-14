@@ -45,9 +45,11 @@ export const orderSchema = defineSchema({
             field({ name: 'job_name', order: 8, type: FieldTypes.STRING, default: '', required: false, label: 'Job Name', dbField: 'job_name', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'sales_rep', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep', maxLength: 200, showOn: ['list', 'form'] }),
             field({ name: 'invoice_number', order: 5, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice #', dbField: 'invoice_number', maxLength: 100, showOn: ['list', 'form'] }),
-            // Checkbox in the list per QB's own is_fully_invoiced flag; the finer-
-            // grained invoice_status (Paid/Closed/etc) stays on the form only.
-            field({ name: 'is_fully_invoiced', order: 6, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Invoiced', dbField: 'is_fully_invoiced', showOn: ['list', 'form'] }),
+            // List-only: QB's own is_fully_invoiced flag is a column (and filter)
+            // in the list, while the form carries the finer-grained
+            // invoice_status (Not Invoiced/Partially/Invoiced/Paid/Closed),
+            // which already says everything the checkbox did.
+            field({ name: 'is_fully_invoiced', order: 6, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Invoiced', dbField: 'is_fully_invoiced', showOn: ['list'] }),
             field({ name: 'invoice_status', order: 7, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice Status', dbField: 'invoice_status', maxLength: 100, showOn: ['form'], enumValues: ['Not Invoiced', 'Partially Invoiced', 'Invoiced', 'Paid', 'Closed'] }),
             // No QB source (checked, see migration 014/020) — manually entered,
             // TBWC-owned like build_notes; survives every re-sync.
@@ -60,10 +62,19 @@ export const orderSchema = defineSchema({
           gridRow: '1',
           fields: [
             field({ name: 'txn_date', order: 1, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Order Date', dbField: 'txn_date', showOn: ['list', 'form'] }),
-            field({ name: 'due_date', order: 2, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Due Date', dbField: 'due_date', showOn: ['form'] }),
-            field({ name: 'ship_no_later_than', order: 3, type: FieldTypes.DATE, default: null, required: false, label: 'Ship NLT', description: 'Ship No Later Than', dbField: 'ship_no_later_than', showOn: ['list', 'form'] }),
+            // Both admin-only: reps track receive/ship dates only, so these two
+            // internal scheduling dates are off the rep form (the rep list drops
+            // them via REP_FIELD_ORDER in OrderList.tsx).
+            field({ name: 'due_date', order: 2, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Due Date', dbField: 'due_date', showOn: ['form'], visibleFor: ['admin'] }),
+            field({ name: 'ship_no_later_than', order: 3, type: FieldTypes.DATE, default: null, required: false, label: 'Ship NLT', description: 'Ship No Later Than', dbField: 'ship_no_later_than', showOn: ['list', 'form'], visibleFor: ['admin'] }),
             // QB's own SalesOrderRet ShipDate — synced, not manually entered.
-            field({ name: 'shipped_date', order: 4, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Shipped Date', dbField: 'shipped_date', showOn: ['list', 'form'] }),
+            // List-only: the form's ship date is actual_ship_date below, and a
+            // second read-only ship date next to it just invited confusion.
+            field({ name: 'shipped_date', order: 4, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'QB Ship Date', dbField: 'shipped_date', showOn: ['list'] }),
+            // The date the order actually shipped, entered by hand (migration 035).
+            // TBWC-owned, so the sync never clobbers it; shown to reps too, though
+            // only an admin can save it (PUT /api/orders/:id is requireAdmin).
+            field({ name: 'actual_ship_date', order: 5, type: FieldTypes.DATE, default: null, required: false, label: 'Ship Date', dbField: 'actual_ship_date', showOn: ['list', 'form'] }),
           ],
         }),
         section({
@@ -71,11 +82,19 @@ export const orderSchema = defineSchema({
           order: 3,
           gridColumn: '2',
           gridRow: '2',
+          // Checkboxes side-by-side rather than stacked — three one-word flags
+          // read better in a row and keep the Dates section above them from
+          // being pushed up against a tall column of them.
+          horizontal: true,
           fields: [
             field({ name: 'expedite', order: 1, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Expedite', dbField: 'expedite', showOn: ['list', 'form'] }),
             // Internal TBWC flag — admin-only, same variant filter as the
             // admin-only tabs below (OrderForm passes 'admin' vs 'rep').
             field({ name: 'jay', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Jay', dbField: 'jay', showOn: ['form'], visibleFor: ['admin'] }),
+            // Service work rather than a product build (migration 036). Admin-only
+            // like `jay`, but list-shown too — which also earns it a Yes/No filter
+            // from generateFiltersFromSchema (boolean + showOn 'list').
+            field({ name: 'service', order: 3, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Service', dbField: 'service', showOn: ['list', 'form'], visibleFor: ['admin'] }),
           ],
         }),
       ],
@@ -167,7 +186,7 @@ export const orderSchema = defineSchema({
             field({ name: 'project_admin_fee', order: 2, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Project Administration Fee', dbField: 'project_admin_fee', showOn: ['form'] }),
             // Postgres GENERATED column (commission + overage) — the DB itself
             // rejects direct writes, so this is readOnly here to match.
-            field({ name: 'commission_total', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Commission Total', dbField: 'commission_total', showOn: ['list','form'] }),
+            field({ name: 'commission_total', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Commission Total', dbField: 'commission_total', showOn: ['form'] }),
             field({ name: 'trade_ally_fee', order: 4, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Trade Ally Fee', dbField: 'trade_ally_fee', showOn: ['form'] }),
           ],
         }),

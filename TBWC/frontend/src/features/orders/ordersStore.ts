@@ -3,7 +3,7 @@ import { createEntityStore, createEntityHook } from '../../store/slices/createEn
 import { withApiCall } from '../../store/middleware/apiMiddleware';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { API_BASE_URL } from '../../config/api';
-import type { Order } from '../../types/order';
+import type { Order, LinkedInvoice } from '../../types/order';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -41,6 +41,12 @@ export const ordersService = {
   async getById(id: string) {
     const data = await parse(await fetch(`${API_BASE_URL}/orders/${id}`, { headers: authHeaders() }));
     return data.data;
+  },
+  /** Invoices QB has linked to this order — both real invoices and the
+   *  zero-total rows the order form shows as packing slips. */
+  async getLinkedInvoices(id: string | number) {
+    const data = await parse(await fetch(`${API_BASE_URL}/orders/${id}/invoices`, { headers: authHeaders() }));
+    return (data.data?.items || []) as LinkedInvoice[];
   },
   // Orders exist only via the QuickBooks sync — the list disables create/delete;
   // these throw defensively if ever called.

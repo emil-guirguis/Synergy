@@ -16,8 +16,8 @@ import { Permission } from '../../types/auth';
 import type { Order } from '../../types/order';
 
 // Schema's default boolean-column render is a Yes/No pill; the order list wants
-// a literal checkbox glyph instead for these two flag columns.
-const CHECKBOX_COLUMNS = new Set<keyof Order>(['is_fully_invoiced', 'expedite']);
+// a literal checkbox glyph instead for these flag columns.
+const CHECKBOX_COLUMNS = new Set<keyof Order>(['is_fully_invoiced', 'expedite', 'service']);
 
 function renderCheckbox(value: boolean | null | undefined) {
   return value
@@ -48,18 +48,19 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // the rep form by the Notes tab's visibleFor: ['admin'] (see orderSchema.ts).
   // Order money is admin-only too — no total here, and OrderLinesGrid drops the
   // rate/amount columns and the totals footer for the same reason.
-  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'shipped_date', 'expedite'];
+  // No shipped_date here: QB's own ship-by date is an internal scheduling date,
+  // so reps see only actual_ship_date (the date it really shipped).
+  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'actual_ship_date', 'expedite'];
   const REP_LABEL_OVERRIDES: Partial<Record<keyof Order, string>> = {
     ref_number: 'TBWC #',
     txn_date: 'Received',
-    shipped_date: 'Ship Date',
   };
 
   const columns = useMemo(() => {
     if (!schema) return [];
     const cols = generateColumnsFromSchema<Order>(schema.formFields, {
       fieldOrder: canSeeAll
-        ? ['customer_name', 'build_notes', 'ref_number', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'invoice_number', 'txn_date', 'ship_no_later_than', 'shipped_date', 'expedite']
+        ? ['customer_name', 'build_notes', 'ref_number', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'invoice_number', 'txn_date', 'ship_no_later_than', 'shipped_date', 'actual_ship_date', 'expedite', 'service']
         : REP_FIELD_ORDER,
       responsive: 'hide-mobile',
     });
