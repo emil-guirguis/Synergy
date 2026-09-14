@@ -18,7 +18,8 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { redactRow, redactRows } from '@meterit/framework-backend/api/base/permissions';
 import { findAll, findById, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { orderSchema } from './orderSchema';
 import { queueFieldPush } from '../qbwc/pushQueue';
@@ -96,11 +97,12 @@ const WRITABLE = new Set([
   // in orderSchema) — excluded here so a PUT can never write it.
 ]);
 
-function canSeeAll(user: any): boolean {
-  return !!user?.is_admin;
+/** True when this caller's order:read grant is limited to their own rows. */
+function ownOnly(c: any): boolean {
+  return c.get('permissions')?.scopeOf('order:read') === 'own';
 }
 
-app.get('/', async (c) => {
+app.get('/', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const q = c.req.query();
   // missingPo/notShipped are synthetic filters (dashboard alert cards), not real
@@ -116,7 +118,7 @@ app.get('/', async (c) => {
   // `IS NULL` scope that would hand them every order QB hasn't assigned a rep to.
   const where: Record<string, any> = {
     ...fieldWhere,
-    ...(canSeeAll(user) ? {} : { sales_rep_list_id: user.sales_rep_list_id ?? '__unlinked__' }),
+    ...(ownOnly(c) ? { sales_rep_list_id: user.sales_rep_list_id ?? '__unlinked__' } : {}),
     // Deleted in QB (see qbwc/objects/salesOrderDeleted.ts) — row is kept for its
     // TBWC-owned columns/history but must never appear as a live order.
     qb_deleted_at: null,
@@ -138,20 +140,25 @@ app.get('/', async (c) => {
     whereLike,
     selectFields: SELECT_WITH_REP_NAME,
   });
-  return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
+  // Field-level scope, not just row-level: the rep grant hides every dollar
+  // figure on an order, including the ones nested in `lines` and the whole
+  // `raw` QB blob. Applied here rather than by narrowing selectFields so the
+  // rule stays data, editable per role.
+  const items = redactRows(c.get('permissions'), 'order:read', result.rows);
+  return c.json({ success: true, data: { items, total: result.pagination.total } });
 });
 
-app.get('/:id', async (c) => {
+app.get('/:id', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const row = await findById(c.env, TABLE, PK, c.req.param('id'), undefined, SELECT_WITH_REP_NAME);
   if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Order not found' }, 404);
   // Explicit null check, not `!==` — a rep with no linked qb_sales_rep and an
   // order with no assigned rep are both null, and `null !== null` is false,
   // which would otherwise let an unlinked rep see every unassigned order.
-  if (!canSeeAll(user) && (!user.sales_rep_list_id || row.sales_rep_list_id !== user.sales_rep_list_id)) {
+  if (ownOnly(c) && (!user.sales_rep_list_id || row.sales_rep_list_id !== user.sales_rep_list_id)) {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
-  return c.json({ success: true, data: row });
+  return c.json({ success: true, data: redactRow(c.get('permissions'), 'order:read', row) });
 });
 
 // Invoices linked to this order, for the order form's right-hand panel.
@@ -164,11 +171,11 @@ app.get('/:id', async (c) => {
 // qb_invoice.sales_rep_list_id the way /invoices is: ~350 invoices carry no rep
 // (see invoices.ts) and hiding those from a rep's own order would make the
 // panel silently incomplete.
-app.get('/:id/invoices', async (c) => {
+app.get('/:id/invoices', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const order = await findById(c.env, TABLE, PK, c.req.param('id'));
   if (!order || order.qb_deleted_at) return c.json({ success: false, message: 'Order not found' }, 404);
-  if (!canSeeAll(user) && (!user.sales_rep_list_id || order.sales_rep_list_id !== user.sales_rep_list_id)) {
+  if (ownOnly(c) && (!user.sales_rep_list_id || order.sales_rep_list_id !== user.sales_rep_list_id)) {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
   // Two ways an invoice belongs to this order:
@@ -212,8 +219,17 @@ app.get('/:id/invoices', async (c) => {
   return c.json({ success: true, data: { items: rows } });
 });
 
-app.put('/:id', requireAdmin, async (c) => {
+app.put('/:id', requirePermission('order:write'), async (c) => {
   const id = c.req.param('id');
+  // No role grants own-scoped order:write today, but the scope is editable per
+  // role, so honour it here rather than assuming write implies every row.
+  if (c.get('permissions').scopeOf('order:write') === 'own') {
+    const user = c.get('user');
+    const existing = await findById(c.env, TABLE, PK, id);
+    if (!existing || !user.sales_rep_list_id || existing.sales_rep_list_id !== user.sales_rep_list_id) {
+      return c.json({ success: false, message: 'Not found' }, 404);
+    }
+  }
   const body = await c.req.json();
   const data: Record<string, any> = {};
   const pushes: [string, any][] = [];
@@ -249,9 +265,9 @@ app.put('/:id', requireAdmin, async (c) => {
 });
 
 // Orders exist only via the QuickBooks sync — no manual create/delete.
-app.post('/', requireAdmin, (c) =>
+app.post('/', requirePermission('order:write'), (c) =>
   c.json({ success: false, message: 'Orders are created by the QuickBooks sync and cannot be created here.' }, 405));
-app.delete('/:id', requireAdmin, (c) =>
+app.delete('/:id', requirePermission('order:delete'), (c) =>
   c.json({ success: false, message: 'Orders are managed by the QuickBooks sync and cannot be deleted here.' }, 405));
 
 export default app;

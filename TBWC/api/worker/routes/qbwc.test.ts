@@ -18,6 +18,9 @@ vi.mock('../qbwc/session', () => ({
 vi.mock('../qbwc/objects', () => ({
   buildWorkQueue: (...a: any[]) => mockBuildWorkQueue(...a),
   dispatchResponse: (...a: any[]) => mockDispatchResponse(...a),
+  // Empty registry, so no response here belongs to an incremental object and
+  // the drain bookkeeping stays out of these routing assertions.
+  drainedQueryOwner: () => undefined,
   registry: [],
 }));
 
