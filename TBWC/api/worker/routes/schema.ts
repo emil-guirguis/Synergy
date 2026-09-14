@@ -55,6 +55,24 @@ async function salesRepOptions(env: Env): Promise<{ values: string[]; labels: Re
   return { values, labels };
 }
 
+/** Load assignable roles as SELECT enum values + labels. */
+async function roleOptions(env: Env): Promise<{ values: string[]; labels: Record<string, string> }> {
+  const r = await execQuery(
+    env,
+    `SELECT role_id, name FROM public.role WHERE tenant_id IS NULL ORDER BY name`,
+    [],
+    'schema.user.roleOptions'
+  );
+  const values: string[] = [];
+  const labels: Record<string, string> = {};
+  for (const row of r.rows) {
+    const id = String(row.role_id);
+    values.push(id);
+    labels[id] = row.name;
+  }
+  return { values, labels };
+}
+
 /** Same as salesRepOptions(), keyed by list_id instead of qb_sales_rep_id. */
 async function salesRepListIdOptions(env: Env): Promise<{ values: string[]; labels: Record<string, string> }> {
   const r = await execQuery(
@@ -99,6 +117,8 @@ app.get('/:entity', async (c) => {
   if (entity === 'user') {
     const { values, labels } = await salesRepOptions(c.env);
     injectFieldOptions(json, 'qb_sales_rep_id', values, labels);
+    const roles = await roleOptions(c.env);
+    injectFieldOptions(json, 'role_id', roles.values, roles.labels);
   }
 
   if (entity === 'order') {

@@ -17,7 +17,7 @@ const TABLE = 'users';
 const PK = 'id';
 const SEARCH = ['first_name', 'last_name', 'email', 'agency_name'];
 // Free-text individual filters, derived from the schema (list-shown string/number
-// fields with no enumValues — e.g. 'type' is excluded, it's an exact-match select).
+// fields with no enumValues — e.g. 'role_id' is excluded, it's an exact-match select).
 const LIKE_FIELDS = likeFieldsFromSchema(usersSchema);
 
 /** The QB sales-rep dropdown posts '' when unset; a bigint FK needs null, not ''. */
