@@ -19,7 +19,7 @@ import {
 import {
   createSession, getSession, dropSession, advanceCursor, insertAfterCursor,
 } from '../qbwc/session';
-import { buildWorkQueue, dispatchResponse, registry } from '../qbwc/objects';
+import { buildWorkQueue, dispatchResponse, drainedQueryOwner, registry } from '../qbwc/objects';
 import { logResponse, logError } from '../qbwc/syncLog';
 import { pendingIterator, iteratorContinueDoc } from '../qbwc/qbxml';
 import { markDrainPending, markDrainComplete } from '../qbwc/pullCursor';
@@ -135,14 +135,20 @@ app.post('/', async (c) => {
             pending.rqName, pending.requestID, pending.iteratorId, owner?.iteratorExtra ?? ''
           );
           queueLen = await insertAfterCursor(c.env, ticket, s.cursor, continueDoc);
-          // More Invoice pages still pending — the incremental watermark must not
-          // advance off qb_invoice's live MAX(time_modified) until a later pull
-          // confirms full drain (see pullCursor.ts / migration 025).
-          if (owner?.name === 'Invoice') await markDrainPending(c.env, 'Invoice');
-        } else if (/<InvoiceQueryRs\b/.test(response)) {
-          // No further pages for this Invoice query — everything matching the
-          // filter in flight has now been fetched.
-          await markDrainComplete(c.env, 'Invoice');
+          // More pages still pending — this object's incremental watermark must
+          // not advance off its staging table's live MAX(time_modified) until a
+          // later pull confirms full drain (see pullCursor.ts / migration 025).
+          if (owner?.incremental) await markDrainPending(c.env, owner.name);
+        } else {
+          // No further pages — everything matching the filter in flight has now
+          // been fetched, so the watermark can advance and any queued full
+          // reload for this object is satisfied. Keyed off the response's own
+          // object rather than a hardcoded type: markDrainComplete is the only
+          // thing that ever clears full_reload_requested_at, so an object that
+          // can be reloaded but never marked complete would re-pull its whole
+          // table on every session forever.
+          const drained = drainedQueryOwner(response);
+          if (drained) await markDrainComplete(c.env, drained.name);
         }
       }
       const newCursor = await advanceCursor(c.env, ticket, errMsg);

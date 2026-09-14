@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
 import { requestFullReload } from '../qbwc/pullCursor';
+import { registry } from '../qbwc/objects';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -29,9 +30,11 @@ const STAGING_TABLES: Record<string, string> = {
   Estimate: 'qb_estimate',
 };
 
-/** Object types the QBWC session actually pulls (qbwc/objects/index.ts's
- *  registry) — the only ones a reload can be queued for. */
-const RELOADABLE = new Set(['Customer', 'SalesRep', 'Item', 'SalesOrder', 'Invoice']);
+/** Object types the QBWC session actually pulls incrementally — the only ones a
+ *  reload can be queued for. Derived from the registry rather than listed again
+ *  here: a type offered for reload that the session can't mark drained would
+ *  stay stuck in "reload queued" forever. */
+const RELOADABLE = new Set(registry.filter((o) => o.incremental).map((o) => o.name));
 
 app.get('/summary', async (c) => {
   // Latest logged run per object+direction.

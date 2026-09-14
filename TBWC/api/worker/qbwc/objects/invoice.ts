@@ -145,5 +145,6 @@ const invoice: QbObject = {
   iteratorExtra:
     '      <IncludeLineItems>true</IncludeLineItems>\n' +
     '      <IncludeLinkedTxns>true</IncludeLinkedTxns>\n',
+  incremental: true,
 };
 export default invoice;

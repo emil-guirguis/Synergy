@@ -26,4 +26,11 @@ export interface QbObject {
    * like IncludeLineItems that QB does not carry over from the Start request).
    */
   iteratorExtra?: string;
+  /**
+   * This object pulls incrementally through pullSince(), so its drain state and
+   * queued full reloads live in qbwc_pull_cursor. For these, `name` IS the
+   * qbwc_pull_cursor.object_type key (and the reloadable type the dashboard
+   * offers) — the receiveResponseXML handler marks drain pending/complete by it.
+   */
+  incremental?: boolean;
 }

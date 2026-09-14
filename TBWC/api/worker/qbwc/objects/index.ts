@@ -52,6 +52,31 @@ function responseRequestId(xml: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
+/**
+ * The incremental object whose pull Query in this response came back fully
+ * drained — i.e. a *QueryRs carrying that object's bare requestID (Add/Mod
+ * pushes echo "<requestID>:<localId>", so they never match) and a statusCode
+ * QB uses for success: 0, or 1 for "no matching records", which is still a
+ * complete result set. Callers use it to advance qbwc_pull_cursor; an errored
+ * query must not count as drained or it would clear a queued full reload
+ * without ever having re-pulled anything.
+ * Only meaningful when pendingIterator() found no further pages.
+ */
+export function drainedQueryOwner(responseXml: string): QbObject | undefined {
+  for (const [, base, attrs] of responseXml.matchAll(/<([A-Za-z]+)QueryRs\b([^>]*)>/g)) {
+    const rid = attrs.match(/\brequestID="([^"]*)"/)?.[1];
+    const obj = registry.find((o) => o.incremental && o.requestID === rid);
+    if (!obj) continue;
+    const status = attrs.match(/\bstatusCode="([^"]*)"/)?.[1];
+    if (status !== undefined && status !== '0' && status !== '1') {
+      console.error(`[QBWC] ${base}QueryRs status ${status} — not marking ${obj.name} drained`);
+      continue;
+    }
+    return obj;
+  }
+  return undefined;
+}
+
 /** Route a receiveResponseXML payload to the object whose requestID it carries. */
 export async function dispatchResponse(env: Env, responseXml: string): Promise<void> {
   const rid = responseRequestId(responseXml);

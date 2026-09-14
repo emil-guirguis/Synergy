@@ -238,5 +238,6 @@ const salesOrder: QbObject = {
   buildRequest,
   parseResponse,
   iteratorExtra: '      <IncludeLineItems>true</IncludeLineItems>\n',
+  incremental: true,
 };
 export default salesOrder;

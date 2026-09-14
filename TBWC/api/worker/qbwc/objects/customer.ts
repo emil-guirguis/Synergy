@@ -139,5 +139,6 @@ const customer: QbObject = {
   requestID: REQUEST_ID,
   buildRequest,
   parseResponse,
+  incremental: true,
 };
 export default customer;

@@ -85,5 +85,5 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   }
 }
 
-const salesRep: QbObject = { name: 'SalesRep', requestID: REQUEST_ID, buildRequest, parseResponse };
+const salesRep: QbObject = { name: 'SalesRep', requestID: REQUEST_ID, buildRequest, parseResponse, incremental: true };
 export default salesRep;
