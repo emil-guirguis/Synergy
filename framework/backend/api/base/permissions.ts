@@ -202,13 +202,36 @@ export function scopeClause(
   return { clause: ` AND ${ownerColumn} = $${paramIndex}`, params: [ownerValue] };
 }
 
+// A hidden field is either a plain column (`sold_for`) or one field inside every
+// element of a jsonb array column (`lines[].rate`). The second form exists
+// because money doesn't only live in scalar columns: a detail array typically
+// carries per-line amounts the caller must not see, while the rest of each line
+// (item, description, quantity) is exactly what they're there to read — so
+// dropping the whole column isn't an option.
+const ARRAY_FIELD = /^([A-Za-z_][A-Za-z0-9_]*)\[\]\.([A-Za-z_][A-Za-z0-9_]*)$/;
+
 /** Strip the fields this caller may not see from an outgoing row. */
 export function redactRow<T extends Record<string, any>>(set: PermissionSet, permission: string, row: T): T {
   const hidden = set.hiddenFields(permission);
   if (!hidden.length || !row) return row;
-  const out = { ...row };
-  for (const f of hidden) delete out[f];
-  return out;
+  const out: Record<string, any> = { ...row };
+  for (const f of hidden) {
+    const nested = ARRAY_FIELD.exec(f);
+    if (!nested) {
+      delete out[f];
+      continue;
+    }
+    const [, column, field] = nested;
+    const value = out[column];
+    if (!Array.isArray(value)) continue;
+    out[column] = value.map((el) => {
+      if (!el || typeof el !== 'object') return el;
+      const copy = { ...el };
+      delete copy[field];
+      return copy;
+    });
+  }
+  return out as T;
 }
 
 export function redactRows<T extends Record<string, any>>(set: PermissionSet, permission: string, rows: T[]): T[] {

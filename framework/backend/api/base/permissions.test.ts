@@ -114,6 +114,30 @@ describe('redactRow', () => {
     expect(redactRow(set, 'order:read', row)).toEqual({ order_id: 1, ref_number: 'SO-1' });
   });
 
+  it('strips one field from every element of a jsonb array column', () => {
+    const set = resolvePermissions([grant('order:read', 'own', ['lines[].rate', 'lines[].amount'])], null, CATALOG);
+    const row = {
+      order_id: 1,
+      lines: [
+        { item: 'W-100', desc: 'Widget', quantity: 2, rate: 50, amount: 100 },
+        { item: 'W-200', desc: 'Gadget', quantity: 1, rate: 75, amount: 75 },
+      ],
+    };
+    const out = redactRow(set, 'order:read', row);
+    expect(out.lines).toEqual([
+      { item: 'W-100', desc: 'Widget', quantity: 2 },
+      { item: 'W-200', desc: 'Gadget', quantity: 1 },
+    ]);
+    // The original must not be mutated — rows come straight off a query result
+    // that other code may still read.
+    expect(row.lines[0].rate).toBe(50);
+  });
+
+  it('tolerates a null or non-array value in a nested path', () => {
+    const set = resolvePermissions([grant('order:read', 'own', ['lines[].rate'])], null, CATALOG);
+    expect(redactRow(set, 'order:read', { order_id: 1, lines: null })).toEqual({ order_id: 1, lines: null });
+  });
+
   it('leaves the row untouched when nothing is hidden', () => {
     const set = resolvePermissions([grant('order:read')], null, CATALOG);
     const row = { order_id: 1, sold_for: 900 };
