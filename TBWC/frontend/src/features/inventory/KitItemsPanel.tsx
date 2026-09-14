@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Autocomplete, Box, Button, Checkbox, CircularProgress, Dialog, DialogActions,
+  Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, IconButton, Paper, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField,
   Tooltip, Typography,
@@ -35,6 +35,8 @@ interface Row {
   item_image_url: string | null;
   /** QB stock level for the child item. Read-only, and NULL is not zero. */
   item_on_hand: number | string | null;
+  /** Child item deleted in QuickBooks — flagged in the grid rather than hidden. */
+  item_deleted_at: string | null;
 }
 
 const money = (n: number | string | null) =>
@@ -65,6 +67,7 @@ const toRows = (items: KitItem[]): Row[] =>
     item_price: k.item_price,
     item_image_url: k.item_image_url,
     item_on_hand: k.item_on_hand,
+    item_deleted_at: k.item_deleted_at,
   }));
 
 /**
@@ -469,7 +472,18 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
                       />
                     ) : null}
                   </TableCell>
-                  <TableCell>{row.item_name ?? row.item_id}</TableCell>
+                  <TableCell>
+                    {row.item_name ?? row.item_id}
+                    {row.item_deleted_at ? (
+                      <Chip
+                        size="small"
+                        color="warning"
+                        variant="outlined"
+                        label="Deleted in QB"
+                        sx={{ ml: 1 }}
+                      />
+                    ) : null}
+                  </TableCell>
                   <TableCell>
                     <span
                       style={{ display: 'block', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}

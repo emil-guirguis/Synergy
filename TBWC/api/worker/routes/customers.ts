@@ -24,7 +24,10 @@ const LIKE_FIELDS = likeFieldsFromSchema(customersSchema);
 
 app.get('/', async (c) => {
   const q = c.req.query();
-  const { where, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
+  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
+  // Deleted in QB (see qbwc/objects/listDeleted.ts) — the row is kept so history
+  // that points at it still resolves, but it must never list as a live customer.
+  const where: Record<string, any> = { ...fieldWhere, qb_deleted_at: null };
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
@@ -43,7 +46,7 @@ app.get('/', async (c) => {
 
 app.get('/:id', async (c) => {
   const row = await findById(c.env, TABLE, PK, c.req.param('id'));
-  if (!row) return c.json({ success: false, message: 'Customer not found' }, 404);
+  if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Customer not found' }, 404);
   return c.json({ success: true, data: row });
 });
 

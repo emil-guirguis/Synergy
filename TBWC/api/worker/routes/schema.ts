@@ -39,7 +39,7 @@ async function salesRepOptions(env: Env): Promise<{ values: string[]; labels: Re
     env,
     `SELECT qb_sales_rep_id, initial, name
        FROM public.qb_sales_rep
-      WHERE is_active IS NOT FALSE
+      WHERE is_active IS NOT FALSE AND qb_deleted_at IS NULL
       ORDER BY initial NULLS LAST, name NULLS LAST`,
     [],
     'schema.user.salesRepOptions'
@@ -61,7 +61,7 @@ async function salesRepListIdOptions(env: Env): Promise<{ values: string[]; labe
     env,
     `SELECT list_id, initial, name
        FROM public.qb_sales_rep
-      WHERE is_active IS NOT FALSE
+      WHERE is_active IS NOT FALSE AND qb_deleted_at IS NULL
       ORDER BY initial NULLS LAST, name NULLS LAST`,
     [],
     'schema.order.salesRepListIdOptions'

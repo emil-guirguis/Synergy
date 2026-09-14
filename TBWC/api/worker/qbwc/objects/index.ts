@@ -11,7 +11,8 @@ import { QbObject } from './types';
 import customer from './customer';
 import salesRep from './salesRep';
 import salesOrder from './salesOrder';
-import salesOrderDeleted from './salesOrderDeleted';
+import txnDeleted from './txnDeleted';
+import listDeleted from './listDeleted';
 import item from './item';
 import invoice from './invoice';
 // Parked until proven. Re-add to `registry` to enable.
@@ -22,14 +23,17 @@ import invoice from './invoice';
 // Scope: Customer + SalesRep + Item + SalesOrder + Invoice (per current sync
 // target). The other objects (vendor/payment/estimate) are implemented but
 // held out of the queue so they can't error the session — re-add when ready.
-// Order matters: lists before any transactions that reference them.
+// Order matters: lists before any transactions that reference them, and both
+// deletion sweeps last so a record deleted in the same session as it was
+// modified ends up marked deleted rather than resurrected by the pull's upsert.
 export const registry: QbObject[] = [
   customer,
   salesRep,
   item,
   salesOrder,
-  salesOrderDeleted,
   invoice,
+  listDeleted,
+  txnDeleted,
 ];
 
 /** Ordered qbXML requests for this session (one per object that has work). */

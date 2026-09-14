@@ -5,6 +5,11 @@
  * every SalesOrder and Invoice sync page (cheap: only rows whose computed value
  * changed are written). Mirrored by the backfill in migration 008.
  *
+ * Invoices deleted in QB (qb_deleted_at, see qbwc/objects/txnDeleted.ts) are
+ * excluded, so a deleted invoice drops back off the order it was quoted on
+ * instead of leaving a stale number behind — txnDeleted.ts re-runs this after
+ * marking any invoice deleted.
+ *
  * Status precedence: Paid > Invoiced > Partially Invoiced > Closed > Not
  * Invoiced. QB's own is_fully_invoiced flag drives 'Invoiced' even when no
  * linked invoice row has synced yet (LinkedTxn linkage only exists on invoices
@@ -33,6 +38,7 @@ export async function refreshOrderInvoiceStatus(env: Env): Promise<void> {
          SELECT i.ref_number, i.is_paid
          FROM public.qb_invoice i
          WHERE i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', so2.txn_id))
+           AND i.qb_deleted_at IS NULL
          ORDER BY i.txn_date DESC NULLS LAST, i.qb_invoice_id DESC
          LIMIT 1
        ) inv ON true

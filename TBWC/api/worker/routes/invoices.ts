@@ -47,6 +47,9 @@ app.get('/', async (c) => {
   const where: Record<string, any> = {
     ...fieldWhere,
     ...(scope === null ? {} : { sales_rep_list_id: scope }),
+    // Deleted in QB (see qbwc/objects/txnDeleted.ts) — kept for the order module's
+    // history, never shown as a live invoice.
+    qb_deleted_at: null,
   };
   const result = await findAll(c.env, {
     table: TABLE,
@@ -67,7 +70,7 @@ app.get('/', async (c) => {
 app.get('/:id', async (c) => {
   const user = c.get('user');
   const row = await findById(c.env, TABLE, PK, c.req.param('id'));
-  if (!row) return c.json({ success: false, message: 'Invoice not found' }, 404);
+  if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Invoice not found' }, 404);
   // 404 rather than 403 — a rep shouldn't be able to probe which invoice ids
   // exist. Compared against the scope value, so an unlinked rep matches nothing.
   const scope = repScope(user);

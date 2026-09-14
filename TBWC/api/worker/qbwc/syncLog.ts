@@ -46,9 +46,10 @@ export function parseRsBlocks(responseXml: string): SyncRunRow[] {
     if (!cls) continue;
     // These Rs types get their own descriptive per-record row from the owning
     // object module (logDetail) instead of one vague aggregate here:
-    //   TxnDeletedQueryRs -> salesOrderDeleted.ts ("Deleted order TBWC 5687")
-    //   SalesOrderModRs   -> salesOrder.ts ("Pushed memo to order TBWC 5701")
-    if (rsName === 'TxnDeletedQueryRs' || rsName === 'SalesOrderModRs') continue;
+    //   TxnDeletedQueryRs  -> txnDeleted.ts  ("Deleted order TBWC 5687")
+    //   ListDeletedQueryRs -> listDeleted.ts ("Deleted item TB-1000")
+    //   SalesOrderModRs    -> salesOrder.ts  ("Pushed memo to order TBWC 5701")
+    if (rsName === 'TxnDeletedQueryRs' || rsName === 'ListDeletedQueryRs' || rsName === 'SalesOrderModRs') continue;
 
     const statusCode = attrs.match(/statusCode="([^"]*)"/)?.[1] ?? null;
     const statusMessage = attrs.match(/statusMessage="([^"]*)"/)?.[1] ?? null;
@@ -104,19 +105,30 @@ export async function logResponse(env: Env, ticket: string, responseXml: string)
 }
 
 /**
+ * How many records an object module may log one-by-one before it should fall
+ * back to a single summary row. The deletion sweeps read QB's whole ~90-day
+ * deleted-object log on their first run, and one INSERT per record there would
+ * blow the Worker's subrequest budget for that response.
+ */
+export const DETAIL_LOG_LIMIT = 25;
+
+/**
  * Log one descriptive row for a single record an object module handled itself
  * (a deletion, a push) rather than the generic aggregate scanner — so the sync
  * log reads "Deleted order TBWC 5687" / "Pushed memo to order TBWC 5701" per
  * row instead of one opaque "TxnDeleted: 3" / "SalesOrder push: 1" row. No
  * ticket: parseResponse() isn't handed the QBWC session ticket, and the log
  * table already allows a null one for connection-level rows. Never throws.
+ * `rowsProcessed` is for the summary form (see DETAIL_LOG_LIMIT); a per-record
+ * line leaves it at 1.
  */
 export async function logDetail(
   env: Env,
   objectType: string,
   direction: 'pull' | 'push',
   detail: string,
-  error?: string | null
+  error?: string | null,
+  rowsProcessed = 1
 ): Promise<void> {
   try {
     await insertRun(env, {
@@ -124,7 +136,7 @@ export async function logDetail(
       objectType,
       direction,
       statusCode: error ? null : '0',
-      rowsProcessed: 1,
+      rowsProcessed,
       error: error ?? null,
       detail,
     });

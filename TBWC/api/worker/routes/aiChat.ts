@@ -195,7 +195,8 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
           env,
           `SELECT qb_invoice_id, txn_id, ref_number, customer_name, txn_date, due_date, total, balance_remaining, is_paid
            FROM public.qb_invoice
-           WHERE (customer_name ILIKE '%' || $1 || '%' OR ref_number ILIKE '%' || $1 || '%')
+           WHERE qb_deleted_at IS NULL
+             AND (customer_name ILIKE '%' || $1 || '%' OR ref_number ILIKE '%' || $1 || '%')
              ${unpaidOnly ? "AND COALESCE(is_paid, false) = false" : ''}
            ORDER BY txn_date DESC NULLS LAST
            LIMIT $2`,
@@ -217,7 +218,8 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
                   (elem->>'rate')::numeric AS rate,
                   (elem->>'amount')::numeric AS amount
            FROM public.qb_invoice i, jsonb_array_elements(i.lines) elem
-           WHERE elem->>'desc' ILIKE '%' || $1 || '%'
+           WHERE i.qb_deleted_at IS NULL
+             AND elem->>'desc' ILIKE '%' || $1 || '%'
            ORDER BY i.txn_date DESC NULLS LAST
            LIMIT $2`,
           [text, limit],
@@ -234,7 +236,8 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
           env,
           `SELECT qb_item_id, name, full_name, sales_desc, sales_price, base_price, msrp, dnet_cost, category
            FROM public.qb_item
-           WHERE is_active = true
+           WHERE qb_deleted_at IS NULL
+             AND is_active = true
              AND (name ILIKE '%' || $1 || '%' OR full_name ILIKE '%' || $1 || '%' OR sales_desc ILIKE '%' || $1 || '%')
            ORDER BY name ASC
            LIMIT $2`,

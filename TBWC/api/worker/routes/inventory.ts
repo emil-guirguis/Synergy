@@ -40,7 +40,9 @@ app.get('/', async (c) => {
   // pending, rejected and none don't). Keep it out of whereFromQuery's generic
   // pass and turn it into the NULL check below.
   const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['hasImage'] });
-  const where: Record<string, any> = { ...fieldWhere };
+  // Deleted in QB (see qbwc/objects/listDeleted.ts) — the row survives because
+  // kit_items/quote_line point at it, but it is out of the live catalog.
+  const where: Record<string, any> = { ...fieldWhere, qb_deleted_at: null };
   if (q.hasImage === 'true') where.image_url = NOT_NULL;
   if (q.hasImage === 'false') where.image_url = null;
   const result = await findAll(c.env, {
@@ -61,7 +63,7 @@ app.get('/', async (c) => {
 
 app.get('/:id', async (c) => {
   const row = await findById(c.env, TABLE, PK, c.req.param('id'));
-  if (!row) return c.json({ success: false, message: 'Inventory item not found' }, 404);
+  if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Inventory item not found' }, 404);
   return c.json({ success: true, data: row });
 });
 
@@ -117,10 +119,14 @@ app.patch('/:id/image', requireAdmin, async (c) => {
  * without a round trip per row. `item_on_hand` is QuickBooks' stock level
  * (migration 029) and is NULL for item types QB does not stock-track — the UI
  * must show that as blank, not 0.
+ * A child deleted in QB (item_deleted_at set) is still returned rather than
+ * filtered out: silently dropping it would make the kit look complete and let
+ * the next replace-all save erase the line without anyone deciding to.
  */
 const KIT_ITEMS_SELECT = `SELECT k.kit_items_id, k.qb_item_id, k.item_id, k.group_id, k.group_desc, k.order_by, k.qty, k.required,
             i.name AS item_name, i.sales_desc AS item_desc, i.sales_price AS item_price,
-            i.image_url AS item_image_url, i.quantity_on_hand AS item_on_hand
+            i.image_url AS item_image_url, i.quantity_on_hand AS item_on_hand,
+            i.qb_deleted_at AS item_deleted_at
        FROM kit_items k
        JOIN qb_item i ON i.qb_item_id = k.item_id
       WHERE k.qb_item_id = $1::bigint
@@ -153,7 +159,11 @@ app.get('/:id/kit-items', async (c) => {
  */
 app.put('/:id/kit-items', requireAdmin, async (c) => {
   const kitId = c.req.param('id');
-  const kit = await execQuery(c.env, `SELECT qb_item_id, type FROM qb_item WHERE qb_item_id = $1::bigint`, [kitId]);
+  const kit = await execQuery(
+    c.env,
+    `SELECT qb_item_id, type FROM qb_item WHERE qb_item_id = $1::bigint AND qb_deleted_at IS NULL`,
+    [kitId]
+  );
   if (!kit.rows.length) return c.json({ success: false, message: 'Inventory item not found' }, 404);
 
   const body = await c.req.json().catch(() => ({} as any));
@@ -197,7 +207,9 @@ app.put('/:id/kit-items', requireAdmin, async (c) => {
     const ids = [...new Set(lines.map((l) => l.item_id))];
     const found = await execQuery(
       c.env,
-      `SELECT qb_item_id FROM qb_item WHERE qb_item_id = ANY($1::bigint[])`,
+      // qb_deleted_at IS NULL: a child deleted in QB can't be added to a kit —
+      // it reports back through the same "Unknown inventory item(s)" 400.
+      `SELECT qb_item_id FROM qb_item WHERE qb_item_id = ANY($1::bigint[]) AND qb_deleted_at IS NULL`,
       [ids],
       'inventory kit items validate'
     );

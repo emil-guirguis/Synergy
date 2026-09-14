@@ -35,6 +35,9 @@ export interface Inventory {
   image_confidence: number | null;
   image_status: ImageStatus;
   image_updated_at: string | null;
+  /** Set when QuickBooks reports the item deleted (qbwc/objects/listDeleted.ts).
+   *  The API keeps such rows out of the catalog. */
+  qb_deleted_at: string | null;
 }
 
 /**
@@ -75,4 +78,7 @@ export interface KitItem {
   item_image_url: string | null;
   /** The child item's QB stock level. NULL when QB does not stock-track it. */
   item_on_hand: number | string | null;
+  /** Set when the child item was deleted in QuickBooks — the line still shows,
+   *  flagged, so nobody loses it silently on the next save. */
+  item_deleted_at: string | null;
 }
