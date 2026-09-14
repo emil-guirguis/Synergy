@@ -1,22 +1,32 @@
 /**
  * QB Sync dashboard — what the QuickBooks Web Connector synced, when, and how
  * many rows, per object. Stat tiles (staged totals + last run) over a recent-run
- * log table. Read-only; data comes from /api/qb-sync (admin-only).
+ * log table. Data comes from /api/qb-sync (admin-only).
+ *
+ * Each tile carries a reload button that queues a full re-pull of that one
+ * table: the next Web Connector update asks QB for every record instead of only
+ * what changed. It is a queue, not an immediate sync — the Web Connector runs on
+ * its own schedule — and it is non-destructive, since a pull upserts QB-owned
+ * columns only and never deletes a staging row (TBWC-owned data like item
+ * images, order build notes/money and attachments is untouched).
  *
  * Status is always icon + label, never color alone.
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Card, CardContent, Chip, CircularProgress, IconButton, Stack,
+  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogContentText, DialogTitle, IconButton, Snackbar, Stack,
   Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, Tooltip,
   Typography,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadIcon from '@mui/icons-material/Upload';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-import { getSummary, getRuns, type SyncRun, type SyncSummary } from '../../services/qbSyncService';
+import { getSummary, getRuns, requestReload, type SyncRun, type SyncSummary } from '../../services/qbSyncService';
 
 /** Tiles shown on dashboard; Payment/Vendor excluded per request. */
 const OBJECTS = ['Customer', 'SalesRep', 'Item', 'SalesOrder', 'Invoice'];
@@ -75,7 +85,15 @@ function RunStatus({ run }: { run: SyncRun }) {
   );
 }
 
-function ObjectTile({ object, summary }: { object: string; summary: SyncSummary }) {
+function ObjectTile({
+  object,
+  summary,
+  onReload,
+}: {
+  object: string;
+  summary: SyncSummary;
+  onReload: (object: string) => void;
+}) {
   const total = summary.totals[object];
   const lastPull = summary.latest.find((r) => r.object_type === object && r.direction === 'pull');
   const lastPush = summary.latest.find((r) => r.object_type === object && r.direction === 'push');
@@ -85,17 +103,32 @@ function ObjectTile({ object, summary }: { object: string; summary: SyncSummary 
     .map((r) => new Date(r!.created_at).getTime())
     .sort((a, b) => b - a)[0] ?? 0;
   const failing = !!lastErr && new Date(lastErr.created_at).getTime() > newestOk;
+  const reloadQueued = summary.reloads?.[object] ?? null;
 
   return (
     <Card variant="outlined" data-testid={`qb-sync-tile-${object}`} sx={{ minWidth: 210, flex: '1 1 210px' }}>
       <CardContent sx={{ pb: '12px !important' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="overline" color="text.secondary">{LABELS[object] ?? object}</Typography>
-          {failing && (
-            <Tooltip title={lastErr!.error ?? 'sync error'}>
-              <ErrorOutlineIcon color="error" fontSize="small" />
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            {failing && (
+              <Tooltip title={lastErr!.error ?? 'sync error'}>
+                <ErrorOutlineIcon color="error" fontSize="small" />
+              </Tooltip>
+            )}
+            <Tooltip title={reloadQueued
+              ? `Full reload queued ${fmtTime(reloadQueued)} — runs on the next Web Connector update`
+              : 'Reload this table in full from QuickBooks'}>
+              <IconButton
+                size="small"
+                onClick={() => onReload(object)}
+                data-testid={`qb-sync-reload-${object}`}
+                aria-label={`Reload ${LABELS[object] ?? object} from QuickBooks`}
+              >
+                {reloadQueued ? <HourglassTopIcon fontSize="small" color="warning" /> : <CloudSyncIcon fontSize="small" />}
+              </IconButton>
             </Tooltip>
-          )}
+          </Stack>
         </Stack>
         <Typography variant="h4" component="div">
           {total == null ? '—' : total.toLocaleString()}
@@ -107,6 +140,16 @@ function ObjectTile({ object, summary }: { object: string; summary: SyncSummary 
           <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
             ↑ last push: {lastPush.rows_processed} @ {fmtTime(lastPush.created_at)}
           </Typography>
+        )}
+        {reloadQueued && (
+          <Chip
+            size="small"
+            icon={<HourglassTopIcon />}
+            label="full reload queued"
+            color="warning"
+            variant="outlined"
+            sx={{ mt: 1 }}
+          />
         )}
       </CardContent>
     </Card>
@@ -120,6 +163,12 @@ export function QbSyncDashboardPage() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Confirm before queueing: a full reload re-pulls every record of that table
+  // on the next Web Connector run, which for Invoice is ~7.8k records across
+  // many iterator pages.
+  const [confirmReload, setConfirmReload] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const loadRuns = useCallback(async (p: number) => {
     const runPage = await getRuns(undefined, RUNS_PAGE_SIZE, p * RUNS_PAGE_SIZE);
@@ -142,6 +191,23 @@ export function QbSyncDashboardPage() {
   }, [loadRuns]);
 
   useEffect(() => { load(); }, [load]);
+
+  const doReload = useCallback(async () => {
+    const object = confirmReload;
+    if (!object) return;
+    setReloading(true);
+    try {
+      await requestReload(object);
+      setConfirmReload(null);
+      setToast(`Full reload queued for ${LABELS[object] ?? object}. It runs on the next Web Connector update.`);
+      await load();
+    } catch (e: any) {
+      setError(e.message || 'Failed to queue reload');
+      setConfirmReload(null);
+    } finally {
+      setReloading(false);
+    }
+  }, [confirmReload, load]);
 
   const handlePageChange = useCallback(async (_e: unknown, newPage: number) => {
     setPage(newPage);
@@ -177,9 +243,41 @@ export function QbSyncDashboardPage() {
 
       {summary && (
         <Stack direction="row" flexWrap="wrap" gap={2} sx={{ mb: 3 }}>
-          {OBJECTS.map((o) => <ObjectTile key={o} object={o} summary={summary} />)}
+          {OBJECTS.map((o) => (
+            <ObjectTile key={o} object={o} summary={summary} onReload={setConfirmReload} />
+          ))}
         </Stack>
       )}
+
+      <Dialog open={!!confirmReload} onClose={() => setConfirmReload(null)}>
+        <DialogTitle>
+          Reload {confirmReload ? LABELS[confirmReload] ?? confirmReload : ''} from QuickBooks?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText component="div">
+            The next Web Connector update will re-pull every record of this table instead of only
+            what changed — slow for large tables, and it only starts when the Web Connector next
+            runs.
+            <Box component="p" sx={{ mb: 0 }}>
+              Nothing is deleted or overwritten outside QuickBooks' own fields: item images and
+              notes, order build notes, dates and money, and every attachment stay as they are.
+            </Box>
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmReload(null)} disabled={reloading}>Cancel</Button>
+          <Button onClick={doReload} variant="contained" disabled={reloading} data-testid="qb-sync-reload-confirm">
+            {reloading ? 'Queueing…' : 'Queue reload'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={6000}
+        onClose={() => setToast(null)}
+        message={toast ?? ''}
+      />
 
       {summary && (
         <Card variant="outlined" data-testid="qb-sync-runs">

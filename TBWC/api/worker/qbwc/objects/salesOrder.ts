@@ -11,7 +11,7 @@ import {
 } from '../qbxml';
 import { multiRowValues, chunk, BATCH_SIZE } from '../batchSql';
 import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
-import { sinceModified } from '../incremental';
+import { pullSince } from '../incremental';
 import { pendingPushes, markPushed, markFailed, type PendingPush } from '../pushQueue';
 import { logDetail } from '../syncLog';
 
@@ -68,7 +68,7 @@ async function pendingModRqs(env: Env): Promise<string[]> {
 }
 
 async function buildRequest(env: Env): Promise<string> {
-  const filter = txnModifiedFilter(await sinceModified(env, 'qb_sales_order', 'qbwc.so.since'));
+  const filter = txnModifiedFilter(await pullSince(env, 'SalesOrder', 'qb_sales_order', 'qbwc.so.since'));
   // qbXML schema order for SalesOrderQueryRq: MaxReturned before
   // ModifiedDateRangeFilter, IncludeLineItems last — QB rejects the whole
   // request (0x80040400) if out of order.

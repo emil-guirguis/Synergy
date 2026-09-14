@@ -15,12 +15,12 @@ import {
   dataExtBlocks,
 } from '../qbxml';
 import { multiRowValues, chunk, BATCH_SIZE } from '../batchSql';
-import { sinceModified } from '../incremental';
+import { pullSince } from '../incremental';
 
 const REQUEST_ID = 'customer';
 
 async function buildRequest(env: Env): Promise<string> {
-  const fromMod = listModifiedFilter(await sinceModified(env, 'qb_customer', 'qbwc.customer.since'));
+  const fromMod = listModifiedFilter(await pullSince(env, 'Customer', 'qb_customer', 'qbwc.customer.since'));
   const rq =
     `    <CustomerQueryRq requestID="${REQUEST_ID}" iterator="Start">\n` +
     // qbXML schema order for CustomerQueryRq: MaxReturned, then ActiveStatus,

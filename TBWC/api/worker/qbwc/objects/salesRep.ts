@@ -11,12 +11,12 @@ import { QbObject } from './types';
 import {
   qbxmlDoc, tag, blocks, statusCode, qbTimeToTs, refField, listModifiedFilter,
 } from '../qbxml';
-import { sinceModified } from '../incremental';
+import { pullSince } from '../incremental';
 
 const REQUEST_ID = 'salesrep';
 
 async function buildRequest(env: Env): Promise<string> {
-  const fromMod = listModifiedFilter(await sinceModified(env, 'qb_sales_rep', 'qbwc.salesrep.since'));
+  const fromMod = listModifiedFilter(await pullSince(env, 'SalesRep', 'qb_sales_rep', 'qbwc.salesrep.since'));
   const rq =
     `    <SalesRepQueryRq requestID="${REQUEST_ID}">\n` +
     `      <ActiveStatus>ActiveOnly</ActiveStatus>${fromMod}\n` +

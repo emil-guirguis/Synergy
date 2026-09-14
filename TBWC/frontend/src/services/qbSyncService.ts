@@ -22,6 +22,9 @@ export interface SyncSummary {
   latest: SyncRun[];
   /** Current row count per staging table, keyed by object type. */
   totals: Record<string, number>;
+  /** ISO timestamp a full reload was queued for that object, or null/absent if
+   *  none is pending. Cleared by the Worker once the re-pull fully drains. */
+  reloads?: Record<string, string | null>;
 }
 
 function authHeaders(): Record<string, string> {
@@ -42,6 +45,21 @@ async function parse(res: Response) {
 export async function getSummary(): Promise<SyncSummary> {
   const data = await parse(await fetch(`${API_BASE_URL}/qb-sync/summary`, { headers: authHeaders() }));
   return data.data;
+}
+
+/**
+ * Queue a full re-pull of one object type. Does not contact QuickBooks itself —
+ * the Web Connector picks it up on its next update, then the flag clears once
+ * the pull drains. Non-destructive: pulls upsert QB-owned columns only, so
+ * TBWC-owned data (item images/notes, order build notes and money, attachments)
+ * is untouched.
+ */
+export async function requestReload(objectType: string): Promise<void> {
+  await parse(await fetch(`${API_BASE_URL}/qb-sync/reload`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ object_type: objectType }),
+  }));
 }
 
 export interface SyncRunPage {

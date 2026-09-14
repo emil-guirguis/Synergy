@@ -13,7 +13,7 @@ import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import { qbxmlDoc, tag, blocks, statusCode, qbTimeToTs, num, listModifiedFilter, QB_MAX_RETURNED } from '../qbxml';
 import { multiRowValues, chunk, BATCH_SIZE } from '../batchSql';
-import { sinceModified } from '../incremental';
+import { pullSince } from '../incremental';
 
 const REQUEST_ID = 'item';
 // Exported so syncLog.ts can count rows for Item's response — QB never emits a
@@ -29,7 +29,7 @@ async function buildRequest(env: Env): Promise<string> {
   // in one request, so one combined MAX(time_modified) works despite the
   // type-specific Ret elements. Still paged via iterator so no single response
   // carries the whole list.
-  const filter = listModifiedFilter(await sinceModified(env, 'qb_item', 'qbwc.item.since'));
+  const filter = listModifiedFilter(await pullSince(env, 'Item', 'qb_item', 'qbwc.item.since'));
   return qbxmlDoc(
     `    <ItemQueryRq requestID="${REQUEST_ID}" iterator="Start">\n` +
     `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>${filter}\n` +
