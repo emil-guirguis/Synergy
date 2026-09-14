@@ -29,6 +29,11 @@ export const PERMISSIONS = [
   'qbsync:run',
   'aichat:use',
   'dashboard:read',
+  // Managing the roles themselves. Separate from setting:* even though the UI
+  // lives in Settings: granting someone role:write lets them grant themselves
+  // anything else, so it should be possible to hand out org settings without it.
+  'role:read',
+  'role:write',
 ] as const;
 
 export type TbwcPermission = (typeof PERMISSIONS)[number];

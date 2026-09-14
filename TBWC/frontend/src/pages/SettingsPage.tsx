@@ -5,15 +5,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import BusinessIcon from '@mui/icons-material/Business';
 import TuneIcon from '@mui/icons-material/Tune';
+import SecurityIcon from '@mui/icons-material/Security';
 import {
   SettingsPageShell,
   OrgInfoForm,
   SystemConfigForm,
+  RolesForm,
+  type ManagedRole,
+  type RoleGrant,
 } from '@meterit/framework-frontend/components/settings';
 import { getSettings, updateSettings, type CompanySettings } from '../services/settingsService';
+import {
+  getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
+} from '../services/rolesService';
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
+  const [roles, setRoles] = useState<ManagedRole[]>([]);
+  const [catalog, setCatalog] = useState<string[]>([]);
+  const [rolesError, setRolesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -33,6 +43,41 @@ export default function SettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+
+  // Roles are only readable with role:read, so a 403 here is a normal outcome
+  // for a non-admin rather than a failure worth surfacing as a page error —
+  // the section just stays empty for them.
+  const loadRoles = useCallback(async () => {
+    try {
+      const [items, permissions] = await Promise.all([getRoles(), getCatalog()]);
+      setRoles(items);
+      setCatalog(permissions);
+      setRolesError(null);
+    } catch (e) {
+      setRolesError(e instanceof Error ? e.message : 'Failed to load roles');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
+
+  /** Every role mutation re-reads the list: grants are stored server-side and
+   *  the response doesn't carry the recomputed user counts. */
+  const withRoleRefresh = async (action: () => Promise<void>, message: string) => {
+    setLoading(true);
+    setRolesError(null);
+    try {
+      await action();
+      await loadRoles();
+      setSuccessMessage(message);
+    } catch (e) {
+      setRolesError(e instanceof Error ? e.message : 'Failed to save role');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (successMessage) {
@@ -119,6 +164,25 @@ export default function SettingsPage() {
               onCancel={load}
               loading={loading}
               error={error}
+            />
+          ),
+        },
+        {
+          key: 'roles',
+          label: 'Roles',
+          icon: <SecurityIcon fontSize="small" />,
+          description: 'What each role may do. Add a role and tick its permissions — no deploy needed.',
+          content: (
+            <RolesForm
+              roles={roles}
+              catalog={catalog}
+              loading={loading}
+              error={rolesError}
+              onCreate={(input) => withRoleRefresh(() => createRole(input), `Role "${input.name}" created`)}
+              onRename={(roleId, name) => withRoleRefresh(() => renameRole(roleId, name), 'Role renamed')}
+              onSaveGrants={(roleId: number, grants: RoleGrant[]) =>
+                withRoleRefresh(() => saveGrants(roleId, grants), 'Permissions saved')}
+              onDelete={(roleId) => withRoleRefresh(() => deleteRole(roleId), 'Role deleted')}
             />
           ),
         },
