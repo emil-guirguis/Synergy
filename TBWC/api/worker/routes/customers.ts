@@ -7,13 +7,13 @@
  */
 import { Hono } from 'hono';
 import { Env } from '../db';
-import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { customersSchema } from './customersSchema';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
-app.use('*', requireAdmin);
+app.use('*', requirePermission('customer:read'));
 
 const TABLE = 'qb_customer';
 const PK = 'qb_customer_id';

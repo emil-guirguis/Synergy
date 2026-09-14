@@ -7,13 +7,12 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { rowToBasicSettings, basicSettingsToRow } from '@meterit/framework-backend/api/base/settings';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('*', authenticateToken);
-app.use('*', requireAdmin);
 
 const TABLE = 'company_settings';
 const PK = 'company_settings_id';
@@ -28,13 +27,13 @@ async function loadRow(env: Env) {
   return result.rows[0] ?? null;
 }
 
-app.get('/', async (c) => {
+app.get('/', requirePermission('setting:read'), async (c) => {
   const row = await loadRow(c.env);
   if (!row) return c.json({ success: false, message: 'Settings not found' }, 404);
   return c.json({ success: true, data: rowToBasicSettings(row) });
 });
 
-app.put('/', async (c) => {
+app.put('/', requirePermission('setting:write'), async (c) => {
   const existing = await loadRow(c.env);
   if (!existing) return c.json({ success: false, message: 'Settings not found' }, 404);
 

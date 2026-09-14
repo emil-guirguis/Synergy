@@ -12,7 +12,7 @@
  */
 import { Hono } from 'hono';
 import { Env } from '../db';
-import { AuthVariables, authenticateToken } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { invoicesSchema } from './invoicesSchema';
 
@@ -24,26 +24,27 @@ const PK = 'qb_invoice_id';
 const SEARCH = ['ref_number', 'customer_name'];
 const LIKE_FIELDS = likeFieldsFromSchema(invoicesSchema);
 
-function canSeeAll(user: any): boolean {
-  return !!user?.is_admin;
-}
-
 /**
- * The rep scope, or null for an admin. A rep with no linked qb_sales_rep gets a
- * value that can never match a real list_id rather than an IS NULL scope, which
- * would hand them every invoice with no linked order yet (mirrors orders.ts).
+ * The caller's row scope, or null when their invoice:read grant covers every
+ * row. An own-scoped caller with no linked qb_sales_rep gets a value that can
+ * never match a real list_id rather than an IS NULL scope, which would hand
+ * them every invoice with no linked order yet (mirrors orders.ts).
+ *
+ * No field redaction here on purpose: reps see every column on the invoices
+ * that are theirs — totals, balance and paid status included.
  */
-function repScope(user: any): string | null {
-  return canSeeAll(user) ? null : (user.sales_rep_list_id ?? '__unlinked__');
+function repScope(c: any): string | null {
+  return c.get('permissions').scopeOf('invoice:read') === 'own'
+    ? (c.get('user').sales_rep_list_id ?? '__unlinked__')
+    : null;
 }
 
-app.get('/', async (c) => {
-  const user = c.get('user');
+app.get('/', requirePermission('invoice:read'), async (c) => {
   const q = c.req.query();
   const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
   // Field filters first, then the scope — it always wins, so a rep can't widen
   // their own visibility with a crafted sales_rep_list_id query param.
-  const scope = repScope(user);
+  const scope = repScope(c);
   const where: Record<string, any> = {
     ...fieldWhere,
     ...(scope === null ? {} : { sales_rep_list_id: scope }),
@@ -67,13 +68,12 @@ app.get('/', async (c) => {
   return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
 });
 
-app.get('/:id', async (c) => {
-  const user = c.get('user');
+app.get('/:id', requirePermission('invoice:read'), async (c) => {
   const row = await findById(c.env, TABLE, PK, c.req.param('id'));
   if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Invoice not found' }, 404);
   // 404 rather than 403 — a rep shouldn't be able to probe which invoice ids
   // exist. Compared against the scope value, so an unlinked rep matches nothing.
-  const scope = repScope(user);
+  const scope = repScope(c);
   if (scope !== null && row.sales_rep_list_id !== scope) {
     return c.json({ success: false, message: 'Invoice not found' }, 404);
   }

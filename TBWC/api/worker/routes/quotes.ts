@@ -13,7 +13,7 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery, withTransaction } from '../db';
-import { AuthVariables, authenticateToken } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { quoteSchema } from './quoteSchema';
 
@@ -27,8 +27,13 @@ const SEARCH = ['quote_number', 'project_name', 'customer', 'poc'];
 // fields with no enumValues — 'status' is a fixed-options select, so it's exact-match).
 const LIKE_FIELDS = likeFieldsFromSchema(quoteSchema);
 
-function canSeeAll(user: any): boolean {
-  return !!user?.is_admin;
+/**
+ * True when this caller's grant for `permission` is limited to their own rows.
+ * Quote ownership is quote.rep_id = the caller's user id (unlike orders, which
+ * own through the QB sales rep identity).
+ */
+function ownOnly(c: any, permission: string): boolean {
+  return c.get('permissions').scopeOf(permission) === 'own';
 }
 
 function num(v: any): number {
@@ -69,13 +74,13 @@ function normalizeLines(raw: any): { lines: any[]; subtotal: number } {
   return { lines, subtotal };
 }
 
-app.get('/', async (c) => {
+app.get('/', requirePermission('quote:read'), async (c) => {
   const user = c.get('user');
   const q = c.req.query();
   const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
   // Field filters first, then the security scope — rep_id always wins so a rep
   // can't widen their own visibility via a crafted query param.
-  const where = { ...fieldWhere, ...(canSeeAll(user) ? {} : { rep_id: user.id }) };
+  const where = { ...fieldWhere, ...(ownOnly(c, 'quote:read') ? { rep_id: user.id } : {}) };
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
@@ -97,7 +102,7 @@ app.get('/:id', async (c) => {
   const head = await execQuery(c.env, `SELECT * FROM "quote" WHERE quote_id = $1`, [id]);
   const quote = head.rows[0];
   if (!quote) return c.json({ success: false, message: 'Quote not found' }, 404);
-  if (!canSeeAll(user) && quote.rep_id !== user.id) {
+  if (ownOnly(c, 'quote:read') && quote.rep_id !== user.id) {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
   const lines = await execQuery(
@@ -108,16 +113,18 @@ app.get('/:id', async (c) => {
   return c.json({ success: true, data: { ...quote, lines: lines.rows } });
 });
 
-app.post('/', async (c) => {
+app.post('/', requirePermission('quote:write'), async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
   const { lines, subtotal } = normalizeLines(body.lines);
   const tax = num(body.tax);
   const freight = num(body.freight);
   const total = Math.round((subtotal + tax + freight) * 100) / 100;
-  // A rep owns the quotes they create; only admins may assign another rep.
-  const rep_id = user.is_admin && body.rep_id ? body.rep_id : user.id;
-  const rep = user.is_admin && body.rep != null ? body.rep : (body.rep ?? user.name ?? null);
+  // A caller owns the quotes they create; only someone whose quote:write grant
+  // covers every row may assign the quote to a different rep.
+  const assignsAnyRep = !ownOnly(c, 'quote:write');
+  const rep_id = assignsAnyRep && body.rep_id ? body.rep_id : user.id;
+  const rep = assignsAnyRep && body.rep != null ? body.rep : (body.rep ?? user.name ?? null);
 
   const created = await withTransaction(c.env, async (q) => {
     const h = await q(
@@ -147,12 +154,12 @@ app.post('/', async (c) => {
   return c.json({ success: true, data: created }, 201);
 });
 
-app.put('/:id', async (c) => {
+app.put('/:id', requirePermission('quote:write'), async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
   const existing = await execQuery(c.env, `SELECT rep_id FROM "quote" WHERE quote_id = $1`, [id]);
   if (existing.rows.length === 0) return c.json({ success: false, message: 'Quote not found' }, 404);
-  if (!user.is_admin && existing.rows[0].rep_id !== user.id) {
+  if (ownOnly(c, 'quote:write') && existing.rows[0].rep_id !== user.id) {
     return c.json({ success: false, message: 'Not allowed' }, 403);
   }
 
@@ -169,7 +176,7 @@ app.put('/:id', async (c) => {
       street_address: body.street_address, city_state_zip: body.city_state_zip, poc: body.poc,
       cc_email: body.cc_email, status: body.status, notes: body.notes,
     };
-    if (user.is_admin) {
+    if (!ownOnly(c, 'quote:write')) {
       if (body.rep !== undefined) cols.rep = body.rep;
       if (body.rep_id !== undefined) cols.rep_id = body.rep_id;
     }
@@ -215,12 +222,12 @@ app.put('/:id', async (c) => {
   return c.json({ success: true, data: updated });
 });
 
-app.delete('/:id', async (c) => {
+app.delete('/:id', requirePermission('quote:delete'), async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
   const existing = await execQuery(c.env, `SELECT rep_id FROM "quote" WHERE quote_id = $1`, [id]);
   if (existing.rows.length === 0) return c.json({ success: false, message: 'Quote not found' }, 404);
-  if (!user.is_admin && existing.rows[0].rep_id !== user.id) {
+  if (ownOnly(c, 'quote:delete') && existing.rows[0].rep_id !== user.id) {
     return c.json({ success: false, message: 'Not allowed' }, 403);
   }
   // quote_line rows cascade via FK ON DELETE CASCADE.

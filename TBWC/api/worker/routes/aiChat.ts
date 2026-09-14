@@ -22,12 +22,12 @@
 import { Hono } from 'hono';
 import OpenAI from 'openai';
 import { Env, execQuery } from '../db';
-import { authenticateToken, requireAdmin, AuthVariables } from '../middleware';
+import { authenticateToken, requirePermission, AuthVariables } from '../middleware';
 import { runAiChatLoop, AiChatMessage, describeAiChatError } from '@meterit/framework-backend/api/base/aiChat';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
-app.use('*', requireAdmin);
+app.use('*', requirePermission('aichat:use'));
 
 // --- Tool definitions ---------------------------------------------------------
 

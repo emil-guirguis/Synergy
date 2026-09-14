@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { Env } from '../db';
-import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, create, update, remove, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { usersSchema } from './usersSchema';
 
@@ -12,7 +12,6 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // The Users module is admin-only end to end.
 app.use('*', authenticateToken);
-app.use('*', requireAdmin);
 
 const TABLE = 'users';
 const PK = 'id';
@@ -27,7 +26,7 @@ function normalize(body: Record<string, any>): Record<string, any> {
   return body;
 }
 
-app.get('/', async (c) => {
+app.get('/', requirePermission('user:read'), async (c) => {
   const q = c.req.query();
   const { where, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
   const result = await findAll(c.env, {
@@ -45,19 +44,19 @@ app.get('/', async (c) => {
   return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
 });
 
-app.get('/:id', async (c) => {
+app.get('/:id', requirePermission('user:read'), async (c) => {
   const row = await findById(c.env, TABLE, PK, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'User not found' }, 404);
   return c.json({ success: true, data: row });
 });
 
-app.post('/', async (c) => {
+app.post('/', requirePermission('user:write'), async (c) => {
   const body = normalize(await c.req.json());
   const row = await create(c.env, TABLE, body);
   return c.json({ success: true, data: row }, 201);
 });
 
-app.put('/:id', async (c) => {
+app.put('/:id', requirePermission('user:write'), async (c) => {
   const body = normalize(await c.req.json());
   // public.users has no updated_at column.
   const row = await update(c.env, TABLE, PK, c.req.param('id'), body, { touchUpdatedAt: false });
@@ -65,7 +64,7 @@ app.put('/:id', async (c) => {
   return c.json({ success: true, data: row });
 });
 
-app.delete('/:id', async (c) => {
+app.delete('/:id', requirePermission('user:write'), async (c) => {
   const row = await remove(c.env, TABLE, PK, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'User not found' }, 404);
   return c.json({ success: true, data: row });

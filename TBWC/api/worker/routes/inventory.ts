@@ -18,7 +18,7 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery, withTransaction } from '../db';
-import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, update, whereFromQuery, likeFieldsFromSchema, NOT_NULL } from '../crud';
 import { inventorySchema } from './inventorySchema';
 
@@ -32,7 +32,7 @@ const SEARCH = ['name', 'full_name', 'sales_desc', 'category', 'upc_code'];
 // fields with no enumValues).
 const LIKE_FIELDS = likeFieldsFromSchema(inventorySchema);
 
-app.get('/', async (c) => {
+app.get('/', requirePermission('inventory:read'), async (c) => {
   const q = c.req.query();
   // hasImage is a synthetic filter — "does this row have a thumbnail at all",
   // which is the question when working through the catalog, and no single
@@ -61,7 +61,7 @@ app.get('/', async (c) => {
   return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
 });
 
-app.get('/:id', async (c) => {
+app.get('/:id', requirePermission('inventory:read'), async (c) => {
   const row = await findById(c.env, TABLE, PK, c.req.param('id'));
   if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Inventory item not found' }, 404);
   return c.json({ success: true, data: row });
@@ -78,7 +78,7 @@ app.get('/:id', async (c) => {
  */
 const IMAGE_VERDICTS = ['approved', 'rejected', 'auto', 'pending', 'none'] as const;
 
-app.patch('/:id/image', requireAdmin, async (c) => {
+app.patch('/:id/image', requirePermission('inventory:write'), async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   const status = body?.image_status;
   if (!IMAGE_VERDICTS.includes(status)) {
@@ -137,7 +137,7 @@ const KIT_ITEMS_SELECT = `SELECT k.kit_items_id, k.qb_item_id, k.item_id, k.grou
  * qb_item (migration 028). Readable by any approved user: reps need to see
  * what is in a kit before quoting it.
  */
-app.get('/:id/kit-items', async (c) => {
+app.get('/:id/kit-items', requirePermission('inventory:read'), async (c) => {
   const rows = await execQuery(
     c.env,
     KIT_ITEMS_SELECT,
@@ -157,7 +157,7 @@ app.get('/:id/kit-items', async (c) => {
  * `order_by` is assigned server-side from array position within each group —
  * the client's job is the order, not the numbering.
  */
-app.put('/:id/kit-items', requireAdmin, async (c) => {
+app.put('/:id/kit-items', requirePermission('inventory:write'), async (c) => {
   const kitId = c.req.param('id');
   const kit = await execQuery(
     c.env,
@@ -272,7 +272,7 @@ app.put('/:id/kit-items', requireAdmin, async (c) => {
 const PUT_ALLOWLIST = ['type', 'notes'] as const;
 const ITEM_TYPES = ['kit', 'item'];
 
-app.put('/:id', requireAdmin, async (c) => {
+app.put('/:id', requirePermission('inventory:write'), async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   const data: Record<string, any> = {};
   for (const col of PUT_ALLOWLIST) {
@@ -296,9 +296,9 @@ app.put('/:id', requireAdmin, async (c) => {
   return c.json({ success: true, data: row });
 });
 
-app.post('/', requireAdmin, (c) =>
+app.post('/', requirePermission('inventory:write'), (c) =>
   c.json({ success: false, message: 'Inventory items are created by the QuickBooks sync and cannot be created here.' }, 405));
-app.delete('/:id', requireAdmin, (c) =>
+app.delete('/:id', requirePermission('inventory:write'), (c) =>
   c.json({ success: false, message: 'Inventory items are managed by the QuickBooks sync and cannot be deleted here.' }, 405));
 
 export default app;

@@ -10,13 +10,12 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { requestFullReload } from '../qbwc/pullCursor';
 import { registry } from '../qbwc/objects';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
-app.use('*', requireAdmin);
 
 /** Staging table per QB object type — for total row counts on the dashboard. */
 const STAGING_TABLES: Record<string, string> = {
@@ -36,7 +35,7 @@ const STAGING_TABLES: Record<string, string> = {
  *  stay stuck in "reload queued" forever. */
 const RELOADABLE = new Set(registry.filter((o) => o.incremental).map((o) => o.name));
 
-app.get('/summary', async (c) => {
+app.get('/summary', requirePermission('qbsync:read'), async (c) => {
   // Latest logged run per object+direction.
   const latest = await execQuery(
     c.env,
@@ -97,7 +96,7 @@ app.get('/summary', async (c) => {
  * This does not itself contact QuickBooks — the Web Connector drives that on
  * its own schedule (or on a manual "Update Selected" run).
  */
-app.post('/reload', async (c) => {
+app.post('/reload', requirePermission('qbsync:run'), async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   const objectType = typeof body?.object_type === 'string' ? body.object_type : '';
   if (!RELOADABLE.has(objectType)) {
@@ -114,7 +113,7 @@ app.post('/reload', async (c) => {
   });
 });
 
-app.get('/runs', async (c) => {
+app.get('/runs', requirePermission('qbsync:read'), async (c) => {
   const q = c.req.query();
   const limit = Math.min(parseInt(q.limit || '100', 10) || 100, 500);
   const offset = Math.max(parseInt(q.offset || '0', 10) || 0, 0);

@@ -6,7 +6,7 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requireAdmin } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -20,14 +20,14 @@ function isDocType(v: unknown): v is DocType {
 
 // { "Category/file.pdf": "rep", ... } for every file that has a type set.
 // Files with no row default to 'all' on the client.
-app.get('/', async (c) => {
+app.get('/', requirePermission('document:read'), async (c) => {
   const result = await execQuery(c.env, 'SELECT doc_path, doc_type FROM public.rep_doc_type');
   const data: Record<string, DocType> = {};
   for (const row of result.rows) data[row.doc_path] = row.doc_type;
   return c.json({ success: true, data });
 });
 
-app.put('/', requireAdmin, async (c) => {
+app.put('/', requirePermission('document:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { path, type } = body as { path?: string; type?: string };
   if (!path) return c.json({ success: false, message: 'path is required' }, 400);
@@ -44,7 +44,7 @@ app.put('/', requireAdmin, async (c) => {
   return c.json({ success: true });
 });
 
-app.patch('/', requireAdmin, async (c) => {
+app.patch('/', requirePermission('document:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { fromPath, toPath } = body as { fromPath?: string; toPath?: string };
   if (!fromPath || !toPath) return c.json({ success: false, message: 'fromPath and toPath are required' }, 400);
@@ -58,7 +58,7 @@ app.patch('/', requireAdmin, async (c) => {
   return c.json({ success: true });
 });
 
-app.delete('/', requireAdmin, async (c) => {
+app.delete('/', requirePermission('document:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { path } = body as { path?: string };
   if (!path) return c.json({ success: false, message: 'path is required' }, 400);

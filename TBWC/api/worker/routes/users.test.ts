@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Controllable auth: flip `currentUser.is_admin` to exercise the admin gate.
-let currentUser: any = { id: 'admin', is_admin: true };
+// Controllable auth: adjust `currentGrants` to exercise the permission gate.
+let currentUser: any = { id: 'admin' };
+let currentGrants: string[] = ['user:read', 'user:write'];
 
 vi.mock('../middleware', () => ({
   authenticateToken: (c: any, next: any) => {
@@ -10,8 +11,10 @@ vi.mock('../middleware', () => ({
     c.set('userId', currentUser.id);
     return next();
   },
-  requireAdmin: (c: any, next: any) =>
-    currentUser?.is_admin ? next() : c.json({ success: false, message: 'Admin access required' }, 403),
+  requirePermission: (permission: string) => (c: any, next: any) =>
+    currentGrants.includes(permission)
+      ? next()
+      : c.json({ success: false, message: 'Insufficient permissions' }, 403),
 }));
 
 const mockFindAll = vi.fn();
@@ -42,12 +45,14 @@ const json = (method: string, body: any) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  currentUser = { id: 'admin', is_admin: true };
+  currentUser = { id: 'admin' };
+  currentGrants = ['user:read', 'user:write'];
 });
 
-describe('admin gate', () => {
-  it('403 when the caller is not an admin', async () => {
-    currentUser = { id: 'u2', is_admin: false };
+describe('permission gate', () => {
+  it('403 when the caller holds no user:read grant', async () => {
+    currentUser = { id: 'u2' };
+    currentGrants = [];
     const res = await req('/');
     expect(res.status).toBe(403);
     expect(mockFindAll).not.toHaveBeenCalled();
