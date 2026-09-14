@@ -21,7 +21,9 @@ export interface User {
   about: string | null;
   approved: boolean;
   is_admin: boolean;
+  /** @deprecated superseded by role_id; still returned for legacy rows/fallback. */
   type: UserType;
+  role_id: number | null;
   can_approve_rep_leads: boolean;
   created_at: string;
   /** Convenience display name (first + last), populated client-side. */

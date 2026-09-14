@@ -57,7 +57,9 @@ export const usersSchema = defineSchema({
           gridColumn: '2',
           gridRow: '2',
           fields: [
-            field({ name: 'type', order: 1, type: FieldTypes.STRING, default: 'rep', required: true, label: 'Type', dbField: 'type', enumValues: ['rep', 'customer', 'employee'], showOn: ['list', 'form'] }),
+            // enumValues/enumLabels are injected at serve time from public.role
+            // (see schema route).
+            field({ name: 'role_id', order: 1, type: FieldTypes.SELECT, default: null, required: true, label: 'Role', dbField: 'role_id', enumValues: [], showOn: ['list', 'form'] }),
             field({ name: 'is_admin', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Admin', dbField: 'is_admin', showOn: ['list', 'form'] }),
          ],
         }),

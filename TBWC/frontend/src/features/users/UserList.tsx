@@ -24,7 +24,7 @@ export const UserList: React.FC<UserListProps> = ({ onUserEdit, onUserCreate, au
   const columns = useMemo(() => {
     if (!schema) return [];
     return generateColumnsFromSchema<User>(schema.formFields, {
-      fieldOrder: ['first_name', 'last_name', 'email', 'agency_name', 'type', 'approved', 'is_admin'],
+      fieldOrder: ['first_name', 'last_name', 'email', 'agency_name', 'role_id', 'approved', 'is_admin'],
       responsive: 'hide-mobile',
     });
   }, [schema]);
