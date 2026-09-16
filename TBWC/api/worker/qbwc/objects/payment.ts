@@ -19,9 +19,16 @@ async function buildRequest(env: Env): Promise<string> {
   // Paged via iterator, same as customer/item/salesOrder/invoice -- an
   // un-iterated ReceivePaymentQueryRq is capped well short of the full
   // result set once the company file has more payments than that cap.
+  // IncludeLineItems is what makes QB emit AppliedToTxnRet blocks (which
+  // invoice(s) this payment was applied to, and how much of each). Without
+  // it QB omits them silently -- left applied_to as [] on every synced row,
+  // so amount_for_order (routes/orders.ts) had nothing to sum and the order
+  // panel showed no payments for orders whose invoices were fully paid this
+  // way (e.g. TBWC 5455).
   return qbxmlDoc(
     `    <ReceivePaymentQueryRq requestID="${REQUEST_ID}" iterator="Start">\n` +
     `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>${filter}\n` +
+    `      <IncludeLineItems>true</IncludeLineItems>\n` +
     `    </ReceivePaymentQueryRq>`
   );
 }
@@ -103,5 +110,12 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   }
 }
 
-const payment: QbObject = { name: 'Payment', requestID: REQUEST_ID, buildRequest, parseResponse, incremental: true };
+const payment: QbObject = {
+  name: 'Payment',
+  requestID: REQUEST_ID,
+  buildRequest,
+  parseResponse,
+  iteratorExtra: '      <IncludeLineItems>true</IncludeLineItems>\n',
+  incremental: true,
+};
 export default payment;

@@ -71,6 +71,19 @@ export interface LinkedInvoice {
   matched_by?: 'link' | 'po' | 'ambiguous';
 }
 
+/** One (payment, invoice) application — a payment can be split across
+ *  several invoices, so one qb_payment can produce several of these rows
+ *  (GET /api/orders/:id/payments). qb_invoice_id ties the row to one of this
+ *  order's LinkedInvoice rows; amount is the slice applied to that invoice
+ *  specifically, not the payment's full total — see OrderInvoicesPanel.tsx. */
+export interface LinkedPayment {
+  qb_payment_id: number;
+  qb_invoice_id: number;
+  ref_number: string | null;
+  txn_date: string | null;
+  amount: number | null;
+}
+
 export interface OrderLine {
   item: string | null;
   desc: string | null;

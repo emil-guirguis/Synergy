@@ -11,7 +11,7 @@
  * visible to admins.
  */
 import { Hono } from 'hono';
-import { Env } from '../db';
+import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { invoicesSchema } from './invoicesSchema';
@@ -66,6 +66,52 @@ app.get('/', requirePermission('invoice:read'), async (c) => {
     whereLike,
   });
   return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
+});
+
+// Dashboard's "Total Receivables" card, with a year picker like
+// YearlyOrderTotalCard's. A dedicated SUM rather than the client-side
+// bulk-fetch-and-reduce pattern the other dashboard cards use — this is a
+// real financial total, not a rough KPI, and ~7.8k invoices company-wide is
+// enough that a truncated client page could silently under-count it.
+// ?year=YYYY selects the year (default: current); `years` in the response is
+// every year actually present in qb_invoice.txn_date, for the dropdown's
+// options — computed here rather than client-side because this route never
+// fetches the underlying rows.
+app.get('/receivables-summary', requirePermission('invoice:read'), async (c) => {
+  const scope = repScope(c);
+  const yearParam = parseInt(c.req.query('year') ?? '', 10);
+  const year = Number.isFinite(yearParam) ? yearParam : new Date().getFullYear();
+
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT COALESCE(SUM(balance_remaining), 0)::numeric AS total, COUNT(*)::int AS count
+       FROM public.qb_invoice
+      WHERE qb_deleted_at IS NULL
+        AND COALESCE(balance_remaining, 0) > 0
+        AND extract(year FROM txn_date)::int = $2
+        AND ($1::text IS NULL OR sales_rep_list_id = $1)`,
+    [scope, year],
+    'invoices.receivablesSummary'
+  );
+  const { rows: yearRows } = await execQuery(
+    c.env,
+    `SELECT DISTINCT extract(year FROM txn_date)::int AS y
+       FROM public.qb_invoice
+      WHERE qb_deleted_at IS NULL AND txn_date IS NOT NULL
+        AND ($1::text IS NULL OR sales_rep_list_id = $1)
+      ORDER BY y DESC`,
+    [scope],
+    'invoices.receivablesSummary.years'
+  );
+  return c.json({
+    success: true,
+    data: {
+      total: Number(rows[0]?.total ?? 0),
+      count: rows[0]?.count ?? 0,
+      year,
+      years: yearRows.map((r: any) => r.y),
+    },
+  });
 });
 
 app.get('/:id', requirePermission('invoice:read'), async (c) => {

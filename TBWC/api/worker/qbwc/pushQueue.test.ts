@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockExecQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));
-vi.mock('../db', () => ({ execQuery: (...a: any[]) => mockExecQuery(...a) }));
+const mockExecQuery = vi.fn<(env: any, sql: string, params?: any[]) => Promise<{ rows: any[]; rowCount: number }>>(
+  async () => ({ rows: [], rowCount: 0 })
+);
+vi.mock('../db', () => ({ execQuery: (env: any, sql: string, params?: any[]) => mockExecQuery(env, sql, params) }));
 
 import { queueFieldPush, pendingPushes, pendingValue, markPushed, markFailed } from './pushQueue';
 

@@ -6,6 +6,10 @@ import { InventoryManagementPage } from '../features/inventory/InventoryManageme
 import { QuoteManagementPage } from '../features/quotes/QuoteManagementPage';
 import { CustomerManagementPage } from '../features/customers/CustomerManagementPage';
 import { InvoiceManagementPage } from '../features/invoices/InvoiceManagementPage';
+import { PaymentManagementPage } from '../features/payments/PaymentManagementPage';
+import RepPerformancePage from '../features/reports/RepPerformancePage';
+import OrderToCashPage from '../features/reports/OrderToCashPage';
+import InvoiceTotalsPage from '../features/reports/InvoiceTotalsPage';
 import { QbSyncDashboardPage } from '../features/qbSync/QbSyncDashboardPage';
 import { UserManagementPage } from '../features/users/UserManagementPage';
 import RepPortalPage from '../features/repPortal/RepPortalPage';
@@ -35,6 +39,22 @@ export default function AppRoutes() {
       />
       {/* Read-only for everyone; the API scopes a rep to their own invoices. */}
       <Route path="/invoices" element={<InvoiceManagementPage />} />
+      <Route
+        path="/payments"
+        element={isAdmin ? <PaymentManagementPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/reports/rep-performance"
+        element={isAdmin ? <RepPerformancePage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/reports/order-to-cash"
+        element={isAdmin ? <OrderToCashPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/reports/invoice-totals"
+        element={isAdmin ? <InvoiceTotalsPage /> : <Navigate to="/dashboard" replace />}
+      />
       <Route
         path="/qb-sync"
         element={isAdmin ? <QbSyncDashboardPage /> : <Navigate to="/dashboard" replace />}

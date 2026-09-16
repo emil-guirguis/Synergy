@@ -63,12 +63,13 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const { isMobile, isTablet, isDesktop } = responsive;
   const { sidebarCollapsed, setSidebarCollapsed, mobileNavOpen, setMobileNavOpen } = uiState;
 
-  const pageTitle = title || (getPageTitle ? getPageTitle(location.pathname) : 'MeterIt Pro');
+  const brand = sidebarBrand?.text || 'App';
+  const pageTitle = title || (getPageTitle ? getPageTitle(location.pathname) : brand);
 
   // Set document title directly instead of calling usePageTitle hook
   useEffect(() => {
-    document.title = pageTitle ? `${pageTitle} - MeterIt` : 'MeterIt';
-  }, [pageTitle]);
+    document.title = pageTitle ? `${pageTitle} - ${brand}` : brand;
+  }, [pageTitle, brand]);
 
   useEffect(() => {
     if (isMobile) setSidebarCollapsed(true);

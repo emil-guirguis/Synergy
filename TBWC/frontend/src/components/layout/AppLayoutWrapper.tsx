@@ -15,6 +15,11 @@ registerIconMappings({
   inventory: 'inventory_2',
   customers: 'contacts',
   invoices: 'receipt_long',
+  payments: 'payments',
+  reports: 'assessment',
+  repPerformance: 'leaderboard',
+  orderToCash: 'sync_alt',
+  invoiceTotals: 'trending_up',
   repPortal: 'folder_shared',
   documents: 'folder_shared',
   qbSync: 'sync',
@@ -25,13 +30,26 @@ const NAV: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
   { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes', disabled: true },
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders' },
+  { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat', requiredPermission: 'admin' },
   // Reps see Invoices too, scoped to their own by the API (see invoices.ts).
   { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices' },
-  { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
-  { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat', requiredPermission: 'admin' },
-  { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
+  { id: 'payments', label: 'Payments', icon: 'payments', path: '/payments', requiredPermission: 'admin' },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: 'reports',
+    path: '/reports',
+    requiredPermission: 'admin',
+    children: [
+      { id: 'repPerformance', label: 'Rep Performance', icon: 'repPerformance', path: '/reports/rep-performance' },
+      { id: 'orderToCash', label: 'Order-to-Cash', icon: 'orderToCash', path: '/reports/order-to-cash' },
+      { id: 'invoiceTotals', label: 'Invoice Totals', icon: 'invoiceTotals', path: '/reports/invoice-totals' },
+    ],
+  },
   { id: 'customers', label: 'Customers', icon: 'customers', path: '/customers', requiredPermission: 'admin' },
+  { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
   { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'admin' },
+  { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
   { id: 'qbSync', label: 'QB Sync', icon: 'qbSync', path: '/qb-sync', requiredPermission: 'admin' },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'admin' },
   { id: 'settings', label: 'Settings', icon: 'settings', path: '/settings', requiredPermission: 'admin' },
@@ -45,6 +63,10 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/inventory')) return 'Inventory';
   if (pathname.startsWith('/customers')) return 'Customers';
   if (pathname.startsWith('/invoices')) return 'Invoices';
+  if (pathname.startsWith('/payments')) return 'Payments';
+  if (pathname.startsWith('/reports/rep-performance')) return 'Rep Performance';
+  if (pathname.startsWith('/reports/order-to-cash')) return 'Order-to-Cash';
+  if (pathname.startsWith('/reports/invoice-totals')) return 'Invoice Totals';
   if (pathname.startsWith('/rep-portal')) return 'Rep Approvals';
   if (pathname.startsWith('/qb-sync')) return 'QB Sync';
   if (pathname.startsWith('/users')) return 'Users';

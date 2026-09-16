@@ -54,7 +54,7 @@ export default function YearlyOrderTotalCard() {
   }, [orders, year]);
 
   return (
-    <Card variant="outlined" sx={{ mt: 3, maxWidth: 480 }}>
+    <Card variant="outlined" sx={{ maxWidth: 480 }}>
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

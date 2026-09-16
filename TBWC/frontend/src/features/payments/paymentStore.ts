@@ -1,10 +1,10 @@
-// Invoice entity store — read-only. qb_invoice is synced from QuickBooks, so
+// Payment entity store — read-only. qb_payment is synced from QuickBooks, so
 // only getAll/getById hit the API; create/update/delete are never wired into the UI
 // (the list disables those features) and throw defensively if ever called.
 import { createEntityStore, createEntityHook } from '../../store/slices/createEntitySlice';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { API_BASE_URL } from '../../config/api';
-import type { Invoice } from '../../types/invoice';
+import type { Payment } from '../../types/payment';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -21,9 +21,9 @@ async function parse(res: Response) {
   return res.json();
 }
 
-const READ_ONLY = 'Invoices are synced from QuickBooks and cannot be edited here.';
+const READ_ONLY = 'Payments are synced from QuickBooks and cannot be edited here.';
 
-export const invoiceService = {
+const paymentService = {
   async getAll(params?: any) {
     const q = new URLSearchParams();
     if (params?.page) q.append('page', String(params.page));
@@ -38,20 +38,11 @@ export const invoiceService = {
       });
     }
     const qs = q.toString();
-    const data = await parse(await fetch(`${API_BASE_URL}/invoices${qs ? `?${qs}` : ''}`, { headers: authHeaders() }));
+    const data = await parse(await fetch(`${API_BASE_URL}/payments${qs ? `?${qs}` : ''}`, { headers: authHeaders() }));
     return { items: data.data?.items || [], total: data.data?.total || 0, hasMore: false };
   },
   async getById(id: string) {
-    const data = await parse(await fetch(`${API_BASE_URL}/invoices/${id}`, { headers: authHeaders() }));
-    return data.data;
-  },
-  /** Total outstanding (balance_remaining > 0) on invoices dated in `year`
-   *  (default: current year) — server-side SUM, not a client reduce (see
-   *  invoices.ts route). `years` in the response is every year with invoice
-   *  data, for the card's dropdown. */
-  async getReceivablesSummary(year?: number): Promise<{ total: number; count: number; year: number; years: number[] }> {
-    const qs = year ? `?year=${year}` : '';
-    const data = await parse(await fetch(`${API_BASE_URL}/invoices/receivables-summary${qs}`, { headers: authHeaders() }));
+    const data = await parse(await fetch(`${API_BASE_URL}/payments/${id}`, { headers: authHeaders() }));
     return data.data;
   },
   async create(): Promise<never> { throw new Error(READ_ONLY); },
@@ -59,9 +50,9 @@ export const invoiceService = {
   async delete(): Promise<never> { throw new Error(READ_ONLY); },
 };
 
-export const useInvoiceStore = createEntityStore<Invoice & { id: string }>(invoiceService as any, {
-  name: 'invoice',
+export const usePaymentStore = createEntityStore<Payment & { id: string }>(paymentService as any, {
+  name: 'payment',
   cache: { ttl: 5 * 60 * 1000, maxAge: 30 * 60 * 1000 },
 });
 
-export const useInvoices = createEntityHook(useInvoiceStore);
+export const usePayments = createEntityHook(usePaymentStore);

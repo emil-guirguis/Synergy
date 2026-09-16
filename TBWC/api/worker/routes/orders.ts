@@ -105,12 +105,13 @@ function ownOnly(c: any): boolean {
 app.get('/', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const q = c.req.query();
-  // missingPo/notShipped are synthetic filters (dashboard alert cards), not real
-  // columns — keep them out of whereFromQuery's generic pass and apply as
-  // IS NULL checks below instead. "Not invoiced" needs no such special-casing —
-  // is_fully_invoiced is a real column with its own schema-generated filter, so
-  // ?is_fully_invoiced=false already flows through whereFromQuery normally.
-  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped'] });
+  // missingPo/notShipped/excludeZeroTotal are synthetic filters (dashboard alert
+  // cards), not real columns — keep them out of whereFromQuery's generic pass
+  // and apply as raw checks below instead. "Not invoiced" needs no such
+  // special-casing — is_fully_invoiced is a real column with its own
+  // schema-generated filter, so ?is_fully_invoiced=false already flows through
+  // whereFromQuery normally.
+  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped', 'excludeZeroTotal'] });
   // Field filters first, then the security scope — sales_rep_list_id always
   // wins so a rep can't widen their own visibility via a crafted query param.
   // A rep with no linked qb_sales_rep (sales_rep_list_id null) gets a value
@@ -125,6 +126,9 @@ app.get('/', requirePermission('order:read'), async (c) => {
   };
   if (q.missingPo === 'true') where.po_number = null;
   if (q.notShipped === 'true') where.shipped_date = null;
+  // Zero-total rows are packing slips (QB records these as zero-total invoices —
+  // see OrderInvoicesPanel.tsx), not real open orders, so exclude them here.
+  if (q.excludeZeroTotal === 'true') where.total = { gt: 0 };
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
@@ -159,6 +163,29 @@ app.get('/:id', requirePermission('order:read'), async (c) => {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
   return c.json({ success: true, data: redactRow(c.get('permissions'), 'order:read', row) });
+});
+
+// Exact PO lookup for the Settings > Document Import routine (see
+// DocumentImportPanel.tsx): a folder name has to resolve to exactly one order
+// before its files get attached, so this is a trimmed/case-insensitive EXACT
+// match — unlike /?po_number=, which goes through LIKE_FIELDS as a partial
+// ILIKE and would happily "match" every PO that merely contains the string.
+app.get('/lookup-po/:po', requirePermission('order:read'), async (c) => {
+  const user = c.get('user');
+  const po = c.req.param('po').trim();
+  if (!po) return c.json({ success: false, message: 'po is required' }, 400);
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT qb_sales_order_id, ref_number, customer_name, po_number, sales_rep_list_id
+       FROM public.${TABLE}
+      WHERE qb_deleted_at IS NULL AND lower(btrim(po_number)) = lower($1)`,
+    [po],
+    'orders.lookupPo'
+  );
+  const visible = ownOnly(c)
+    ? rows.filter((r: any) => user.sales_rep_list_id && r.sales_rep_list_id === user.sales_rep_list_id)
+    : rows;
+  return c.json({ success: true, data: redactRows(c.get('permissions'), 'order:read', visible) });
 });
 
 // Invoices linked to this order, for the order form's right-hand panel.
@@ -215,6 +242,51 @@ app.get('/:id/invoices', requirePermission('order:read'), async (c) => {
      ORDER BY i.txn_date DESC NULLS LAST, i.qb_invoice_id DESC`,
     [order.txn_id, po, order.customer_list_id],
     'orders.linkedInvoices'
+  );
+  return c.json({ success: true, data: { items: rows } });
+});
+
+// Payments (QB ReceivePayment) applied against this order's invoices, for the
+// order form's summary panel — one row per (payment, invoice) pair, so the
+// panel can list each payment under the specific invoice it was applied to
+// rather than in a section of its own. Same invoice-match rule as
+// /:id/invoices (QB LinkedTxn, falling back to customer + PO).
+//
+// amount is the slice of a split payment applied to THIS invoice specifically
+// (qb_payment.applied_to can name invoices across several orders, or several
+// invoices on the same order, for the same customer) — not the payment's
+// total_amount.
+//
+// Requires payment.ts's ReceivePaymentQueryRq to have pulled with
+// IncludeLineItems=true; older rows synced before that carry an empty
+// applied_to and won't show here until a Payment full reload re-pulls them.
+app.get('/:id/payments', requirePermission('order:read'), async (c) => {
+  const user = c.get('user');
+  const order = await findById(c.env, TABLE, PK, c.req.param('id'));
+  if (!order || order.qb_deleted_at) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (ownOnly(c) && (!user.sales_rep_list_id || order.sales_rep_list_id !== user.sales_rep_list_id)) {
+    return c.json({ success: false, message: 'Not found' }, 404);
+  }
+  const po = (order.po_number ?? '').trim() || null;
+  const { rows } = await execQuery(
+    c.env,
+    `WITH order_invoices AS (
+       SELECT i.txn_id, i.qb_invoice_id
+         FROM public.qb_invoice i
+        WHERE i.qb_deleted_at IS NULL
+          AND (i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', $1::text))
+               OR ($2::text IS NOT NULL
+                   AND i.customer_list_id = $3::text
+                   AND nullif(btrim(i.po_number), '') = $2::text))
+     )
+     SELECT p.qb_payment_id, p.ref_number, p.txn_date, oi.qb_invoice_id,
+            (a->>'amount')::numeric AS amount
+       FROM public.qb_payment p
+       CROSS JOIN LATERAL jsonb_array_elements(p.applied_to) a
+       JOIN order_invoices oi ON oi.txn_id = a->>'txn_id'
+      ORDER BY p.txn_date DESC NULLS LAST, p.qb_payment_id DESC`,
+    [order.txn_id, po, order.customer_list_id],
+    'orders.linkedPayments'
   );
   return c.json({ success: true, data: { items: rows } });
 });

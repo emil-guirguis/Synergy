@@ -19,7 +19,7 @@ import type { Order } from '../../types/order';
 const YEAR = '2026';
 const isIn2026 = (o: Order) => !!o.txn_date && o.txn_date.startsWith(YEAR);
 const notShipped = (o: Order) => isIn2026(o) && !o.shipped_date;
-const notInvoiced = (o: Order) => isIn2026(o) && !o.is_fully_invoiced;
+const notInvoiced = (o: Order) => isIn2026(o) && !o.is_fully_invoiced && !!o.total;
 
 export default function OrderAlertsCards() {
   const navigate = useNavigate();
@@ -58,7 +58,7 @@ export default function OrderAlertsCards() {
       </Card>
 
       <Card variant="outlined" sx={{ minWidth: 220, borderColor: notInvoicedCount > 0 ? 'warning.main' : 'divider' }}>
-        <CardActionArea onClick={() => navigate('/orders?is_fully_invoiced=false')}>
+        <CardActionArea onClick={() => navigate('/orders?is_fully_invoiced=false&excludeZeroTotal=true')}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <RequestQuoteIcon color={notInvoicedCount > 0 ? 'warning' : 'action'} />

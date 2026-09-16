@@ -22,7 +22,7 @@ import { query } from '../db';
 import { clearUserCache, clearPermissionCache } from '../middleware';
 import rolesApp from './roles';
 import type { Env } from '../db';
-import { authQuery, queueAuth } from '../testAuth';
+import { authQuery, queueAuth, ADMIN_GRANT_ROWS } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
@@ -39,7 +39,7 @@ const ADMIN_USER = {
 
 // Every catalogued permission except role:write — used to exercise the
 // last-admin guard and the 403-without-role:write paths.
-const NO_ROLE_WRITE_GRANTS = [
+const NO_ROLE_WRITE_GRANTS: typeof ADMIN_GRANT_ROWS = [
   { permission: 'role:read', scope: 'all', hidden_fields: [] },
 ];
 

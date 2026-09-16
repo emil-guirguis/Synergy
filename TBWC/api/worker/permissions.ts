@@ -17,6 +17,8 @@ export const PERMISSIONS = [
   'quote:delete',
   'invoice:read',
   'customer:read',
+  'payment:read',
+  'report:read',
   'inventory:read',
   'inventory:write',
   'user:read',

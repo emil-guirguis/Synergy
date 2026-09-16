@@ -55,6 +55,17 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
     authContext: auth,
   });
 
+  // Dashboard's Receivables card links here with ?is_paid=false — apply it as
+  // the real is_paid filter (same field the visible dropdown drives) rather
+  // than a synthetic one, so the drill-down and manual filtering land on the
+  // same control. Gated on `schema` loaded, same race as OrderList's
+  // equivalent effect (see there for why).
+  useEffect(() => {
+    if (!schema) return;
+    if (searchParams.get('is_paid') === 'false') baseList.setFilter('is_paid', 'false');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, searchParams]);
+
   // AI chat search results link here with ?openId=<qb_invoice_id> to open a
   // specific invoice's form directly (see features/ai/AiChatPage.tsx) — fetch
   // that one record (not necessarily on the current page/filter) and open it

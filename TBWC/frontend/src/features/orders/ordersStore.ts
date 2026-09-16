@@ -3,7 +3,7 @@ import { createEntityStore, createEntityHook } from '../../store/slices/createEn
 import { withApiCall } from '../../store/middleware/apiMiddleware';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { API_BASE_URL } from '../../config/api';
-import type { Order, LinkedInvoice } from '../../types/order';
+import type { Order, LinkedInvoice, LinkedPayment } from '../../types/order';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -47,6 +47,19 @@ export const ordersService = {
   async getLinkedInvoices(id: string | number) {
     const data = await parse(await fetch(`${API_BASE_URL}/orders/${id}/invoices`, { headers: authHeaders() }));
     return (data.data?.items || []) as LinkedInvoice[];
+  },
+  /** Payments QB has applied against invoices linked to this order. */
+  async getLinkedPayments(id: string | number) {
+    const data = await parse(await fetch(`${API_BASE_URL}/orders/${id}/payments`, { headers: authHeaders() }));
+    return (data.data?.items || []) as LinkedPayment[];
+  },
+  /** Exact (trimmed, case-insensitive) PO match — used by Settings > Document
+   *  Import to resolve a folder name to the one order it belongs to. */
+  async lookupByPo(po: string) {
+    const data = await parse(
+      await fetch(`${API_BASE_URL}/orders/lookup-po/${encodeURIComponent(po)}`, { headers: authHeaders() })
+    );
+    return (data.data || []) as Pick<Order, 'qb_sales_order_id' | 'ref_number' | 'customer_name' | 'po_number'>[];
   },
   // Orders exist only via the QuickBooks sync — the list disables create/delete;
   // these throw defensively if ever called.

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import BusinessIcon from '@mui/icons-material/Business';
 import TuneIcon from '@mui/icons-material/Tune';
 import SecurityIcon from '@mui/icons-material/Security';
+import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import {
   SettingsPageShell,
   OrgInfoForm,
@@ -18,9 +19,9 @@ import { getSettings, updateSettings, type CompanySettings } from '../services/s
 import {
   getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
 } from '../services/rolesService';
+import DocumentImportPanel from '../features/documentImport/DocumentImportPanel';
 
-// Roles tab disabled for now — flip back to true to re-enable.
-const ROLES_TAB_ENABLED = false;
+const ROLES_TAB_ENABLED = true;
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
@@ -169,6 +170,13 @@ export default function SettingsPage() {
               error={error}
             />
           ),
+        },
+        {
+          key: 'documentImport',
+          label: 'Document Import',
+          icon: <DriveFolderUploadIcon fontSize="small" />,
+          description: 'Bulk-attach a folder of scanned documents to their orders by PO number.',
+          content: <DocumentImportPanel />,
         },
         ...(ROLES_TAB_ENABLED ? [{
           key: 'roles',
