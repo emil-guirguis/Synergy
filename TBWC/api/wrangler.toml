@@ -59,10 +59,15 @@ crons = ["0 13 * * *"]
 # --- production -------------------------------------------------------------
 # Deploy with:  wrangler deploy --env production
 # Named envs do NOT inherit top-level [vars]/bindings, so prod is fully defined
-# here. Note: NO DATABASE_URL — query() falls back to the Hyperdrive binding,
-# which manages its own TLS (the plaintext pooler URL above is dev-only).
-# Secrets are per-env:  wrangler secret put QBWC_USERNAME --env production
+# here. Secrets are per-env:  wrangler secret put QBWC_USERNAME --env production
 [env.production.vars]
+# Deliberately empty, not omitted: db.ts's `env.DATABASE_URL || env.HYPERDRIVE?.connectionString`
+# treats "" as falsy and falls through to Hyperdrive (which manages its own TLS),
+# same as if this were unset. Declaring it here (rather than leaving it out) is
+# just to satisfy wrangler's top-level-vs-env vars parity check, which otherwise
+# warns on every deploy that the dev-only DATABASE_URL above "exists at the top
+# level but not on env.production.vars".
+DATABASE_URL = ""
 # CORS origin = the GitHub Pages SITE origin (path doesn't matter for CORS).
 # TBWC portal is served under this origin at /<repo>/TBWCPortal/.
 # The portal is served from the site's own domain (tbwctechnology.com/portal/) so it
