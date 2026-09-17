@@ -18,6 +18,8 @@ export interface AuthContextValue {
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
   checkPermission: (permission?: string) => boolean;
+  /** The role-granted scope for a permission ('all' | 'own'), or null if not held. */
+  scopeOf: (permission: string) => 'all' | 'own' | null;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -82,6 +84,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (_permission?: string) => isAdmin,
     [isAdmin]
   );
+  const scopeOf = useCallback(
+    (permission: string) => user?.permissions?.find((g) => g.permission === permission)?.scope ?? null,
+    [user]
+  );
 
   const value: AuthContextValue = {
     user,
@@ -91,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     logout,
     checkPermission,
+    scopeOf,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

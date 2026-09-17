@@ -34,6 +34,8 @@ export interface User {
   sales_rep_list_id: string | null;
   sales_rep_initial: string | null;
   sales_rep_name: string | null;
+  /** This caller's resolved role grants, joined onto /auth/me. */
+  permissions?: { permission: string; scope: 'all' | 'own'; hidden_fields: string[] }[];
 }
 
 /** Permission keys referenced by the list/form feature components. */

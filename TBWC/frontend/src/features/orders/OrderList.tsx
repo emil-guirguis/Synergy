@@ -28,7 +28,7 @@ function renderCheckbox(value: boolean | null | undefined) {
 interface OrderListProps {
   onOrderEdit?: (order: Order) => void;
   onOrderCreate?: () => void;
-  authContext?: { checkPermission: (p: any) => boolean; user: any };
+  authContext?: { checkPermission: (p: any) => boolean; user: any; scopeOf?: (p: string) => 'all' | 'own' | null };
 }
 
 export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate, authContext: authProp }) => {
@@ -37,10 +37,11 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   const { schema } = useSchema('order');
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // A rep only ever sees their own orders (server-scoped to rep_id = them), so
-  // the QB rep dropdown has nothing meaningful to filter — lock it to their own
-  // linked rep instead of leaving a picker that can't actually change anything.
-  const canSeeAll = auth.user?.is_admin;
+  // Mirrors the server's own scope check (orders.ts ownOnly()) rather than
+  // hardcoding is_admin, so an order:read=all role grant (e.g. a rep who should
+  // see everyone's orders) actually widens the rep dropdown + list, not just the
+  // backend query.
+  const canSeeAll = auth.scopeOf?.('order:read') === 'all';
 
   // Rep list view is a deliberately trimmed-down field set (per rep request) —
   // distinct from the admin view, which keeps the fuller QB-derived columns.
