@@ -132,6 +132,10 @@ function wordLike(word: string): RegExp {
 }
 const RMA_RE = wordLike('rma');
 const METER_RE = wordLike('meters?');
+const BOM_RE = wordLike('bom');
+const DNET_RE = wordLike('dnet');
+const PNL_RE = wordLike('pnl');
+const HFR_RE = wordLike('hfr');
 
 /**
  * Classify a file — checked in this order, first match wins. Most rules key
@@ -139,10 +143,10 @@ const METER_RE = wordLike('meters?');
  * instead:
  *    1. starts with "POD"                                  -> proof_of_delivery
  *    2. starts with "Inv"                                  -> invoice
- *    3. starts with "BOM"                                  -> build_of_materials
- *    4. starts with "dnet"                                 -> quote
- *    5. starts with "PNL"                                  -> load_schedule
- *    6. starts with "HFR"                                  -> order
+ *    3. contains "bom" as a standalone token                -> build_of_materials
+ *    4. contains "dnet" as a standalone token                -> quote
+ *    5. contains "pnl" as a standalone token                -> load_schedule
+ *    6. contains "hfr" as a standalone token                -> order
  *    7. leaf folder name contains "shipping images"        -> shipping_images
  *    8. contains "change order"                            -> change_order
  *       (checked before the PO/order rule below, since a filename like
@@ -167,10 +171,10 @@ const METER_RE = wordLike('meters?');
 function classify(fileName: string, folderPo: string, leafFolder: string, matchedPo: string): DocType {
   if (/^pod/i.test(fileName)) return 'proof_of_delivery';
   if (/^inv/i.test(fileName)) return 'invoice';
-  if (/^bom/i.test(fileName)) return 'build_of_materials';
-  if (/^dnet/i.test(fileName)) return 'quote';
-  if (/^pnl/i.test(fileName)) return 'load_schedule';
-  if (/^hfr/i.test(fileName)) return 'order';
+  if (BOM_RE.test(fileName)) return 'build_of_materials';
+  if (DNET_RE.test(fileName)) return 'quote';
+  if (PNL_RE.test(fileName)) return 'load_schedule';
+  if (HFR_RE.test(fileName)) return 'order';
   if (/shipping\s*images?/i.test(leafFolder)) return 'shipping_images';
   if (/change\s*order/i.test(fileName)) return 'change_order';
   if (/quote/i.test(fileName)) return 'quote';
