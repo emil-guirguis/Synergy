@@ -9,10 +9,10 @@ COPY MeterItProSync/mcp/migrations ./migrations
 RUN npm run build
 
 FROM node:24-slim
-WORKDIR /app
+WORKDIR /app/MeterItProSync/mcp
 ENV NODE_ENV=production
 COPY MeterItProSync/mcp/package*.json ./
-COPY framework /framework
+COPY framework /app/framework
 RUN npm ci --omit=dev --legacy-peer-deps
 COPY --from=builder /build/MeterItProSync/mcp/dist ./dist
 COPY --from=builder /build/MeterItProSync/mcp/migrations ./migrations
