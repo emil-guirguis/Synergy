@@ -27,7 +27,8 @@ BEGIN
     updated_at     DATETIME2 NOT NULL CONSTRAINT document_updated_at_default DEFAULT SYSUTCDATETIME(),
     CONSTRAINT document_doc_type_check
       CHECK (doc_type IN ('cutsheet', 'invoice', 'order', 'packing_slip', 'proof_of_delivery',
-              'shipping', 'email', 'design', 'other')),
+              'shipping', 'email', 'design', 'load_schedule', 'quote', 'rma', 'shipping_images',
+              'change_order', 'waiver', 'panelboard_schedules', 'build_of_materials', 'other')),
     CONSTRAINT document_payload_check
       CHECK (storage_path IS NOT NULL OR content IS NOT NULL)
   );

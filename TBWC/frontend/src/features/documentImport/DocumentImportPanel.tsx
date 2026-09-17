@@ -9,10 +9,11 @@
  * subfolders under the real PO folder (e.g. ".../S015523911.../5647 Shipping
  * Images/photo.jpg") still land on that PO's order — the PO folder doesn't
  * have to be the file's immediate parent. The folder directly above whichever
- * level resolves is read as the customer name. Each file is classified by its
- * name (POD... -> proof_of_delivery, Inv... -> invoice, else other), then
- * uploaded to the matched order's Documents tab the same way DocumentsGrid's
- * own "Add Folder" does (bytes straight to the bucket, then the metadata row).
+ * level resolves is read as the customer name. Each file is classified by
+ * name and folder context — see classify()'s own doc comment for the full,
+ * priority-ordered rule list — then uploaded to the matched order's
+ * Documents tab the same way DocumentsGrid's own "Add Folder" does (bytes
+ * straight to the bucket, then the metadata row).
  *
  * The customer folder isn't just cosmetic: a PO number alone can match more
  * than one order (different customers reusing the same PO), so it's used to
@@ -115,40 +116,96 @@ interface AncestorResolution {
   tried: string[];
 }
 
+/** Extensions treated as photos for the image fallback rule. */
+const IMAGE_EXT = /\.(jpe?g|png|gif|heic|heif|bmp|tiff?|webp)$/i;
+
 /**
- * Classify by the file's own name (checked in this order, first match wins),
- * falling back to the PO folder name for the last rule:
- *   1. starts with "POD"                              -> proof_of_delivery
- *   2. starts with "Inv"                               -> invoice
- *   3. contains "email"                                -> email
- *   4. contains "packing slip"                         -> packing_slip
- *   5. starts with "PO"/"PurchaseOrder"/"Purchase Order",
- *      or the PO folder's name appears in the file name -> order
- *   6. otherwise                                       -> other
+ * Matches `word` as a standalone token: not touching a LETTER on either side,
+ * but fine right next to digits/punctuation/spaces/start-or-end-of-string —
+ * so "RMA123456" matches "rma" but "Information" doesn't (the "rma" inside it
+ * is wedged between two letters). A plain substring/word-boundary check can't
+ * get both right at once: \b treats digits as "word" characters too, so
+ * \brma\b silently rejects "RMA123456" (no boundary between "A" and "1").
  */
-function classify(fileName: string, folderPo: string): DocType {
+function wordLike(word: string): RegExp {
+  return new RegExp(`(?<![a-z])(?:${word})(?![a-z])`, 'i');
+}
+const RMA_RE = wordLike('rma');
+const METER_RE = wordLike('meters?');
+
+/**
+ * Classify a file — checked in this order, first match wins. Most rules key
+ * off the file's own name; a few key off folder context or the resolved PO
+ * instead:
+ *    1. starts with "POD"                                  -> proof_of_delivery
+ *    2. starts with "Inv"                                  -> invoice
+ *    3. starts with "BOM"                                  -> build_of_materials
+ *    4. starts with "dnet"                                 -> quote
+ *    5. starts with "PNL"                                  -> load_schedule
+ *    6. starts with "HFR"                                  -> order
+ *    7. leaf folder name contains "shipping images"        -> shipping_images
+ *    8. contains "change order"                            -> change_order
+ *       (checked before the PO/order rule below, since a filename like
+ *       "Revised Purchase Order, Change Order_..." contains both phrases —
+ *       change order is the more specific, intended type)
+ *    9. contains "quote"                                   -> quote
+ *   10. contains "rma" as a standalone token                -> rma
+ *   11. contains "waiver"                                  -> waiver
+ *   12. contains "panelboard schedule(s)"                  -> panelboard_schedules
+ *   13. contains "load schedule", "meter(s)", or "programming" -> load_schedule
+ *   14. contains "email", or ends in ".msg"                -> email
+ *   15. contains "packing slip"                            -> packing_slip
+ *   16. starts with "PO", contains "purchase order" (covers
+ *       "Release Purchase Order"/"Revised Purchase Order" etc.),
+ *       or the file's own name (extension aside) is the same
+ *       as — or contains — the resolved PO folder's name
+ *       (raw, with any "_..." suffix, or the clean PO number
+ *       actually matched)                                   -> order
+ *   17. (last rule) it's an image file                     -> shipping_images
+ *   18. otherwise                                          -> other
+ */
+function classify(fileName: string, folderPo: string, leafFolder: string, matchedPo: string): DocType {
   if (/^pod/i.test(fileName)) return 'proof_of_delivery';
   if (/^inv/i.test(fileName)) return 'invoice';
-  if (/email/i.test(fileName)) return 'email';
+  if (/^bom/i.test(fileName)) return 'build_of_materials';
+  if (/^dnet/i.test(fileName)) return 'quote';
+  if (/^pnl/i.test(fileName)) return 'load_schedule';
+  if (/^hfr/i.test(fileName)) return 'order';
+  if (/shipping\s*images?/i.test(leafFolder)) return 'shipping_images';
+  if (/change\s*order/i.test(fileName)) return 'change_order';
+  if (/quote/i.test(fileName)) return 'quote';
+  if (RMA_RE.test(fileName)) return 'rma';
+  if (/waiver/i.test(fileName)) return 'waiver';
+  if (/panelboard\s*schedules?/i.test(fileName)) return 'panelboard_schedules';
+  if (/load\s*schedule/i.test(fileName) || METER_RE.test(fileName) || /programming/i.test(fileName)) return 'load_schedule';
+  if (/email/i.test(fileName) || /\.msg$/i.test(fileName)) return 'email';
   if (/packing\s*slip/i.test(fileName)) return 'packing_slip';
-  if (/^(po|purchase\s*order)/i.test(fileName)) return 'order';
-  const po = folderPo.trim();
-  if (po && !po.startsWith('(') && fileName.toLowerCase().includes(po.toLowerCase())) return 'order';
+  if (/^po/i.test(fileName) || /purchase\s*order/i.test(fileName)) return 'order';
+  const lowerName = fileName.toLowerCase();
+  for (const po of [folderPo.trim(), matchedPo.trim()]) {
+    if (po && !po.startsWith('(') && lowerName.includes(po.toLowerCase())) return 'order';
+  }
+  if (IMAGE_EXT.test(fileName)) return 'shipping_images';
   return 'other';
 }
 
 /**
- * "_" in a folder name does double duty depending on shape, so a folder that
- * doesn't match as typed gets retried a few different ways:
- *   - "MMR_010760" or "DBB_019543" — Windows folder names can't contain "/",
- *     so a real PO number like "MMR/010760" or "DBB / 019543" often gets
- *     written with "_" standing in for the slash (with or without spaces
- *     around it in the real number — both get tried, since po_number is
- *     matched exactly aside from outer trim).
- *   - "S2143242_" or "S2143242 _ Orange Logistics Bldg 2" — the real PO
- *     number ("S2143242") sits before the first "_", with everything after
- *     it — stray underscore, a site name, whatever — meant to be ignored.
- *     Retried as just the text before the first "_".
+ * "_" in a folder name plays two different roles depending on whether it has
+ * space around it, and a folder can use both at once (e.g. "MMR_010760  _
+ * Beauty of Sight" — tight "_" inside the code, spaced "_" before the site
+ * name), so this peels them apart in that order:
+ *
+ *  1. A "_" WITH space on both sides is the PO/description separator (e.g.
+ *     "S2143242 _ Orange Logistics Bldg 2", or a bare trailing "S2143242_").
+ *     Splitting there and keeping the left side drops the description (or
+ *     the stray trailing underscore) — that becomes `poPart`.
+ *  2. A "_" with NO surrounding space, still present in `poPart`, is packed
+ *     INSIDE the PO itself, standing in for a "/" a folder name can't
+ *     contain (e.g. "MMR_010760" -> "MMR/010760"). Tried as both a tight
+ *     and a spaced slash, since po_number is matched exactly past outer
+ *     trim. The letter-code prefix ("MMR") might not even be part of the
+ *     stored number, so the bare suffix ("010760") is tried too.
+ *
  * Raw folder name is tried first (in case it's a literal exact match), so a
  * lookup only falls back to these when the exact folder name matches nothing.
  */
@@ -158,10 +215,15 @@ function poLookupVariants(po: string): string[] {
   const pushIfNew = (v: string) => {
     if (v && !variants.includes(v)) variants.push(v);
   };
-  if (trimmed.includes('_')) {
-    pushIfNew(trimmed.replace(/_/g, '/').trim());
-    pushIfNew(trimmed.replace(/\s*_\s*/g, ' / ').trim());
-    pushIfNew(trimmed.split('_')[0].trim());
+
+  const poPart = trimmed.split(/\s+_\s+/)[0].trim();
+  if (poPart !== trimmed) pushIfNew(poPart);
+
+  if (poPart.includes('_')) {
+    pushIfNew(poPart.replace(/_/g, '/'));
+    pushIfNew(poPart.replace(/_/g, ' / '));
+    pushIfNew(poPart.split('_')[0].trim());
+    pushIfNew(poPart.split('_').slice(1).join('_').trim());
   }
   return variants;
 }
@@ -363,7 +425,7 @@ export const DocumentImportPanel: React.FC = () => {
         } catch (e: any) {
           for (const file of group.files) {
             rows.push({
-              key: nextKey(), customer: '', po: fallbackPo, fileName: file.name, path: file.webkitRelativePath || file.name, docType: classify(file.name, fallbackPo),
+              key: nextKey(), customer: '', po: fallbackPo, fileName: file.name, path: file.webkitRelativePath || file.name, docType: classify(file.name, fallbackPo, fallbackPo, fallbackPo),
               status: 'no-match', message: `PO lookup failed: ${e?.message || 'unknown error'}`, order: null, file,
             });
           }
@@ -378,7 +440,7 @@ export const DocumentImportPanel: React.FC = () => {
           const triedNote = shown.length ? ` Tried: "${shown.join('", "')}"${uniqueTried.length > shown.length ? `, +${uniqueTried.length - shown.length} more` : ''}.` : '';
           for (const file of group.files) {
             rows.push({
-              key: nextKey(), customer: '', po: fallbackPo, fileName: file.name, path: file.webkitRelativePath || file.name, docType: classify(file.name, fallbackPo),
+              key: nextKey(), customer: '', po: fallbackPo, fileName: file.name, path: file.webkitRelativePath || file.name, docType: classify(file.name, fallbackPo, fallbackPo, fallbackPo),
               status: 'no-match',
               message: `No order found for "${group.dirParts.join('/')}".${triedNote}`,
               order: null, file,
@@ -394,6 +456,10 @@ export const DocumentImportPanel: React.FC = () => {
         const po = group.dirParts[resolvedIdx];
         const customer = resolvedIdx > 0 ? group.dirParts[resolvedIdx - 1] : '';
         const skippedLevels = group.dirParts.length - 1 - resolvedIdx;
+        // The file's actual immediate parent — may differ from `po` when
+        // descriptive subfolders (e.g. "Shipping Images") sit beneath the
+        // resolved PO folder; classify() needs this one for folder-based rules.
+        const leafFolder = group.dirParts[group.dirParts.length - 1];
 
         const resolutionBits: string[] = [];
         if (matchedPo !== po.trim()) resolutionBits.push(`matched via PO "${matchedPo}"`);
@@ -433,7 +499,7 @@ export const DocumentImportPanel: React.FC = () => {
           const already = existingByOrder.get(entityId)!;
 
           for (const file of group.files) {
-            const docType = classify(file.name, po);
+            const docType = classify(file.name, po, leafFolder, matchedPo);
             if (already.has(file.name)) {
               rows.push({
                 key: nextKey(), customer, po, fileName: file.name, path: file.webkitRelativePath || file.name, docType,

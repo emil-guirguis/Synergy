@@ -13,6 +13,14 @@ export const DOC_TYPES = [
   'shipping',
   'email',
   'design',
+  'load_schedule',
+  'quote',
+  'rma',
+  'shipping_images',
+  'change_order',
+  'waiver',
+  'panelboard_schedules',
+  'build_of_materials',
   'other',
 ] as const;
 export type DocType = (typeof DOC_TYPES)[number];
@@ -21,12 +29,20 @@ export const DEFAULT_DOC_TYPE: DocType = 'other';
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   cutsheet: 'Cutsheet',
   invoice: 'Invoice',
-  order: 'Order',
+  order: 'Purchase Order',
   packing_slip: 'Packing Slip',
   proof_of_delivery: 'Proof of Delivery',
   shipping: 'Shipping',
   email: 'Email',
   design: 'Design',
+  load_schedule: 'Load Schedule',
+  quote: 'Quote',
+  rma: 'RMA',
+  shipping_images: 'Shipping Images',
+  change_order: 'Change Order',
+  waiver: 'Waiver',
+  panelboard_schedules: 'Panelboard Schedules',
+  build_of_materials: 'Build of Materials',
   other: 'Other',
 };
 

@@ -28,6 +28,14 @@ export const DOC_TYPES = [
   'shipping',
   'email',
   'design',
+  'load_schedule',
+  'quote',
+  'rma',
+  'shipping_images',
+  'change_order',
+  'waiver',
+  'panelboard_schedules',
+  'build_of_materials',
   'other',
 ] as const;
 export type DocType = (typeof DOC_TYPES)[number];
