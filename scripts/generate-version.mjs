@@ -40,25 +40,34 @@ function generateVersion() {
   const now = new Date();
   const year = now.getFullYear();
   const week = getWeekNumber(now).toString().padStart(2, '0');
-  
-  // Read existing version file if it exists
+
+  // CI passes VERSION_BUILD_OVERRIDE (e.g. $GITHUB_RUN_NUMBER) so a deploy's
+  // build number is monotonic across runs. version.json is committed to the
+  // repo, but no deploy workflow writes its bump back — every ephemeral CI
+  // checkout starts from the same stale committed value, so the file-based
+  // increment below collides across separate deploys instead of advancing.
+  // A GitHub Actions run number has no such problem: it only goes up.
   const versionFilePath = path.join(__dirname, '..', 'version.json');
-  let buildNumber = 1;
-  
-  if (fs.existsSync(versionFilePath)) {
-    try {
-      const existingVersion = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
-      const [existingYear, existingWeek] = existingVersion.version.split('.');
-      
-      // If same year and week, increment build number
-      if (existingYear === year.toString() && existingWeek === week) {
-        buildNumber = parseInt(existingVersion.build || 1) + 1;
+  const override = process.env.VERSION_BUILD_OVERRIDE;
+  let buildNumber = override ? parseInt(override, 10) : 1;
+
+  if (!override) {
+    // Read existing version file if it exists
+    if (fs.existsSync(versionFilePath)) {
+      try {
+        const existingVersion = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
+        const [existingYear, existingWeek] = existingVersion.version.split('.');
+
+        // If same year and week, increment build number
+        if (existingYear === year.toString() && existingWeek === week) {
+          buildNumber = parseInt(existingVersion.build || 1) + 1;
+        }
+      } catch (error) {
+        console.warn('Could not read existing version file, starting fresh:', error.message);
       }
-    } catch (error) {
-      console.warn('Could not read existing version file, starting fresh:', error.message);
     }
   }
-  
+
   const version = `${year}.${week}.${buildNumber}`;
   
   // Write version file

@@ -62,6 +62,12 @@ jobs:
         working-directory: ./TBWC/frontend
         env:
           VITE_BASE_PATH: ${{ env.BASE_PATH }}
+          # Monotonic build number for the version shown on the login screen —
+          # version.json is committed to Synergy, but this workflow never writes
+          # its bump back, so every checkout starts from the same stale value
+          # and the file-based counter would repeat instead of advancing. The
+          # run number always goes up.
+          VERSION_BUILD_OVERRIDE: ${{ github.run_number }}
 
       - name: Checkout tbwc-site
         uses: actions/checkout@v4
