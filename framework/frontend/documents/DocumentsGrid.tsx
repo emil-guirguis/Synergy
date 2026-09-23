@@ -176,14 +176,146 @@ async function collectDroppedEntry(entry: FileSystemEntry, prefix: string, out: 
   }
 }
 
-/** Expand a drop's DataTransferItems into a flat File[], recursing into any dropped folders. */
+/**
+ * Recurse a File System Access API directory handle the same way collectDroppedEntry
+ * recurses a legacy FileSystemEntry - only reachable for a virtual folder drag, which
+ * doesn't happen for a mail attachment, but kept for parity/completeness.
+ */
+async function collectFromDirectoryHandle(handle: any, prefix: string, out: File[]): Promise<void> {
+  for await (const child of handle.values()) {
+    if (child.kind === 'file') {
+      const file: File = await child.getFile();
+      try {
+        Object.defineProperty(file, 'webkitRelativePath', { value: `${prefix}${child.name}`, configurable: true });
+      } catch {
+        // Can't shadow the getter in this engine - no folder context for this file.
+      }
+      out.push(file);
+    } else if (child.kind === 'directory') {
+      await collectFromDirectoryHandle(child, `${prefix}${child.name}/`, out);
+    }
+  }
+}
+
+/**
+ * Resolve one item via getAsFileSystemHandle() - Chromium's async API for "virtual
+ * files" (no real bytes on disk until requested): Outlook attachments, OneDrive/
+ * SharePoint files-on-demand placeholders, and similar. This is the actual mechanism
+ * apps like Dropbox and Gmail rely on to make those draggable into an upload target;
+ * legacy webkitGetAsEntry()/getAsFile() both legitimately come back empty for them.
+ * Must be invoked (not just feature-detected) synchronously off the drop event -
+ * the Promise it returns is fine to await later, but the call itself has to happen
+ * before the handler returns. Not implemented in every Chromium version, and never
+ * in non-Chromium engines - callers still need the getAsFile() fallback below.
+ */
+function startFileSystemHandleLookup(item: DataTransferItem): Promise<any> | null {
+  const getHandle = (item as any).getAsFileSystemHandle;
+  return typeof getHandle === 'function' ? (getHandle.call(item) as Promise<any>) : null;
+}
+
+async function resolveFileSystemHandle(handlePromise: Promise<any>, out: File[]): Promise<boolean> {
+  try {
+    const handle = await handlePromise;
+    if (!handle) return false;
+    if (handle.kind === 'file') {
+      out.push(await handle.getFile());
+      return true;
+    }
+    if (handle.kind === 'directory') {
+      await collectFromDirectoryHandle(handle, '', out);
+      return true;
+    }
+  } catch {
+    // Not a virtual file in this engine, or the handle came back empty - caller
+    // falls back to getAsFile() next.
+  }
+  return false;
+}
+
+/**
+ * Expand a drop's DataTransferItems into a flat File[], recursing into any dropped
+ * folders. Tried in order per item, first that works wins:
+ *   1. webkitGetAsEntry() - a real file/folder already on disk (Explorer, desktop
+ *      Outlook's native OLE drag).
+ *   2. getAsFileSystemHandle() - a "virtual file" with no bytes until fetched
+ *      (Outlook web/free client's attachment drag, OneDrive placeholders).
+ *   3. getAsFile() - last resort for a source that hands over a plain File without
+ *      either of the above.
+ * Falling back per item (rather than filtering the whole batch down to whichever
+ * API happened to work) is what keeps one drop from silently vanishing.
+ */
 async function filesFromDroppedItems(items: DataTransferItem[]): Promise<File[]> {
-  const entries = items
-    .map((item) => (item.kind === 'file' ? item.webkitGetAsEntry() : null))
-    .filter((entry): entry is FileSystemEntry => !!entry);
   const out: File[] = [];
-  await Promise.all(entries.map((entry) => collectDroppedEntry(entry, '', out)));
+  const tasks: Promise<void>[] = [];
+  for (const item of items) {
+    if (item.kind !== 'file') continue;
+    const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
+    if (entry) {
+      tasks.push(collectDroppedEntry(entry, '', out));
+      continue;
+    }
+    const handlePromise = startFileSystemHandleLookup(item);
+    // getAsFile() must also be called synchronously (same rule as above) - grab it
+    // now even when a handle lookup is in flight, so there's still a fallback if
+    // that lookup resolves to nothing, without a second (by-then-invalid) call.
+    const syncFallbackFile = item.getAsFile();
+    if (handlePromise) {
+      tasks.push(
+        resolveFileSystemHandle(handlePromise, out).then((resolved) => {
+          if (!resolved && syncFallbackFile) out.push(syncFallbackFile);
+        })
+      );
+    } else if (syncFallbackFile) {
+      out.push(syncFallbackFile);
+    }
+  }
+  await Promise.all(tasks);
   return out;
+}
+
+/**
+ * Last-resort path for a drop that produced no File/entry at all - a web-based
+ * mail client (Outlook on the web, as opposed to the desktop app's native OS
+ * drag) commonly can't hand over real bytes on drag, only a reference: the
+ * "DownloadURL" data (format "mime:filename:url", meant for dropping onto the
+ * OS file explorer, which fetches it itself using the browser's own session)
+ * or a plain "text/uri-list" pointing at the attachment. A web page can still
+ * honor that by fetching the URL itself - it just needs Outlook's endpoint to
+ * allow a cross-origin fetch with credentials, which it may or may not. Must
+ * be called with strings already read synchronously off the drop event (see
+ * onDrop) since DataTransfer access doesn't survive past the handler.
+ */
+async function fileFromUrlDrag(downloadUrl: string, uriList: string): Promise<File | null> {
+  let name = '';
+  let url = '';
+  let mime = '';
+  if (downloadUrl) {
+    const parts = downloadUrl.split(':');
+    if (parts.length >= 3) {
+      mime = parts[0];
+      name = parts[1];
+      url = parts.slice(2).join(':');
+    }
+  }
+  if (!url && uriList) {
+    url = uriList.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('#')) || '';
+  }
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    if (!name) {
+      try {
+        name = decodeURIComponent(new URL(url).pathname.split('/').pop() || 'attachment');
+      } catch {
+        name = 'attachment';
+      }
+    }
+    return new File([blob], name, { type: mime || blob.type });
+  } catch {
+    return null;
+  }
 }
 
 /** Run `worker` over `items`, at most `limit` in flight. Worker must not reject. */
@@ -248,6 +380,15 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   // Its own input: webkitdirectory can't be flipped per click on a live element.
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const cancelFolderRef = useRef(false);
+  // Paste (Ctrl+V) can't rely on DOM focus landing on the grid container - most
+  // of its area is covered by non-focusable table cells, so a click inside it
+  // usually doesn't move focus there at all (focus only follows a click onto an
+  // actually-focusable descendant). Tracking plain mouse hover instead - "hover
+  // the grid, press Ctrl+V" - sidesteps that: no click required, nothing subtle
+  // to explain. paste is still a document-level listener (below) so it fires
+  // regardless of what, if anything, is focused.
+  const gridHoverRef = useRef(false);
+  const pasteHandlerRef = useRef<(e: ClipboardEvent) => void>(() => {});
 
   const recordId = entityId != null && entityId !== '' ? String(entityId) : null;
   const disabled = readOnly || !recordId;
@@ -281,6 +422,18 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     if (!el) return;
     el.setAttribute('webkitdirectory', '');
     el.setAttribute('directory', '');
+  }, []);
+
+  // Registered once, at the document level, rather than as a React onPaste prop
+  // on the grid itself - a click inside the grid usually doesn't move DOM focus
+  // there (see gridHoverRef above), so a paste-only-when-focused handler on the
+  // container would rarely fire. Always calling through the ref (reassigned
+  // every render, just below) keeps this listener itself stable across renders
+  // while still seeing current props/state.
+  useEffect(() => {
+    const listener = (e: ClipboardEvent) => pasteHandlerRef.current(e);
+    document.addEventListener('paste', listener);
+    return () => document.removeEventListener('paste', listener);
   }, []);
 
   const patchDraft = (key: string, patch: Partial<DraftRow>) =>
@@ -374,8 +527,12 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   };
 
   /** Files dropped straight onto the grid: same batch path as "Add Folder". */
-  const handleFilesDropped = (dropped: File[]) => {
-    if (!dropped.length || !recordId || disabled || folderBusy) return;
+  const handleFilesDropped = (dropped: File[], emptyDropNote?: string) => {
+    if (!recordId || disabled || folderBusy) return;
+    if (!dropped.length) {
+      setError(emptyDropNote || 'Nothing to upload from that drop.');
+      return;
+    }
     const { files, skipped } = triageFiles(dropped);
     if (!files.length) {
       setError(
@@ -395,16 +552,23 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     setDropNames([]);
   };
 
+  // Gating on dataTransfer.types.includes('Files') here used to block drops from
+  // Outlook entirely: for a drag originating outside the browser (Windows OLE
+  // source, which is how Outlook hands off an attachment), Chromium often leaves
+  // `types` empty until the actual `drop` event - dragover/dragenter never see
+  // 'Files' even though the drop itself would have real data. Skipping
+  // preventDefault() in that case is what produced the OS's not-allowed (red
+  // circle-slash) cursor for the whole hover. So: always allow the hover here:
+  // the drop handler has fully-populated data and is what actually decides
+  // whether there's anything usable.
   const onDragOver = (e: React.DragEvent) => {
     if (disabled || folderBusy) return;
-    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   };
 
   const onDragEnter = (e: React.DragEvent) => {
     if (disabled || folderBusy) return;
-    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     setDragDepth((d) => d + 1);
   };
@@ -419,17 +583,125 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     if (disabled || folderBusy) return;
     e.preventDefault();
     setDragDepth(0);
-    // DataTransferItem/webkitGetAsEntry must be read synchronously off the
-    // event (some engines invalidate it once the handler returns) - the
-    // directory recursion itself is async and happens after.
-    const items = e.dataTransfer.items ? Array.from(e.dataTransfer.items) : null;
-    const hasEntryApi = !!items?.length && typeof items[0].webkitGetAsEntry === 'function';
-    if (hasEntryApi) {
-      void filesFromDroppedItems(items!).then(handleFilesDropped);
-    } else {
-      handleFilesDropped(Array.from(e.dataTransfer.files ?? []));
+    // Everything read off e.dataTransfer here (items, files, getData) must happen
+    // synchronously in this handler - engines invalidate the drag data store once
+    // it returns, so none of this can move into the async work below.
+    const items = e.dataTransfer.items ? Array.from(e.dataTransfer.items) : [];
+    const rawFiles = Array.from(e.dataTransfer.files ?? []);
+    const types = e.dataTransfer.types ? Array.from(e.dataTransfer.types) : [];
+    // Whatever format name the source used, grab every value now - getData()
+    // only works synchronously off the live event, same restriction as above.
+    const dataByType: Record<string, string> = {};
+    for (const t of types) {
+      try { dataByType[t] = e.dataTransfer.getData(t); } catch { /* type not readable at 'drop' in this engine */ }
     }
+    // eslint-disable-next-line no-console
+    console.info('[DocumentsGrid] drop types/data:', { types, dataByType, itemKinds: items.map((i) => i.kind) });
+
+    void (async () => {
+      let files = await filesFromDroppedItems(items);
+      if (!files.length && rawFiles.length) files = rawFiles;
+      if (files.length) {
+        handleFilesDropped(files);
+        return;
+      }
+
+      // Known "attachment reference" formats first (parsed properly), then a
+      // last-resort scan of every value for a bare http(s)/blob URL - some
+      // sources only expose the reference via an unexpected type (e.g. inside
+      // text/html markup) rather than DownloadURL/text/uri-list.
+      const downloadUrl = dataByType['DownloadURL'] || dataByType['downloadurl'] || '';
+      const uriList = dataByType['text/uri-list'] || '';
+      let viaUrl = (downloadUrl || uriList) ? await fileFromUrlDrag(downloadUrl, uriList) : null;
+      if (!viaUrl) {
+        const urlMatch = Object.values(dataByType).join('\n').match(/https?:\/\/\S+|blob:\S+/);
+        if (urlMatch) viaUrl = await fileFromUrlDrag('', urlMatch[0]);
+      }
+      if (viaUrl) {
+        handleFilesDropped([viaUrl]);
+        return;
+      }
+
+      // Outlook on the web's own attachment drag: a proprietary "attachment" JSON
+      // payload (attachment ids + an internal auth token), never a real file or a
+      // fetchable URL. It's designed to be understood only by Microsoft's own web
+      // apps (OneDrive, SharePoint), which hold the Graph API session needed to
+      // resolve it - a third-party site has no access to that token and never can.
+      // Not a format we're missing; there's nothing here to fetch.
+      const isOutlookWebAttachment = types.includes('attachment') && types.includes('chromium/x-drag-id');
+      handleFilesDropped(
+        [],
+        isOutlookWebAttachment
+          ? "Outlook on the web doesn't hand the browser the actual file on drag - only Microsoft's own apps can read that data. Try copying the attachment (Ctrl+C) and pasting here (click into the grid, then Ctrl+V) instead, or save it to disk (right-click → Save As, or drag it to your Desktop) and use +Add / Add Folder."
+          : `Couldn't read a file from that drop${types.length ? ` (saw: ${types.join(', ')} - see console for full detail)` : ' (no drag data at all)'}. Save the attachment to disk first, then drag it in from there.`
+      );
+    })();
   };
+
+  /**
+   * Paste (Ctrl+V) onto the grid - a fallback for sources whose drag doesn't hand
+   * over real file data (Outlook on the web's attachment drag, notably): copying a
+   * file to the OS clipboard is a more standardized path than a website's custom
+   * drag payload, so it has a real chance of working where the drop didn't.
+   * ClipboardEvent.clipboardData is the same DataTransfer interface as a drop
+   * event's, so this reuses filesFromDroppedItems() as-is (entry -> virtual-file
+   * handle -> getAsFile fallback chain, all unchanged).
+   * Guarded to ignore paste inside an actual text field (draft description, etc.)
+   * so normal text pasting there isn't hijacked, and gated on gridHoverRef so an
+   * unrelated paste elsewhere on the page doesn't get grabbed just because this
+   * is a document-level listener (see the effect above).
+   */
+  const onPaste = (e: ClipboardEvent) => {
+    if (disabled || folderBusy) return;
+    if (!gridHoverRef.current) {
+      // eslint-disable-next-line no-console
+      console.info('[DocumentsGrid] paste seen but grid not hovered - ignored.');
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('input, textarea, [contenteditable="true"]')) return;
+    const cd = e.clipboardData;
+    const items = cd?.items ? Array.from(cd.items) : [];
+    const rawFiles = cd?.files ? Array.from(cd.files) : [];
+    const types = cd?.types ? Array.from(cd.types) : [];
+    const dataByType: Record<string, string> = {};
+    for (const t of types) {
+      try { dataByType[t] = cd!.getData(t); } catch { /* type not readable at 'paste' in this engine */ }
+    }
+    // Logged unconditionally (while hovering) so a paste that turns out to carry
+    // no file data still shows exactly what WAS on the clipboard, instead of
+    // looking identical to "the listener never fired at all".
+    // eslint-disable-next-line no-console
+    console.info('[DocumentsGrid] paste types/data:', { hasClipboardData: !!cd, types, dataByType, itemKinds: items.map((i) => i.kind) });
+    if (!cd) return;
+
+    // Only treat this as a file-paste attempt when there's something more than
+    // ordinary copied text/rich-text on the clipboard - otherwise a completely
+    // unrelated paste elsewhere on the page (grid just happens to be hovered)
+    // would show a spurious "couldn't read a file" error.
+    const TEXT_ONLY_TYPES = new Set(['text/plain', 'text/html', 'text/rtf']);
+    const looksLikeFile =
+      items.some((i) => i.kind === 'file') || rawFiles.length > 0 || types.some((t) => !TEXT_ONLY_TYPES.has(t.toLowerCase()));
+    if (!looksLikeFile) return;
+    e.preventDefault();
+
+    void (async () => {
+      let files = await filesFromDroppedItems(items);
+      if (!files.length && rawFiles.length) files = rawFiles;
+      if (files.length) {
+        handleFilesDropped(files);
+        return;
+      }
+      handleFilesDropped(
+        [],
+        `Couldn't read a file from that paste either${types.length ? ` (saw: ${types.join(', ')} - see console for full detail)` : ''}. Save the attachment to disk (right-click → Save As), then use +Add / Add Folder.`
+      );
+    })();
+  };
+  // Reassigned every render so the stable document listener (effect above)
+  // always calls through to this render's closure - current disabled/folderBusy
+  // included - without needing to re-register the native listener itself.
+  pasteHandlerRef.current = onPaste;
 
   /**
    * Upload a confirmed folder: one document row per file, subfolder path kept as
@@ -584,6 +856,12 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         </Box>
       )}
 
+      {!disabled && !readOnly && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          Drag files here, or hover the grid and press Ctrl+V to paste a copied file.
+        </Typography>
+      )}
+
       <TableContainer
         component={Paper}
         variant="outlined"
@@ -591,6 +869,8 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        onMouseEnter={() => { gridHoverRef.current = true; }}
+        onMouseLeave={() => { gridHoverRef.current = false; }}
         sx={
           dragDepth > 0
             ? { outline: '2px dashed', outlineColor: 'primary.main', outlineOffset: '-2px', bgcolor: 'action.hover' }

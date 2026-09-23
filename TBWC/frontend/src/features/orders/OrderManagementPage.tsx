@@ -15,6 +15,7 @@ export const OrderManagementPage: React.FC = () => {
       title="Order"
       moduleIcon="orders"
       modalSize="xl"
+      schemaName="order"
       showSaveButton={isAdmin}
       editLabel={isAdmin ? undefined : 'View Order'}
       renderList={({ onEdit, onCreate }) => (

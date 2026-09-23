@@ -17,6 +17,7 @@ export const orderSchema = defineSchema({
   entityName: 'Order',
   tableName: 'qb_sales_order',
   idFieldName: 'qb_sales_order_id',
+  titleField: 'ref_number',
   description: 'TBWC order (QuickBooks sales order + TBWC-owned fields)',
   formMaxWidth: '1300px',
   customListColumns: {},

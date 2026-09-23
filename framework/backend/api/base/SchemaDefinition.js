@@ -241,6 +241,7 @@ function tab(config) {
  * @param {Object} [definition.entityFields] - Additional fields in entity (read-only, computed)
  * @param {Object} [definition.relationships] - Entity relationships
  * @param {Object} [definition.validation] - Entity-level validation rules
+ * @param {string} [definition.titleField] - Name of the field whose value identifies a specific record (e.g. 'ref_number'). Drives the auto-generated "Edit {title} {value}" form header in EntityManagementPage.
  * @returns {Object} Schema definition with utilities
  */
 function defineSchema(definition) {
@@ -314,6 +315,7 @@ function defineSchema(definition) {
     // in the API layer; mirror with an ON DELETE RESTRICT FK in the database.
     deleteRestrictions: definition.deleteRestrictions || [],
     idFieldName: definition.idFieldName || null,
+    titleField: definition.titleField || null,
     version: '1.5.0', // Updated to include tab columns (count|template) + rows / section gridColumn+gridRow
     generatedAt: new Date().toISOString(),
   };

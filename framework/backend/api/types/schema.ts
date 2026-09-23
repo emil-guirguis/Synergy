@@ -141,6 +141,13 @@ export interface SchemaDefinitionConfig {
   entityFields?: Record<string, FieldDefinition>;
   relationships?: Record<string, RelationshipDefinition>;
   validation?: Record<string, any>;
+  /**
+   * Name of the field whose value identifies a specific record (e.g. an
+   * order's 'ref_number', a contact's 'name'). EntityManagementPage uses it
+   * to auto-build the "Edit {title} {value}" form header without every
+   * module having to wire its own editLabel.
+   */
+  titleField?: string | null;
 }
 
 /**
@@ -155,6 +162,7 @@ export interface Schema {
   entityFields: Record<string, FieldDefinition>;
   relationships: Record<string, RelationshipDefinition>;
   validation: Record<string, any>;
+  titleField: string | null;
   version: string;
   generatedAt: string;
 }

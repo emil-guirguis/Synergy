@@ -1,14 +1,24 @@
 import React, { useState, useCallback } from 'react';
 import { FormModal } from '../modal/FormModal';
+import { useSchema } from '../form/utils/schemaLoader';
 
 export interface EntityManagementPageProps<T = any> {
   title: string;
   moduleIcon?: string;
   modalSize?: 'sm' | 'md' | 'lg' | 'xl';
   /**
+   * Schema-driven entities: the entity name passed to GET /api/schema/:entity
+   * (same name renderForm's BaseForm uses). When the schema declares a
+   * titleField, the edit crumb is auto-derived as "Edit {title} {value}"
+   * without an explicit editLabel — e.g. Orders' schema sets
+   * titleField: 'ref_number' and every order form header shows its SO#.
+   */
+  schemaName?: string;
+  /**
    * Overrides the auto-generated "Edit {title}" crumb. Pass a string for a
    * static label, or a function to derive it from the entity being edited
-   * (e.g. show the record's name in the header).
+   * (e.g. show the record's name in the header). Takes precedence over
+   * schemaName's titleField auto-derivation.
    */
   editLabel?: string | ((entity: T) => string);
   /** Overrides auto-generated "New {title}" crumb */
@@ -54,6 +64,7 @@ export function EntityManagementPage<T = any>({
   title,
   moduleIcon,
   modalSize = 'md',
+  schemaName,
   editLabel,
   newLabel,
   saveLabel = 'Save',
@@ -82,10 +93,16 @@ export function EntityManagementPage<T = any>({
     setSelected(null);
   }, []);
 
+  // Only fetch when schemaName is given and no explicit editLabel override —
+  // useSchema's own cache means a sibling BaseForm using the same schemaName
+  // costs nothing extra here.
+  const { schema } = useSchema(editLabel === undefined && schemaName ? schemaName : '');
+  const titleFieldValue = schema?.titleField && selected != null ? (selected as any)[schema.titleField] : null;
+
   const crumb = selected !== null
     ? (typeof editLabel === 'function'
         ? editLabel(selected)
-        : (editLabel ?? `Edit ${title}`))
+        : (editLabel ?? (titleFieldValue ? `Edit ${title} ${titleFieldValue}` : `Edit ${title}`)))
     : (newLabel ?? `New ${title}`);
 
   return (

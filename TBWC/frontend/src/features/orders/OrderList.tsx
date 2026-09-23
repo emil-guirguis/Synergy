@@ -89,7 +89,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // rate/amount columns and the totals footer for the same reason.
   // No shipped_date here: QB's own ship-by date is an internal scheduling date,
   // so reps see only actual_ship_date (the date it really shipped).
-  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'po_number', 'txn_date', 'actual_ship_date', 'expedite'];
+  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'txn_date', 'actual_ship_date', 'po_number', 'expedite'];
   const REP_LABEL_OVERRIDES: Partial<Record<keyof Order, string>> = {
     ref_number: 'TBWC #',
     txn_date: 'Received',
@@ -99,7 +99,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     if (!schema) return [];
     const cols = generateColumnsFromSchema<Order>(schema.formFields, {
       fieldOrder: canSeeAll
-        ? ['customer_name', 'build_notes', 'ref_number', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'invoice_number', 'txn_date', 'ship_no_later_than', 'shipped_date', 'actual_ship_date', 'expedite', 'service']
+        ? ['customer_name', 'build_notes', 'ref_number', 'txn_date', 'ship_no_later_than', 'actual_ship_date', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'invoice_number', 'shipped_date', 'expedite', 'service']
         : REP_FIELD_ORDER,
       responsive: 'hide-mobile',
     });
@@ -109,8 +109,8 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     // REP_FIELD_ORDER comment above), so don't derive a rep-facing status
     // off a field they're deliberately not shown.
     if (canSeeAll) {
-      const refIdx = visible.findIndex((col) => col.key === 'ref_number');
-      visible.splice(refIdx === -1 ? 0 : refIdx + 1, 0, STATUS_CHIPS_COLUMN);
+      const poIdx = visible.findIndex((col) => col.key === 'po_number');
+      visible.splice(poIdx === -1 ? 0 : poIdx + 1, 0, STATUS_CHIPS_COLUMN);
     }
     for (const col of visible) {
       if (CHECKBOX_COLUMNS.has(col.key as keyof Order)) {

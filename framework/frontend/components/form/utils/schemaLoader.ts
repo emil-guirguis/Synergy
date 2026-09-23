@@ -86,6 +86,7 @@ export interface BackendSchema {
   defaultSortBy?: string;
   relationships: Record<string, any>;
   validation: Record<string, any>;
+  titleField?: string | null;
   version: string;
   generatedAt: string;
 }
@@ -329,6 +330,8 @@ export interface ConvertedSchema {
    * Helps frontend map IDs when API returns non-standard 'id' fields.
    */
   idFieldName?: string | null;
+  /** Name of the field that identifies a specific record (e.g. 'ref_number'). */
+  titleField?: string | null;
 }
 
 /**
@@ -386,6 +389,7 @@ export function convertSchema(backendSchema: BackendSchema): ConvertedSchema {
     defaultSortBy: backendSchema.defaultSortBy,
     relationships: backendSchema.relationships,
     idFieldName,
+    titleField: (backendSchema as any).titleField || null,
   };
 }
 

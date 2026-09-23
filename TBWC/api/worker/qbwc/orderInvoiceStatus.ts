@@ -28,12 +28,16 @@
  * invoice" picked above (NULL, not 0, when no such invoice is linked yet — an
  * order with an invoice but no FREIGHT line legitimately sums to 0).
  *
- * shipping_tracking: the FREIGHT line's own Desc — this is free-typed
- * shipping notes (carrier, date, a tracking number when someone remembered to
- * paste one), not a structured field, so it's carried verbatim rather than
- * regex-parsed out into just a number. A handful of invoices carry more than
- * one FREIGHT line (e.g. two packages shipped separately) — those Descs are
- * joined with '; ', in line-item order.
+ * shipping_tracking: free-typed shipping notes (carrier, date, a tracking
+ * number when someone remembered to paste one). QB stores a line's tracking
+ * number as its OWN line item though, not appended to the FREIGHT line's own
+ * Desc: a no-Item "continuation" line right after it (e.g. FREIGHT "Shipped
+ * via UPS Ground. Tracking #:" followed by a bare "1Z2466XW..." line). So
+ * this pulls each FREIGHT line's Desc plus every no-Item line trailing it (up
+ * to the next real Item line), not just the FREIGHT line's own Desc — see
+ * migration 051. A handful of invoices carry more than one FREIGHT line (e.g.
+ * two packages shipped separately) — all Descs are joined with '; ', in
+ * line-item order.
  */
 import { Env, execQuery } from '../db';
 
@@ -65,9 +69,24 @@ export async function refreshOrderInvoiceStatus(env: Env): Promise<void> {
                 (SELECT COALESCE(SUM((line->>'amount')::numeric), 0)
                    FROM jsonb_array_elements(i.lines) AS line
                   WHERE line->>'item' ILIKE 'FREIGHT') AS freight,
-                (SELECT string_agg(line->>'desc', '; ' ORDER BY ord)
-                   FROM jsonb_array_elements(i.lines) WITH ORDINALITY AS t(line, ord)
-                  WHERE line->>'item' ILIKE 'FREIGHT' AND line->>'desc' IS NOT NULL) AS shipping_tracking
+                -- Group lines into blocks starting at each real-Item line
+                -- (block_id bumps on every Item line), so a FREIGHT line's
+                -- trailing no-Item tracking-number line(s) land in the same
+                -- block as the FREIGHT line itself instead of being dropped.
+                (SELECT string_agg(blk.block_desc, '; ' ORDER BY blk.block_id)
+                   FROM (
+                     SELECT lo.block_id,
+                            bool_or(lo.item ILIKE 'FREIGHT') AS is_freight,
+                            string_agg(lo.desc, '; ' ORDER BY lo.ord) FILTER (WHERE lo.desc IS NOT NULL) AS block_desc
+                       FROM (
+                         SELECT t.ord, t.line->>'item' AS item, t.line->>'desc' AS desc,
+                                SUM(CASE WHEN t.line->>'item' IS NOT NULL THEN 1 ELSE 0 END)
+                                  OVER (ORDER BY t.ord) AS block_id
+                           FROM jsonb_array_elements(i.lines) WITH ORDINALITY AS t(line, ord)
+                       ) lo
+                      GROUP BY lo.block_id
+                   ) blk
+                  WHERE blk.is_freight) AS shipping_tracking
          FROM public.qb_invoice i
          WHERE i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', so2.txn_id))
            AND i.qb_deleted_at IS NULL
