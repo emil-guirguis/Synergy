@@ -142,6 +142,8 @@ app.get('/', requirePermission('order:read'), async (c) => {
     sortOrder: q.sortOrder || DEFAULT_SORT_ORDER,
     where,
     whereLike,
+    // Orders on/before 2022-06-30 are always excluded from the list.
+    whereRange: { txn_date: { gte: '2022-07-01' } },
     selectFields: SELECT_WITH_REP_NAME,
   });
   // Field-level scope, not just row-level: the rep grant hides every dollar

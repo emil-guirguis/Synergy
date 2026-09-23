@@ -20,7 +20,7 @@ export const orderSchema = defineSchema({
   description: 'TBWC order (QuickBooks sales order + TBWC-owned fields)',
   formMaxWidth: '1300px',
   customListColumns: {},
-  defaultSortBy: 'qb_sales_order_id desc',
+  defaultSortBy: 'ref_number desc',
 
   formTabs: [
     tab({
