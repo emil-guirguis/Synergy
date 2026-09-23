@@ -33,6 +33,16 @@ jobs:
         working-directory: ./MeterItPro/frontend
         continue-on-error: true
 
+      - name: Install dependencies (framework/frontend)
+        # MeterItPro/frontend and TBWC/frontend both pull framework/frontend in
+        # via a bare `file:` dependency (no npm workspaces), so their own `npm
+        # ci` below never installs framework/frontend's OWN deps (mui, xlsx,
+        # jspdf, apexcharts, ...) — only works locally because that directory's
+        # node_modules already exists from some earlier manual install. Without
+        # this, Rollup fails to resolve "xlsx" from exportHelpers.ts.
+        run: npm ci
+        working-directory: ./framework/frontend
+
       - name: Install dependencies (frontend)
         run: npm ci
         working-directory: ./MeterItPro/frontend

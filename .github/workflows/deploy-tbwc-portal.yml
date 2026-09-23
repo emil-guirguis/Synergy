@@ -53,6 +53,16 @@ jobs:
           cache: 'npm'
           cache-dependency-path: TBWC/frontend/package-lock.json
 
+      - name: Install dependencies (framework/frontend)
+        # TBWC/frontend pulls framework/frontend in via a bare `file:`
+        # dependency (no npm workspaces), so `npm ci` below never installs
+        # framework/frontend's OWN deps (mui, xlsx, jspdf, apexcharts, ...) —
+        # only works locally because that directory's node_modules already
+        # exists from some earlier manual install. Without this, Rollup fails
+        # to resolve "xlsx" from exportHelpers.ts.
+        run: npm ci
+        working-directory: ./framework/frontend
+
       - name: Install dependencies
         run: npm ci
         working-directory: ./TBWC/frontend
