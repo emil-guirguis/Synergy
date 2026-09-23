@@ -36,6 +36,7 @@ export const DOC_TYPES = [
   'waiver',
   'panelboard_schedules',
   'build_of_materials',
+  'credit_memo',
   'other',
 ] as const;
 export type DocType = (typeof DOC_TYPES)[number];

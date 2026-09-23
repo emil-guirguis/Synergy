@@ -66,6 +66,7 @@ import {
 } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { ordersService } from '../orders/ordersStore';
+import { classifyDocType, isImageFile } from '../../shared/docTypeClassifier';
 import type { Order } from '../../types/order';
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
@@ -116,81 +117,25 @@ interface AncestorResolution {
   tried: string[];
 }
 
-/** Extensions treated as photos for the image fallback rule. */
-const IMAGE_EXT = /\.(jpe?g|png|gif|heic|heif|bmp|tiff?|webp)$/i;
-
 /**
- * Matches `word` as a standalone token: not touching a LETTER on either side,
- * but fine right next to digits/punctuation/spaces/start-or-end-of-string —
- * so "RMA123456" matches "rma" but "Information" doesn't (the "rma" inside it
- * is wedged between two letters). A plain substring/word-boundary check can't
- * get both right at once: \b treats digits as "word" characters too, so
- * \brma\b silently rejects "RMA123456" (no boundary between "A" and "1").
- */
-function wordLike(word: string): RegExp {
-  return new RegExp(`(?<![a-z])(?:${word})(?![a-z])`, 'i');
-}
-const RMA_RE = wordLike('rma');
-const METER_RE = wordLike('meters?');
-const BOM_RE = wordLike('bom');
-const DNET_RE = wordLike('dnet');
-const PNL_RE = wordLike('pnl');
-const HFR_RE = wordLike('hfr');
-
-/**
- * Classify a file — checked in this order, first match wins. Most rules key
- * off the file's own name; a few key off folder context or the resolved PO
- * instead:
- *    1. starts with "POD"                                  -> proof_of_delivery
- *    2. starts with "Inv"                                  -> invoice
- *    3. contains "bom" as a standalone token                -> build_of_materials
- *    4. contains "dnet" as a standalone token                -> quote
- *    5. contains "pnl" as a standalone token                -> load_schedule
- *    6. contains "hfr" as a standalone token                -> order
- *    7. leaf folder name contains "shipping images"        -> shipping_images
- *    8. contains "change order"                            -> change_order
- *       (checked before the PO/order rule below, since a filename like
- *       "Revised Purchase Order, Change Order_..." contains both phrases —
- *       change order is the more specific, intended type)
- *    9. contains "quote"                                   -> quote
- *   10. contains "rma" as a standalone token                -> rma
- *   11. contains "waiver"                                  -> waiver
- *   12. contains "panelboard schedule(s)"                  -> panelboard_schedules
- *   13. contains "load schedule", "meter(s)", or "programming" -> load_schedule
- *   14. contains "email", or ends in ".msg"                -> email
- *   15. contains "packing slip"                            -> packing_slip
- *   16. starts with "PO", contains "purchase order" (covers
- *       "Release Purchase Order"/"Revised Purchase Order" etc.),
- *       or the file's own name (extension aside) is the same
- *       as — or contains — the resolved PO folder's name
- *       (raw, with any "_..." suffix, or the clean PO number
- *       actually matched)                                   -> order
- *   17. (last rule) it's an image file                     -> shipping_images
- *   18. otherwise                                          -> other
+ * Classify a file — checked in this order, first match wins. The base rules
+ * (filename + immediate folder context) live in the shared classifyDocType()
+ * so DocumentsGrid's drag-and-drop can reuse the same logic; this layers one
+ * more rule on top that only applies here, where the resolved PO is known:
+ *   - the file's own name (extension aside) is the same as — or contains —
+ *     the resolved PO folder's name (raw, with any "_..." suffix, or the
+ *     clean PO number actually matched)                     -> order
+ * Checked after the shared rules (which include "starts with PO" / "contains
+ * purchase order"), before the image fallback.
  */
 function classify(fileName: string, folderPo: string, leafFolder: string, matchedPo: string): DocType {
-  if (/^pod/i.test(fileName)) return 'proof_of_delivery';
-  if (/^inv/i.test(fileName)) return 'invoice';
-  if (BOM_RE.test(fileName)) return 'build_of_materials';
-  if (DNET_RE.test(fileName)) return 'quote';
-  if (PNL_RE.test(fileName)) return 'load_schedule';
-  if (HFR_RE.test(fileName)) return 'order';
-  if (/shipping\s*images?/i.test(leafFolder)) return 'shipping_images';
-  if (/change\s*order/i.test(fileName)) return 'change_order';
-  if (/quote/i.test(fileName)) return 'quote';
-  if (RMA_RE.test(fileName)) return 'rma';
-  if (/waiver/i.test(fileName)) return 'waiver';
-  if (/panelboard\s*schedules?/i.test(fileName)) return 'panelboard_schedules';
-  if (/load\s*schedule/i.test(fileName) || METER_RE.test(fileName) || /programming/i.test(fileName)) return 'load_schedule';
-  if (/email/i.test(fileName) || /\.msg$/i.test(fileName)) return 'email';
-  if (/packing\s*slip/i.test(fileName)) return 'packing_slip';
-  if (/^po/i.test(fileName) || /purchase\s*order/i.test(fileName)) return 'order';
+  const base = classifyDocType(fileName, leafFolder);
+  if (base !== 'other') return base;
   const lowerName = fileName.toLowerCase();
   for (const po of [folderPo.trim(), matchedPo.trim()]) {
     if (po && !po.startsWith('(') && lowerName.includes(po.toLowerCase())) return 'order';
   }
-  if (IMAGE_EXT.test(fileName)) return 'shipping_images';
-  return 'other';
+  return isImageFile(fileName) ? 'shipping_images' : 'other';
 }
 
 /**

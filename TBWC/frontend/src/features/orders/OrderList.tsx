@@ -1,19 +1,57 @@
 import React, { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { BaseList } from '@meterit/framework-frontend/components/list';
+import type { ColumnDefinition } from '@meterit/framework-frontend/components/list';
 import { useBaseList } from '@meterit/framework-frontend/components/list/hooks';
 import { useSchema } from '@meterit/framework-frontend/components/form/utils/schemaLoader';
 import {
   generateColumnsFromSchema,
   generateFiltersFromSchema,
 } from '@meterit/framework-frontend/components/list/utils/schemaColumnGenerator';
-import { renderNumberCell } from '@meterit/framework-frontend/components/list/utils/renderHelpers';
+import { renderNumberCell, renderChipList, type ChipItem } from '@meterit/framework-frontend/components/list/utils/renderHelpers';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import { useOrdersEnhanced } from './ordersStore';
 import { useAuth } from '../../hooks/useAuth';
 import { Permission } from '../../types/auth';
 import type { Order } from '../../types/order';
+
+// Rule set is TBWC-specific (order fields); the chip rendering itself
+// (renderChipList) lives in the framework so other modules/projects can
+// reuse the same multi-badge-per-cell pattern for their own conditions.
+function getOrderStatusChips(order: Order): ChipItem[] {
+  const chips: ChipItem[] = [];
+
+  // Mirrors orders.ts's missingPo filter (po_number IS NULL).
+  if (!order.po_number) chips.push({ label: 'No PO', variant: 'warning' });
+
+  if (order.shipped_date) {
+    chips.push({ label: 'Shipped', variant: 'success' });
+    // Mirrors OrderAlertsCards' notInvoiced rule — zero-total orders are
+    // packing slips (see LinkedInvoice doc comment) and never get invoiced.
+    if (!order.is_fully_invoiced && Number(order.total) > 0) {
+      chips.push({ label: 'No Invoice', variant: 'error' });
+    }
+  }
+  if (!order.shipped_date) {
+    // Date-only string compare (YYYY-MM-DD prefix) — avoids TZ drift from
+    // constructing Date objects just to compare calendar days.
+    const today = new Date().toISOString().slice(0, 10);
+    const due = order.ship_no_later_than?.slice(0, 10);
+    if (due && due < today) chips.push({ label: 'Overdue', variant: 'error' });
+    else if (due && due === today) chips.push({ label: 'Due Today', variant: 'warning' });
+    else chips.push({ label: 'Not Shipped', variant: 'neutral' });
+  }
+
+  return chips;
+}
+
+const STATUS_CHIPS_COLUMN: ColumnDefinition<Order> = {
+  key: 'status_chips',
+  label: 'Status',
+  responsive: 'always-show',
+  render: (_value, row) => renderChipList(getOrderStatusChips(row)),
+};
 
 // Schema's default boolean-column render is a Yes/No pill; the order list wants
 // a literal checkbox glyph instead for these flag columns.
@@ -66,6 +104,14 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       responsive: 'hide-mobile',
     });
     const visible = canSeeAll ? cols : cols.filter((col) => REP_FIELD_ORDER.includes(col.key as string));
+    // Admin-only: the chip rules read shipped_date, which is QB's internal
+    // ship-by scheduling field — reps only ever see actual_ship_date (see
+    // REP_FIELD_ORDER comment above), so don't derive a rep-facing status
+    // off a field they're deliberately not shown.
+    if (canSeeAll) {
+      const refIdx = visible.findIndex((col) => col.key === 'ref_number');
+      visible.splice(refIdx === -1 ? 0 : refIdx + 1, 0, STATUS_CHIPS_COLUMN);
+    }
     for (const col of visible) {
       if (CHECKBOX_COLUMNS.has(col.key as keyof Order)) {
         col.render = (_value, row) => renderCheckbox(row[col.key as keyof Order] as boolean | null);

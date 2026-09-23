@@ -32,6 +32,7 @@ export const orderSchema = defineSchema({
       // directly under Dates instead of being pushed down.
       columns: '1fr 1fr',
       rows: 'auto 1fr',
+
       sections: [
         section({
           name: 'Details',
@@ -49,8 +50,14 @@ export const orderSchema = defineSchema({
             // in the list, while the form carries the finer-grained
             // invoice_status (Not Invoiced/Partially/Invoiced/Paid/Closed),
             // which already says everything the checkbox did.
-            field({ name: 'is_fully_invoiced', order: 6, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Invoiced', dbField: 'is_fully_invoiced', showOn: ['list'] }),
+            // field({ name: 'is_fully_invoiced', order: 6, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Invoiced', dbField: 'is_fully_invoiced', showOn: ['list'] }),
             field({ name: 'invoice_status', order: 7, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice Status', dbField: 'invoice_status', maxLength: 100, showOn: ['form'], enumValues: ['Not Invoiced', 'Partially Invoiced', 'Invoiced', 'Paid', 'Closed'] }),
+            // True when a zero-total invoice (this company's QB stand-in for a
+            // packing slip — see OrderInvoicesPanel.tsx) is linked, independent
+            // of invoice_number/invoice_status above which only ever reflect a
+            // real (>0) invoice. Not list-shown: the order list surfaces this
+            // as a "Packing Slip" status pill instead of a raw column.
+            field({ name: 'has_packing_slip', order: 9, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Packing Slip', dbField: 'has_packing_slip', showOn: [] }),
             // No QB source (checked, see migration 014/020) — manually entered,
             // TBWC-owned like build_notes; survives every re-sync.
           ],
@@ -111,10 +118,20 @@ export const orderSchema = defineSchema({
             // the template itself labels this box "Freight Terms".
             field({ name: 'freight_terms', order: 1, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Freight Terms', dbField: 'freight_terms', maxLength: 100, showOn: ['form'] }),
             field({ name: 'ship_via', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Ship Via', dbField: 'ship_via', maxLength: 100, showOn: ['form'] }),
+            // Denormalised from the invoice's FREIGHT line(s) Desc (see
+            // orderInvoiceStatus.ts) — free-typed shipping notes, not a
+            // structured tracking-number field, so shown verbatim rather than
+            // regex-parsed: most invoices mix carrier/date/notes into the same
+            // string, plenty never had a number pasted in at all, and a
+            // multi-package shipment can carry several numbers in one Desc
+            // (see OrderForm.tsx's renderCustomField, which also renders a
+            // clickable chip per recognized number). type: TEXTAREA — this is
+            // a memo, not a one-line value.
+            field({ name: 'shipping_tracking', order: 3, type: FieldTypes.TEXTAREA, default: '', required: false, readOnly: true, label: 'Shipping / Tracking', dbField: 'shipping_tracking', maxLength: 2000, showOn: ['form'], rows: 3 }),
             // QB's CustomerMsgRef, repurposed by this company as the order's
             // contact line ("Name / email / phone").
-            field({ name: 'contact', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Contact', dbField: 'contact', maxLength: 300, showOn: ['form'] }),
-            field({ name: 'customer_tax_code', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer Tax Code', dbField: 'customer_tax_code', maxLength: 100, showOn: ['form'] }),
+            field({ name: 'contact', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Contact', dbField: 'contact', maxLength: 300, showOn: ['form'] }),
+            field({ name: 'customer_tax_code', order: 5, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer Tax Code', dbField: 'customer_tax_code', maxLength: 100, showOn: ['form'] }),
           ],
         }),
       ],
@@ -147,12 +164,21 @@ export const orderSchema = defineSchema({
           gridColumn: '1',
           fields: [
             field({ name: 'total', order: 1, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Order Total', dbField: 'total', showOn: ['list', 'form'] }),
+            // Denormalised from the linked invoice's FREIGHT line item (see
+            // orderInvoiceStatus.ts) — QB's sales order never carries freight
+            // itself, so this is the only place it's known before the invoice
+            // stage. Form-only: the order summary (OrderLinesGrid) and the
+            // billing panel (OrderInvoicesPanel) are where it's actually
+            // surfaced; not list-shown. type: NUMBER (not CURRENCY) is still
+            // right even off the list — keeps it out of CURRENCY's $-column
+            // formatting path, which this field never used anyway.
+            field({ name: 'freight', order: 2, type: FieldTypes.NUMBER, default: null, required: false, readOnly: true, label: 'Freight', dbField: 'freight', showOn: ['form'] }),
             // The price the order was actually sold at — distinct from QB's own
             // `total` and from `d_net_cost`; the commission calculator computes
             // off this figure, not off either of those.
-            field({ name: 'sold_for', order: 2, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Sold For', dbField: 'sold_for', showOn: ['form'] }),
-            field({ name: 'd_net_cost', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, label: 'D-Net Cost', dbField: 'd_net_cost', showOn: ['form'] }),
-            field({ name: 'overage', order: 4, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Overage', dbField: 'overage', showOn: ['form'] }),
+            field({ name: 'sold_for', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Sold For', dbField: 'sold_for', showOn: ['form'] }),
+            field({ name: 'd_net_cost', order: 4, type: FieldTypes.CURRENCY, default: null, required: false, label: 'D-Net Cost', dbField: 'd_net_cost', showOn: ['form'] }),
+            field({ name: 'overage', order: 5, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Overage', dbField: 'overage', showOn: ['form'] }),
           ],
         }),
         section({

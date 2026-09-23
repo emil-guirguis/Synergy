@@ -25,7 +25,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
   const columns = useMemo(() => {
     if (!schema) return [];
     return generateColumnsFromSchema<Invoice>(schema.formFields, {
-      fieldOrder: ['ref_number', 'customer_name', 'txn_date', 'due_date', 'total', 'balance_remaining', 'is_paid'],
+      fieldOrder: ['ref_number', 'customer_name', 'sales_rep', 'txn_date', 'due_date', 'total', 'balance_remaining', 'is_paid'],
       responsive: 'hide-mobile',
     });
   }, [schema]);
@@ -44,7 +44,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
       allowEdit: false,
       allowDelete: false,
       allowBulkActions: false,
-      allowExport: false,
+      allowExport: true,
       allowImport: false,
       allowSearch: true,
       allowFilters: true,
@@ -63,6 +63,22 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
   useEffect(() => {
     if (!schema) return;
     if (searchParams.get('is_paid') === 'false') baseList.setFilter('is_paid', 'false');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, searchParams]);
+
+  // Invoice Totals report's card drill-down links here with a date range
+  // (and optionally a rep) — txn_date_from/txn_date_to aren't schema fields
+  // with a visible control (see invoices.ts's whereRange), and sales_rep_list_id
+  // isn't a list-visible field either; both still flow through setFilter like
+  // is_paid above, they just don't reflect back onto a filter control.
+  useEffect(() => {
+    if (!schema) return;
+    const from = searchParams.get('txn_date_from');
+    const to = searchParams.get('txn_date_to');
+    const repId = searchParams.get('sales_rep_list_id');
+    if (from) baseList.setFilter('txn_date_from', from);
+    if (to) baseList.setFilter('txn_date_to', to);
+    if (repId) baseList.setFilter('sales_rep_list_id', repId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, searchParams]);
 
@@ -100,6 +116,7 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
         error={baseList.error}
         emptyMessage="No invoices found. Run a QuickBooks sync to pull invoices."
         onView={onInvoiceView}
+        onExportClick={baseList.canExport ? baseList.handleExportAll : undefined}
         pagination={baseList.pagination}
       />
     </div>

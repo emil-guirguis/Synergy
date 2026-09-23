@@ -16,6 +16,26 @@
  * uploaded as its own row - the subfolder path becomes the description, and a
  * failure is collected and reported at the end instead of aborting the batch.
  *
+ * The whole table is also a drop zone: dragging one or more files - or whole
+ * folders - onto it goes through the same batch path as "Add Folder". A
+ * dropped folder is recursed into via the DataTransferItem FileSystem API
+ * (webkitGetAsEntry/createReader), same as picking one through the OS folder
+ * browser, so every file at every depth gets its own row, subfolder path kept
+ * as the description. Works for files dragged straight out of a desktop mail
+ * client's attachment list too, which hands the browser a real File same as
+ * a drag from the OS file explorer. Dragging an INLINE image out of an email
+ * body is a different, unfixable case: the source (e.g. Gmail's inline-image
+ * proxy) never gives the browser the original filename at all, so the File
+ * that reaches onDrop is already misnamed (a random id) before any of our
+ * code runs. The confirm dialog lets the name be fixed per file for exactly
+ * that reason, on drop-sourced batches only - a real folder pick already has
+ * correct names.
+ *
+ * Type is auto-set per file via the optional classifyDocType prop (a project
+ * supplies its own rules - e.g. TBWC's shared/docTypeClassifier.ts - since
+ * this module has to stay generic across projects); rows fall back to
+ * DEFAULT_DOC_TYPE when no classifier is given.
+ *
  * Storage-agnostic by construction: it only knows the DocumentsApi (metadata)
  * and DocumentStorage (bytes) interfaces, so swapping Supabase Storage for R2 or
  * DB blobs is a new DocumentStorage implementation, not a change here.
@@ -75,6 +95,8 @@ export interface DocumentsGridProps {
   /** Client-side guard; the API enforces its own limit too. Default 25MB. */
   maxFileSize?: number;
   emptyMessage?: string;
+  /** Auto-set doc_type for dropped/folder files. Falls back to DEFAULT_DOC_TYPE when omitted. */
+  classifyDocType?: (file: File) => DocType;
 }
 
 interface DraftRow {
@@ -94,6 +116,10 @@ const FOLDER_CONCURRENCY = 3;
 const IGNORED_FILE_NAMES = new Set(['Thumbs.db', 'desktop.ini', '.DS_Store']);
 
 interface FolderJob {
+  /** 'folder': picked via "Add Folder" (folderName is the picked folder's name).
+   *  'drop': dragged onto the grid - may not share one folder, so the dialog
+   *  skips the "from <folder>" framing and just lists the file(s). */
+  source: 'folder' | 'drop';
   folderName: string;
   files: File[];
   /** Files left out before the batch started (too large), kept for the summary. */
@@ -107,6 +133,57 @@ function relativeDirOf(file: File): string {
 
 function folderNameOf(file: File): string {
   return (file.webkitRelativePath || '').split('/')[0] || 'folder';
+}
+
+function readDirEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+}
+
+/** readEntries() only returns entries in batches - keep calling until it returns empty. */
+async function readAllDirEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  const all: FileSystemEntry[] = [];
+  for (;;) {
+    const batch = await readDirEntries(reader);
+    if (!batch.length) break;
+    all.push(...batch);
+  }
+  return all;
+}
+
+function fileFromEntry(entry: FileSystemFileEntry): Promise<File> {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+/**
+ * Recurse into a dropped file/directory entry, tagging each File's
+ * webkitRelativePath (normally only set by an <input webkitdirectory> picker)
+ * so a dropped folder is treated exactly like one picked via "Add Folder" -
+ * same subfolder-as-description behavior, same leaf-folder classification.
+ */
+async function collectDroppedEntry(entry: FileSystemEntry, prefix: string, out: File[]): Promise<void> {
+  if (entry.isFile) {
+    const file = await fileFromEntry(entry as FileSystemFileEntry);
+    try {
+      Object.defineProperty(file, 'webkitRelativePath', { value: `${prefix}${entry.name}`, configurable: true });
+    } catch {
+      // Can't shadow the getter in this engine - folder-context rules (description,
+      // "shipping images" leaf-folder rule) just see no folder context for this file.
+    }
+    out.push(file);
+  } else if (entry.isDirectory) {
+    const children = await readAllDirEntries((entry as FileSystemDirectoryEntry).createReader());
+    await Promise.all(children.map((child) => collectDroppedEntry(child, `${prefix}${entry.name}/`, out)));
+  }
+}
+
+/** Expand a drop's DataTransferItems into a flat File[], recursing into any dropped folders. */
+async function filesFromDroppedItems(items: DataTransferItem[]): Promise<File[]> {
+  const entries = items
+    .map((item) => (item.kind === 'file' ? item.webkitGetAsEntry() : null))
+    .filter((entry): entry is FileSystemEntry => !!entry);
+  const out: File[] = [];
+  await Promise.all(entries.map((entry) => collectDroppedEntry(entry, '', out)));
+  return out;
 }
 
 /** Run `worker` over `items`, at most `limit` in flight. Worker must not reject. */
@@ -143,6 +220,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   readOnly = false,
   maxFileSize = DEFAULT_MAX_FILE_SIZE,
   emptyMessage = 'No documents',
+  classifyDocType,
 }) => {
   const [rows, setRows] = useState<DocumentRecord[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
@@ -154,6 +232,14 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   // Folder add: the picked-but-not-yet-confirmed batch, then its live progress.
   const [pendingFolder, setPendingFolder] = useState<FolderJob | null>(null);
   const [folderProgress, setFolderProgress] = useState<{ done: number; total: number } | null>(null);
+  // Editable names for a drop-sourced batch (index-aligned with pendingFolder.files) -
+  // a drag source can hand over a File with the wrong name (e.g. an inline email
+  // image proxied to a random id), so the confirm dialog lets that be fixed
+  // before upload/classification. Unused for folder-sourced batches.
+  const [dropNames, setDropNames] = useState<string[]>([]);
+  // Drag-and-drop over the table; a plain counter survives dragenter/dragleave
+  // firing on child elements as the pointer crosses row boundaries.
+  const [dragDepth, setDragDepth] = useState(0);
 
   // One hidden input reused by every row; the draft it belongs to is stashed
   // here at click time so the change handler knows which row to complete.
@@ -220,6 +306,9 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     }
 
     const path = storagePathFor(entityType, recordId, file.name);
+    // Auto-classify only if the type dropdown is still untouched - a manual
+    // pick (including manually setting it back to "Other") always wins.
+    const docType = draft.docType === DEFAULT_DOC_TYPE && classifyDocType ? classifyDocType(file) : draft.docType;
     setBusyKey(draft.key);
     setError(null);
     try {
@@ -232,7 +321,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           storageBucket: storage.bucket,
           storagePath: path,
           description: draft.description || null,
-          docType: draft.docType,
+          docType,
           mimeType: file.type || null,
           fileSize: file.size,
         });
@@ -249,13 +338,8 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     }
   };
 
-  /** Folder picked: triage the files, then confirm before uploading the batch. */
-  const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(e.target.files ?? []);
-    // Reset now so re-picking the same folder still fires a change event.
-    e.target.value = '';
-    if (!picked.length || !recordId) return;
-
+  /** Drop ignored/oversized files, keeping a note of what got skipped and why. */
+  const triageFiles = (picked: File[]): { files: File[]; skipped: string[] } => {
     const files: File[] = [];
     const skipped: string[] = [];
     for (const file of picked) {
@@ -266,7 +350,17 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       }
       files.push(file);
     }
+    return { files, skipped };
+  };
 
+  /** Folder picked: triage the files, then confirm before uploading the batch. */
+  const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    // Reset now so re-picking the same folder still fires a change event.
+    e.target.value = '';
+    if (!picked.length || !recordId) return;
+
+    const { files, skipped } = triageFiles(picked);
     if (!files.length) {
       setError(
         skipped.length
@@ -276,7 +370,65 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       return;
     }
     setError(null);
-    setPendingFolder({ folderName: folderNameOf(picked[0]), files, skipped });
+    setPendingFolder({ source: 'folder', folderName: folderNameOf(picked[0]), files, skipped });
+  };
+
+  /** Files dropped straight onto the grid: same batch path as "Add Folder". */
+  const handleFilesDropped = (dropped: File[]) => {
+    if (!dropped.length || !recordId || disabled || folderBusy) return;
+    const { files, skipped } = triageFiles(dropped);
+    if (!files.length) {
+      setError(
+        skipped.length
+          ? `Every dropped file is over the ${formatFileSize(maxFileSize)} limit.`
+          : 'Nothing to upload from that drop.'
+      );
+      return;
+    }
+    setError(null);
+    setDropNames(files.map((f) => f.name));
+    setPendingFolder({ source: 'drop', folderName: '', files, skipped });
+  };
+
+  const closePendingFolder = () => {
+    setPendingFolder(null);
+    setDropNames([]);
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    if (disabled || folderBusy) return;
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const onDragEnter = (e: React.DragEvent) => {
+    if (disabled || folderBusy) return;
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => d + 1);
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    if (disabled || folderBusy) return;
+    e.preventDefault();
+    setDragDepth((d) => Math.max(0, d - 1));
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    if (disabled || folderBusy) return;
+    e.preventDefault();
+    setDragDepth(0);
+    // DataTransferItem/webkitGetAsEntry must be read synchronously off the
+    // event (some engines invalidate it once the handler returns) - the
+    // directory recursion itself is async and happens after.
+    const items = e.dataTransfer.items ? Array.from(e.dataTransfer.items) : null;
+    const hasEntryApi = !!items?.length && typeof items[0].webkitGetAsEntry === 'function';
+    if (hasEntryApi) {
+      void filesFromDroppedItems(items!).then(handleFilesDropped);
+    } else {
+      handleFilesDropped(Array.from(e.dataTransfer.files ?? []));
+    }
   };
 
   /**
@@ -284,9 +436,21 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
    * the description. Files are independent - a failure is collected and reported
    * at the end rather than aborting the rest of the batch.
    */
+  /** Apply any edited names from the confirm dialog before upload - a no-op for folder-sourced jobs. */
+  const withDropNamesApplied = (job: FolderJob): FolderJob => {
+    if (job.source !== 'drop') return job;
+    return {
+      ...job,
+      files: job.files.map((file, i) => {
+        const name = dropNames[i]?.trim();
+        return name && name !== file.name ? new File([file], name, { type: file.type }) : file;
+      }),
+    };
+  };
+
   const uploadFolder = async (job: FolderJob) => {
     if (!recordId) return;
-    setPendingFolder(null);
+    closePendingFolder();
     cancelFolderRef.current = false;
     setFolderProgress({ done: 0, total: job.files.length });
     const failures: string[] = [];
@@ -304,7 +468,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
             storageBucket: storage.bucket,
             storagePath: path,
             description: relativeDirOf(file) || null,
-            docType: DEFAULT_DOC_TYPE,
+            docType: classifyDocType ? classifyDocType(file) : DEFAULT_DOC_TYPE,
             mimeType: file.type || null,
             fileSize: file.size,
           });
@@ -420,7 +584,19 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         </Box>
       )}
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer
+        component={Paper}
+        variant="outlined"
+        onDragOver={onDragOver}
+        onDragEnter={onDragEnter}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        sx={
+          dragDepth > 0
+            ? { outline: '2px dashed', outlineColor: 'primary.main', outlineOffset: '-2px', bgcolor: 'action.hover' }
+            : undefined
+        }
+      >
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -613,14 +789,35 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       <input ref={fileInputRef} type="file" hidden onChange={handleFileChosen} />
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
 
-      <Dialog open={!!pendingFolder} onClose={() => setPendingFolder(null)}>
-        <DialogTitle>Add folder</DialogTitle>
+      <Dialog open={!!pendingFolder} onClose={closePendingFolder} maxWidth="sm" fullWidth={pendingFolder?.source === 'drop'}>
+        <DialogTitle>{pendingFolder?.source === 'folder' ? 'Add folder' : 'Add files'}</DialogTitle>
         <DialogContent>
           <DialogContentText>
             Upload {pendingFolder?.files.length} file(s) ({formatFileSize(
               (pendingFolder?.files ?? []).reduce((sum, f) => sum + f.size, 0)
-            )}) from "{pendingFolder?.folderName}"? Each one becomes its own document row.
+            )})
+            {pendingFolder?.source === 'folder' ? ` from "${pendingFolder.folderName}"` : ''}
+            ? Each one becomes its own document row.
           </DialogContentText>
+          {pendingFolder?.source === 'drop' && (
+            <>
+              <DialogContentText sx={{ mt: 1.5, mb: 0.5 }} variant="body2">
+                File name (a drag from an email can lose the real name — fix it here so the type auto-sets correctly):
+              </DialogContentText>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 320, overflowY: 'auto' }}>
+                {pendingFolder.files.map((file, i) => (
+                  <TextField
+                    key={i}
+                    size="small"
+                    fullWidth
+                    value={dropNames[i] ?? file.name}
+                    onChange={(e) => setDropNames((ns) => ns.map((n, j) => (j === i ? e.target.value : n)))}
+                    helperText={formatFileSize(file.size)}
+                  />
+                ))}
+              </Box>
+            </>
+          )}
           {!!pendingFolder?.skipped.length && (
             <DialogContentText sx={{ mt: 1 }} color="warning.main">
               {pendingFolder.skipped.length} file(s) over the {formatFileSize(maxFileSize)} limit will be skipped.
@@ -628,8 +825,8 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPendingFolder(null)}>Cancel</Button>
-          <Button onClick={() => pendingFolder && void uploadFolder(pendingFolder)} variant="contained">
+          <Button onClick={closePendingFolder}>Cancel</Button>
+          <Button onClick={() => pendingFolder && void uploadFolder(withDropNamesApplied(pendingFolder))} variant="contained">
             Upload
           </Button>
         </DialogActions>

@@ -306,6 +306,11 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
   // commission_total is the Postgres GENERATED column (commission + overage) —
   // the same figure the Financials tab shows, not a recomputation.
   const commission = Number(order?.commission_total) || 0;
+  // Denormalised from the linked invoice's FREIGHT line (orderInvoiceStatus.ts)
+  // — QB's own order total never includes it, so without this row "Order
+  // total" silently undercounts "Invoiced" by the freight amount whenever one
+  // was added at invoicing time. Hidden when 0/null, same as OrderLinesGrid.
+  const freight = Number(order?.freight) || 0;
 
   // The row we already hold, shaped as the Invoice the form expects. InvoiceForm
   // re-fetches by id on open and only falls back to this if that fetch fails —
@@ -543,13 +548,17 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
                 Totals
               </Typography>
             </Box>
-            {/* Order total -> commission -> invoiced -> paid -> outstanding:
-                the order's own money first, then what has actually been billed
-                and collected against it. Invoiced/Outstanding sum the Invoices
-                section above (packing slips carry no amount); Paid sums every
-                payment row nested under those invoices. They live here so all
-                the figures read as one running total rather than being split
-                across the panel.
+            {/* Order total -> freight -> commission -> invoiced -> paid ->
+                outstanding: the order's own money first, then what has
+                actually been billed and collected against it. Freight is
+                denormalised from the invoice (order.total never carries it —
+                see the field's comment), so it's shown right under Order
+                total: the two together are what Invoiced should reconcile to
+                on a fully-invoiced order with no discounts. Invoiced/
+                Outstanding sum the Invoices section above (packing slips
+                carry no amount); Paid sums every payment row nested under
+                those invoices. They live here so all the figures read as one
+                running total rather than being split across the panel.
                 Outstanding uses QB's own balance_remaining (see openBalance
                 above), not Invoiced-minus-Paid, since QB already nets discounts
                 and credits into it that a payments-only sum would miss.
@@ -558,6 +567,7 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
             {showMoney ? (
               <>
                 <SummaryLine label={`Order total (${lineCount} items)`} value={currency(Number(order?.total) || 0)} />
+                {!!freight && <SummaryLine label="Freight" value={currency(freight)} />}
                 <SummaryLine label="Commission" value={currency(commission)} />
                 <SummaryLine label="Invoiced" value={currency(invoiced)} />
                 <SummaryLine label="Paid" value={currency(paid)} />

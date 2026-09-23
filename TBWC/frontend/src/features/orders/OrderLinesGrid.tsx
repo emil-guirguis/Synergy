@@ -5,8 +5,12 @@ import type { OrderLine } from '../../types/order';
 
 interface OrderLinesGridProps {
   lines: OrderLine[] | null;
-  /** Order.total (QB's TotalAmount) — shown as-is; falls back to the summed line amounts if absent. */
+  /** Order.total (QB's TotalAmount) — shown as-is; falls back to the summed line amounts if absent.
+   *  Doesn't include freight (QB never puts it on the sales order — see `freight`). */
   total?: number | string | null;
+  /** Denormalised from the linked invoice's FREIGHT line item (see orderInvoiceStatus.ts).
+   *  Added into Grand Total since `total` above never includes it. Null/0 hides the row. */
+  freight?: number | string | null;
   /** Reps see what was ordered, not what it cost: drops Rate, Amount and the totals footer. */
   hideAmounts?: boolean;
 }
@@ -37,7 +41,7 @@ const COLUMNS_NO_AMOUNTS: GridColumn[] = [
 ];
 
 /** Read-only QB sales-order line items — synced into the `lines` jsonb column, no separate fetch. */
-export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total, hideAmounts = false }) => {
+export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total, freight, hideAmounts = false }) => {
   const rows = lines ?? [];
   const data = useMemo(
     () => rows.map((l, i) => ({
@@ -52,7 +56,17 @@ export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total, hi
   );
 
   const subtotal = useMemo(() => rows.reduce((sum, l) => sum + (l.amount ?? 0), 0), [rows]);
-  const grandTotal = total ?? subtotal;
+  const freightAmount = freight != null ? Number(freight) : 0;
+  // `total` (QB's own order TotalAmount) never includes freight — it's added
+  // at invoicing time, after the order total is set — so it has to be summed
+  // in here rather than already being part of `total`.
+  const grandTotal = (total != null ? Number(total) : subtotal) + freightAmount;
+
+  const footerRows = hideAmounts ? [] : [
+    { label: 'Subtotal', value: subtotal, variant: 'body2' as const },
+    ...(freightAmount ? [{ label: 'Freight', value: freightAmount, variant: 'body2' as const }] : []),
+    { label: 'Total', value: grandTotal, variant: 'subtitle2' as const },
+  ];
 
   return (
     <>
@@ -63,10 +77,7 @@ export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total, hi
         hideDeleteColumn
         emptyMessage="No line items"
       />
-      {(hideAmounts ? [] : [
-        { label: 'Subtotal', value: subtotal, variant: 'body2' as const },
-        { label: 'Total', value: grandTotal, variant: 'subtitle2' as const },
-      ]).map(({ label, value, variant }) => (
+      {footerRows.map(({ label, value, variant }) => (
         <Box key={label} sx={{ display: 'flex', mt: label === 'Subtotal' ? 1 : 0.5 }}>
           <Box sx={{ width: `calc(${WIDTHS.item} + ${WIDTHS.desc} + ${WIDTHS.quantity})` }} />
           <Box sx={{ width: WIDTHS.rate, pl: '12px', pr: '12px' }}>

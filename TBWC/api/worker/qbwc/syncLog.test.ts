@@ -49,4 +49,14 @@ describe('parseRsBlocks', () => {
   it('ignores non-object elements', () => {
     expect(parseRsBlocks('<QBXMLMsgsRs onError="stopOnError"></QBXMLMsgsRs>')).toHaveLength(0);
   });
+
+  it('aliases ReceivePaymentQueryRs to the Payment object type', () => {
+    const xml =
+      `<ReceivePaymentQueryRs requestID="payment" statusCode="0">` +
+      `<ReceivePaymentRet><TxnID>P1</TxnID></ReceivePaymentRet>` +
+      `</ReceivePaymentQueryRs>`;
+    const rows = parseRsBlocks(xml);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ objectType: 'Payment', direction: 'pull', rowsProcessed: 1 });
+  });
 });

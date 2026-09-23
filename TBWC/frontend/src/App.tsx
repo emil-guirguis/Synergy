@@ -1,5 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
+import '@meterit/framework-frontend/components/common/TableCellStyles.css';
 import { useAuth } from './hooks/useAuth';
 import AppLayoutWrapper from './components/layout/AppLayoutWrapper';
 import AppRoutes from './routes/AppRoutes';

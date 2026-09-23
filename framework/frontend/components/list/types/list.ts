@@ -112,17 +112,23 @@ export interface BulkActionConfig<T> {
 }
 
 /**
- * Export configuration for CSV generation.
- * Defines how data should be exported to CSV format.
+ * Supported export file formats.
+ */
+export type ExportFormat = 'csv' | 'excel' | 'pdf';
+
+/**
+ * Export configuration override.
+ * Optional — when omitted, useBaseList auto-derives headers/rows from the
+ * list's own column definitions and current data.
  */
 export interface ExportConfig<T> {
-  /** Function to generate filename with date */
+  /** Function to generate filename with date (extension is added automatically per format) */
   filename: (date: string) => string;
-  /** CSV column headers */
+  /** Column headers */
   headers: string[];
-  /** Function to map entity to CSV row */
+  /** Function to map entity to a row */
   mapRow: (item: T) => any[];
-  /** Optional info text to include in export */
+  /** Optional info text to include in CSV exports */
   includeInfo?: string;
 }
 
@@ -317,10 +323,10 @@ export interface BaseListReturn<T> {
   handleDelete: (item: T) => void;
   /** Handle create action */
   handleCreate: () => void;
-  /** Handle export of selected items */
-  handleExport: (items: T[]) => void;
-  /** Handle export of all items */
-  handleExportAll: () => void;
+  /** Handle export of selected items (format defaults to 'excel') */
+  handleExport: (items: T[], format?: ExportFormat) => void;
+  /** Handle export of all items (format defaults to 'excel') */
+  handleExportAll: (format?: ExportFormat) => void;
   /** Handle import from file */
   handleImport: (file: File) => Promise<void>;
   

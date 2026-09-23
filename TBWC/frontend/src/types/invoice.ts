@@ -9,6 +9,9 @@ export interface Invoice {
   ref_number: string | null;
   customer_list_id: string | null;
   customer_name: string | null;
+  sales_rep_list_id: string | null;
+  /** Joined from public.qb_sales_rep by sales_rep_list_id — not a qb_invoice column. */
+  sales_rep: string | null;
   txn_date: string | null;
   due_date: string | null;
   subtotal: number | null;

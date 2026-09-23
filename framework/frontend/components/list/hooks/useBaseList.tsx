@@ -38,7 +38,16 @@ import type {
 import type { BulkAction, PaginationConfig } from '../types/ui';
 import { debounceSearch, buildFilters } from '../utils/listHelpers';
 import { ConfirmationModal } from '../../../components/modal';
-import { generateCSV, downloadCSV, formatDateForFilename, generateExportInfo } from '../utils/exportHelpers';
+import {
+  generateCSV,
+  downloadCSV,
+  downloadExcel,
+  downloadPDF,
+  buildExportRows,
+  formatDateForFilename,
+  generateExportInfo,
+} from '../utils/exportHelpers';
+import type { ExportFormat } from '../types/list';
 import { processImportFile, generateImportTemplate } from '../utils/importHelpers';
 import { getIconElement, MaterialIcons } from '../../../utils/iconHelper';
 
@@ -170,6 +179,9 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     [allowDelete, permissions.delete, checkPermission]
   );
 
+  // Export no longer requires a hand-written exportConfig — it works straight off
+  // the (schema-generated) columns and current data. exportConfig, when provided,
+  // still overrides the auto-derived headers/rows.
   const canExport = useMemo(() => allowExport, [allowExport]);
 
   const canImport = useMemo(
@@ -387,29 +399,37 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     onCreate?.();
   }, [canCreate, onCreate]);
 
-  // Export functionality
-  const handleExport = useCallback((items: T[]) => {
-    if (!canExport || !exportConfig) {
-      console.warn('Export is not configured or not allowed');
+  // Export functionality — auto-derives headers/rows from `columns` + `items`
+  // when no exportConfig is supplied, so any schema-driven list gets working
+  // export for free. exportConfig (when provided) overrides the auto-derived data.
+  const handleExport = useCallback((items: T[], format: ExportFormat = 'excel') => {
+    if (!canExport) {
+      console.warn('Export is not allowed');
       return;
     }
 
     try {
-      // Generate filename with current date
       const dateStr = formatDateForFilename();
-      const filename = exportConfig.filename(dateStr);
+      const extension = format === 'excel' ? 'xlsx' : format;
+      const baseFilename = exportConfig
+        ? exportConfig.filename(dateStr).replace(/\.[^./]+$/, '')
+        : `${entityNamePlural}-${dateStr}`;
+      const filename = `${baseFilename}.${extension}`;
 
-      // Map items to CSV rows
-      const rows = items.map(item => exportConfig.mapRow(item));
+      const { headers, rows } = exportConfig
+        ? { headers: exportConfig.headers, rows: items.map(item => exportConfig.mapRow(item)) }
+        : buildExportRows(memoizedColumns, items);
 
-      // Generate info text if provided
-      const info = exportConfig.includeInfo 
-        ? generateExportInfo(entityNamePlural, items.length)
-        : undefined;
-
-      // Generate and download CSV
-      const csvContent = generateCSV(exportConfig.headers, rows, info);
-      downloadCSV(csvContent, filename);
+      if (format === 'excel') {
+        downloadExcel(headers, rows, filename, entityNamePlural);
+      } else if (format === 'pdf') {
+        downloadPDF(headers, rows, filename, entityNamePlural);
+      } else {
+        const info = exportConfig?.includeInfo
+          ? generateExportInfo(entityNamePlural, items.length)
+          : undefined;
+        downloadCSV(generateCSV(headers, rows, info), filename);
+      }
 
       // Close export modal if open
       setShowExportModal(false);
@@ -418,18 +438,18 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
       alert(message); // TODO: Replace with toast notification system
       console.error('Export error:', error);
     }
-  }, [canExport, exportConfig, entityNamePlural]);
+  }, [canExport, exportConfig, entityNamePlural, memoizedColumns]);
 
-  const handleExportAll = useCallback(() => {
-    if (!canExport || !exportConfig) {
-      console.warn('Export is not configured or not allowed');
+  const handleExportAll = useCallback((format: ExportFormat = 'excel') => {
+    if (!canExport) {
+      console.warn('Export is not allowed');
       return;
     }
 
     // Export all items from store
     const allItems = store.items || [];
-    handleExport(allItems);
-  }, [canExport, exportConfig, store.items, handleExport]);
+    handleExport(allItems, format);
+  }, [canExport, store.items, handleExport]);
 
   // Import functionality
   const handleImport = useCallback(async (file: File) => {
@@ -621,15 +641,15 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     }
 
     // Export link
-    if (canExport && exportConfig) {
+    if (canExport) {
       actions.push(
         <button
           key="export"
           type="button"
           onClick={() => setShowExportModal(true)}
-          aria-label={`Export ${entityNamePlural} to CSV`}
+          aria-label={`Export ${entityNamePlural}`}
         >
-          {getIconElement(MaterialIcons.TABLE_CHART)} Export CSV
+          {getIconElement(MaterialIcons.TABLE_CHART)} Export
         </button>
       );
     }
@@ -687,15 +707,15 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
   }, [allowStats, memoizedStatDefinitions, store]);
 
   const renderExportModal = useCallback((): ReactNode => {
-    if (!showExportModal || !exportConfig) {
+    if (!showExportModal) {
       return null;
     }
 
     const itemCount = store.items?.length || 0;
 
     return (
-      <div 
-        className="modal-overlay" 
+      <div
+        className="modal-overlay"
         onClick={() => setShowExportModal(false)}
         role="dialog"
         aria-modal="true"
@@ -715,9 +735,9 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
           </div>
           <div className="modal-body">
             <p>
-              Export all {itemCount} {itemCount === 1 ? entityName : entityNamePlural} to CSV format.
+              Export all {itemCount} {itemCount === 1 ? entityName : entityNamePlural}. Choose a format:
             </p>
-            {exportConfig.includeInfo && (
+            {exportConfig?.includeInfo && (
               <p className="text-muted">
                 The export will include metadata and timestamp information.
               </p>
@@ -734,9 +754,23 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
             <button
               type="button"
               className="btn btn-primary"
-              onClick={handleExportAll}
+              onClick={() => handleExportAll('excel')}
             >
-              <i className="icon-download"></i> Export
+              <i className="icon-download"></i> Excel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => handleExportAll('pdf')}
+            >
+              <i className="icon-download"></i> PDF
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => handleExportAll('csv')}
+            >
+              <i className="icon-download"></i> CSV
             </button>
           </div>
         </div>

@@ -24,6 +24,12 @@ const PK = 'qb_invoice_id';
 const SEARCH = ['ref_number', 'customer_name'];
 const LIKE_FIELDS = likeFieldsFromSchema(invoicesSchema);
 
+// qb_invoice has no rep name of its own, only sales_rep_list_id (the QB
+// SalesRepRef ListID) — join public.qb_sales_rep to surface it as `sales_rep`
+// for the schema's read-only display field (see invoicesSchema.ts).
+const SALES_REP_JOIN = `LEFT JOIN public.qb_sales_rep ON qb_sales_rep.list_id = "${TABLE}".sales_rep_list_id`;
+const SELECT_WITH_SALES_REP = `"${TABLE}".*, qb_sales_rep.name AS sales_rep`;
+
 /**
  * The caller's row scope, or null when their invoice:read grant covers every
  * row. An own-scoped caller with no linked qb_sales_rep gets a value that can
@@ -41,7 +47,13 @@ function repScope(c: any): string | null {
 
 app.get('/', requirePermission('invoice:read'), async (c) => {
   const q = c.req.query();
-  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
+  // txn_date_from/txn_date_to aren't real columns — they drive the whereRange
+  // bound below (the Invoice Totals report's card drill-down links here with
+  // them), so keep whereFromQuery from treating them as an exact-match field.
+  const { where: fieldWhere, whereLike } = whereFromQuery(q, {
+    likeFields: LIKE_FIELDS,
+    extraReserved: ['txn_date_from', 'txn_date_to'],
+  });
   // Field filters first, then the scope — it always wins, so a rep can't widen
   // their own visibility with a crafted sales_rep_list_id query param.
   const scope = repScope(c);
@@ -64,6 +76,13 @@ app.get('/', requirePermission('invoice:read'), async (c) => {
     orderBy: q.sortBy ? undefined : `"${TABLE}".txn_date DESC`,
     where,
     whereLike,
+    whereRange: (q.txn_date_from || q.txn_date_to)
+      ? { txn_date: { gte: q.txn_date_from || undefined, lte: q.txn_date_to || undefined } }
+      : undefined,
+    // $0 QB invoices are packing slips, not real invoices — never list them.
+    whereNot: { total: 0 },
+    joins: SALES_REP_JOIN,
+    selectFields: SELECT_WITH_SALES_REP,
   });
   return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
 });
@@ -115,7 +134,7 @@ app.get('/receivables-summary', requirePermission('invoice:read'), async (c) => 
 });
 
 app.get('/:id', requirePermission('invoice:read'), async (c) => {
-  const row = await findById(c.env, TABLE, PK, c.req.param('id'));
+  const row = await findById(c.env, TABLE, PK, c.req.param('id'), undefined, SELECT_WITH_SALES_REP, SALES_REP_JOIN);
   if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Invoice not found' }, 404);
   // 404 rather than 403 — a rep shouldn't be able to probe which invoice ids
   // exist. Compared against the scope value, so an unlinked rep matches nothing.

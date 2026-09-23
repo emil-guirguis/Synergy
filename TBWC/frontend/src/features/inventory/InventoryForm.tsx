@@ -4,6 +4,7 @@ import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
+import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useInventoryEnhanced } from './inventoryStore';
 import { InventoryImagePanel } from './InventoryImagePanel';
 import { KitItemsPanel } from './KitItemsPanel';
@@ -185,6 +186,7 @@ export const InventoryForm: React.FC<InventoryFormProps> = ({ item, onCancel, lo
               entityId={item?.id}
               api={documentsApi}
               storage={documentsStorage}
+              classifyDocType={classifyDocTypeForFile}
             />
           );
         }

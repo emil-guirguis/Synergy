@@ -95,6 +95,51 @@ describe('crud.findAll', () => {
     expect(calls[0].params).toEqual([]);
   });
 
+  it('bounds a whereRange value with >= and <=, AND\'ed with other conditions', async () => {
+    responses = [{ rows: [{ total: '0' }] }, { rows: [] }];
+    await findAll(ENV, {
+      table: 'qb_invoice', primaryKey: 'qb_invoice_id',
+      where: { sales_rep_list_id: 'REP-1' },
+      whereRange: { txn_date: { gte: '2026-09-01', lte: '2026-09-24' } },
+    });
+    expect(calls[0].sql).toContain('"qb_invoice".sales_rep_list_id = $1');
+    expect(calls[0].sql).toContain('"qb_invoice".txn_date >= $2');
+    expect(calls[0].sql).toContain('"qb_invoice".txn_date <= $3');
+    expect(calls[0].params).toEqual(['REP-1', '2026-09-01', '2026-09-24']);
+  });
+
+  it('emits only the bound that is present in a whereRange entry', async () => {
+    responses = [{ rows: [{ total: '0' }] }, { rows: [] }];
+    await findAll(ENV, { table: 'qb_invoice', primaryKey: 'qb_invoice_id', whereRange: { txn_date: { gte: '2026-09-01' } } });
+    expect(calls[0].sql).toContain('"qb_invoice".txn_date >= $1');
+    expect(calls[0].sql).not.toContain('<=');
+    expect(calls[0].params).toEqual(['2026-09-01']);
+  });
+
+  it('rejects an injection attempt in a whereRange key', async () => {
+    await expect(
+      findAll(ENV, { table: 'users', primaryKey: 'id', whereRange: { 'a; DROP TABLE users': { gte: 1 } } })
+    ).rejects.toThrow(/Invalid whereRangeKey/);
+  });
+
+  it('excludes rows matching a whereNot value', async () => {
+    responses = [{ rows: [{ total: '0' }] }, { rows: [] }];
+    await findAll(ENV, {
+      table: 'qb_invoice', primaryKey: 'qb_invoice_id',
+      where: { qb_deleted_at: null },
+      whereNot: { total: 0 },
+    });
+    expect(calls[0].sql).toContain('"qb_invoice".qb_deleted_at IS NULL');
+    expect(calls[0].sql).toContain('"qb_invoice".total <> $1');
+    expect(calls[0].params).toEqual([0]);
+  });
+
+  it('rejects an injection attempt in a whereNot key', async () => {
+    await expect(
+      findAll(ENV, { table: 'users', primaryKey: 'id', whereNot: { 'a; DROP TABLE users': 0 } })
+    ).rejects.toThrow(/Invalid whereNotKey/);
+  });
+
   it('rejects an injection attempt in the table name', async () => {
     await expect(
       findAll(ENV, { table: 'users; DROP TABLE users', primaryKey: 'id' })
@@ -132,6 +177,20 @@ describe('crud.findById', () => {
     await findById(ENV, 'meter', 'meter_id', 1, 7);
     expect(calls[0].sql).toContain('AND tenant_id = $2');
     expect(calls[0].params).toEqual([1, 7]);
+  });
+
+  it('inserts a joins fragment between FROM and WHERE when given', async () => {
+    responses = [{ rows: [] }];
+    await findById(
+      ENV, 'qb_invoice', 'qb_invoice_id', 1, undefined,
+      '"qb_invoice".*, qb_sales_rep.name AS sales_rep',
+      'LEFT JOIN public.qb_sales_rep ON qb_sales_rep.list_id = "qb_invoice".sales_rep_list_id'
+    );
+    expect(calls[0].sql).toBe(
+      'SELECT "qb_invoice".*, qb_sales_rep.name AS sales_rep FROM "qb_invoice" ' +
+      'LEFT JOIN public.qb_sales_rep ON qb_sales_rep.list_id = "qb_invoice".sales_rep_list_id ' +
+      'WHERE qb_invoice_id = $1'
+    );
   });
 });
 

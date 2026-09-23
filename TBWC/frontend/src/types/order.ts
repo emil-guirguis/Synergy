@@ -20,17 +20,31 @@ export interface Order {
   sales_rep: string | null;
   sales_rep_list_id: string | null;
   total: number | null;
+  /** Denormalised from the linked invoice's FREIGHT line item (see
+   *  orderInvoiceStatus.ts) — QB's sales order never carries freight itself.
+   *  NULL when no real invoice is linked yet; 0 when one is but has no
+   *  freight line. `total` above doesn't include it — add the two together
+   *  for the order's actual grand total (see OrderLinesGrid). */
+  freight: number | null;
   is_fully_invoiced: boolean | null;
   is_manually_closed: boolean | null;
   time_modified: string | null;
   synced_at: string | null;
-  /** Denormalised from the linked qb_invoice (latest, via LinkedTxn). */
+  /** Denormalised from the linked qb_invoice (latest with total > 0, via
+   *  LinkedTxn) — a zero-total invoice (packing slip) never lands here. */
   invoice_number: string | null;
   invoice_status: string | null;
+  /** True when a zero-total invoice (packing slip) is linked, independent of
+   *  invoice_number/invoice_status above (see orderInvoiceStatus.ts). */
+  has_packing_slip: boolean | null;
   bill_address_block: string | null;
   ship_address_block: string | null;
   freight_terms: string | null;
   ship_via: string | null;
+  /** Denormalised from the linked invoice's FREIGHT line Desc (see
+   *  orderInvoiceStatus.ts) — free-typed shipping notes verbatim, not a
+   *  parsed-out tracking number (the source data isn't structured enough). */
+  shipping_tracking: string | null;
   contact: string | null;
   customer_tax_code: string | null;
   /** SalesOrderLineRet rows, as captured by qbwc/qbxml.ts's lineItems(). */

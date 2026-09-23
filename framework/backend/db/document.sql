@@ -44,10 +44,10 @@ CREATE TABLE IF NOT EXISTS public.document (
     -- Keep in sync with DOC_TYPES in framework/backend/api/base/documents.ts and
     -- framework/frontend/documents/types.ts. Adding a value needs a migration that
     -- drops and re-adds this constraint (TBWC: migrations/032-document-types.sql,
-    -- 046-document-types-2.sql).
+    -- 046-document-types-2.sql, 047-document-type-credit-memo.sql).
     CHECK (doc_type IN ('cutsheet', 'invoice', 'order', 'packing_slip', 'proof_of_delivery',
             'shipping', 'email', 'design', 'load_schedule', 'quote', 'rma', 'shipping_images',
-            'change_order', 'waiver', 'panelboard_schedules', 'build_of_materials', 'other')),
+            'change_order', 'waiver', 'panelboard_schedules', 'build_of_materials', 'credit_memo', 'other')),
   -- A row with neither a storage object nor inline bytes is an orphan record.
   CONSTRAINT document_payload_check
     CHECK (storage_path IS NOT NULL OR content IS NOT NULL)

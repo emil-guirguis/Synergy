@@ -28,7 +28,7 @@ BEGIN
     CONSTRAINT document_doc_type_check
       CHECK (doc_type IN ('cutsheet', 'invoice', 'order', 'packing_slip', 'proof_of_delivery',
               'shipping', 'email', 'design', 'load_schedule', 'quote', 'rma', 'shipping_images',
-              'change_order', 'waiver', 'panelboard_schedules', 'build_of_materials', 'other')),
+              'change_order', 'waiver', 'panelboard_schedules', 'build_of_materials', 'credit_memo', 'other')),
     CONSTRAINT document_payload_check
       CHECK (storage_path IS NOT NULL OR content IS NOT NULL)
   );

@@ -23,12 +23,27 @@ export interface SyncRunRow {
   detail?: string | null;
 }
 
-/** Map an Rs element name to its object base name + direction. */
-function classifyRs(rsName: string): { objectType: string; direction: 'pull' | 'push' } | undefined {
+// QB's own Rs tag name doesn't always match the object name the rest of the
+// app uses (registry name, qb_* table, dashboard tile): ReceivePaymentQueryRs
+// is QB's transaction-type name for what we call Payment everywhere else.
+// Without this alias, success rows log as object_type='ReceivePayment' while
+// error rows (logError, keyed off the registry) log as 'Payment' -- the
+// dashboard tile then never sees a success newer than an old error and stays
+// red forever, even after every subsequent sync succeeds.
+const RS_OBJECT_ALIASES: Record<string, string> = { ReceivePayment: 'Payment' };
+
+/**
+ * Map an Rs element name to its object base name + direction.
+ * `retTagName` is QB's own prefix (used to count <XxxRet> records below —
+ * QB still emits <ReceivePaymentRet>, never <PaymentRet>), while `objectType`
+ * is the aliased name used for logging identity.
+ */
+function classifyRs(rsName: string): { objectType: string; retTagName: string; direction: 'pull' | 'push' } | undefined {
   // e.g. CustomerQueryRs, VendorAddRs, InvoiceModRs, ItemInventoryQueryRs
   const m = rsName.match(/^([A-Za-z]+?)(Query|Add|Mod|Del)Rs$/);
   if (!m) return undefined;
-  return { objectType: m[1], direction: m[2] === 'Query' ? 'pull' : 'push' };
+  const objectType = RS_OBJECT_ALIASES[m[1]] ?? m[1];
+  return { objectType, retTagName: m[1], direction: m[2] === 'Query' ? 'pull' : 'push' };
 }
 
 /**
@@ -65,7 +80,7 @@ export function parseRsBlocks(responseXml: string): SyncRunRow[] {
       // <ItemRet> — QB always emits a type-specific variant instead.
       rows = cls.objectType === 'Item'
         ? ITEM_RET_TYPES.reduce((sum, t) => sum + (body.match(new RegExp(`<${t}>`, 'g')) || []).length, 0)
-        : (body.match(new RegExp(`<${cls.objectType}Ret>`, 'g')) || []).length;
+        : (body.match(new RegExp(`<${cls.retTagName}Ret>`, 'g')) || []).length;
     }
 
     // statusCode 1 = "no matching records" — an empty pull, not an error.

@@ -9,7 +9,15 @@ import React from 'react';
 /**
  * Badge color variants for general use.
  */
-type BadgeVariant = 'primary' | 'secondary' | 'neutral' | 'success' | 'warning' | 'error';
+export type BadgeVariant = 'primary' | 'secondary' | 'neutral' | 'success' | 'warning' | 'error';
+
+/**
+ * One badge in a renderChipList cell.
+ */
+export interface ChipItem {
+  label: string;
+  variant?: BadgeVariant;
+}
 
 /**
  * Render a status badge with indicator dot.
@@ -167,6 +175,35 @@ export const renderBadgeList = (
       {remainingCount > 0 && (
         <span className="table-cell__badge-more">+{remainingCount}</span>
       )}
+    </div>
+  );
+};
+
+/**
+ * Render several independent status badges in one cell — unlike renderBadgeList
+ * (a truncated list of same-variant tags), each chip here is its own
+ * true/false condition with its own color, and none of them are mutually
+ * exclusive (e.g. a row can show both "Shipped" and "No Invoice" at once).
+ * Callers compute the chip set from row data; this just lays them out.
+ *
+ * @example
+ * renderChipList([{ label: 'Shipped', variant: 'success' }, { label: 'No Invoice', variant: 'warning' }])
+ */
+export const renderChipList = (
+  chips: ChipItem[],
+  emptyText: string = ''
+): React.ReactElement => {
+  if (!chips.length) {
+    return <span className="table-cell__empty">{emptyText}</span>;
+  }
+
+  return (
+    <div className="table-cell__chip-list">
+      {chips.map((chip) => (
+        <span key={chip.label} className={`badge badge--${chip.variant || 'neutral'}`}>
+          {chip.label}
+        </span>
+      ))}
     </div>
   );
 };

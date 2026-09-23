@@ -68,6 +68,15 @@ export default defineConfig({
           if (id.includes('node_modules/react-router') || id.includes('node_modules/@remix-run/')) {
             return 'vendor-router';
           }
+          // Only pulled in when a list's Excel/PDF export is actually triggered
+          // (dynamic import in exportHelpers.ts) — kept out of vendor-misc so
+          // that lazy-load stays lazy instead of landing in the eager bundle.
+          if (
+            id.includes('node_modules/xlsx') ||
+            id.includes('node_modules/jspdf')
+          ) {
+            return 'vendor-export';
+          }
           if (id.includes('node_modules/')) {
             return 'vendor-misc';
           }

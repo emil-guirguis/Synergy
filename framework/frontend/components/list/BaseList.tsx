@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DataTable } from '../datatable/DataTable';
 import type { DataTableProps, ColumnDefinition, BulkAction } from './types/ui';
+import type { ExportFormat } from './types/list';
 import './BaseList.css';
 
 export interface BaseListProps<T> {
   // Toolbar
   title?: string;
   onCreateClick?: () => void;
-  onExportClick?: () => void;
+  /** Export a format ('excel' | 'pdf' | 'csv') — shows a small format-choice menu on click */
+  onExportClick?: (format: ExportFormat) => void;
   toolbarContent?: ReactNode;
 
   // Collapsible filter panel
@@ -87,6 +89,19 @@ export function BaseList<T extends Record<string, any>>({
   className = '',
 }: BaseListProps<T>) {
   const [showFilters, setShowFilters] = useState(defaultFiltersOpen);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showExportMenu]);
 
   const hasToolbar = title || onCreateClick || onExportClick || toolbarContent || filters;
 
@@ -111,14 +126,43 @@ export function BaseList<T extends Record<string, any>>({
           )}
 
           {onExportClick && (
-            <button
-              type="button"
-              className="base-list__toolbar-btn base-list__toolbar-btn--export"
-              onClick={onExportClick}
-              title="Export"
-            >
-              <i className="material-symbols-outlined">download</i>
-            </button>
+            <div className="base-list__export-menu" ref={exportMenuRef}>
+              <button
+                type="button"
+                className="base-list__toolbar-btn base-list__toolbar-btn--export"
+                onClick={() => setShowExportMenu((open) => !open)}
+                title="Export"
+                aria-haspopup="true"
+                aria-expanded={showExportMenu}
+              >
+                <i className="material-symbols-outlined">download</i>
+              </button>
+
+              {showExportMenu && (
+                <div className="base-list__export-menu-dropdown" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowExportMenu(false);
+                      onExportClick('excel');
+                    }}
+                  >
+                    Export to Excel
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowExportMenu(false);
+                      onExportClick('pdf');
+                    }}
+                  >
+                    Export to PDF
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {onCreateClick && (

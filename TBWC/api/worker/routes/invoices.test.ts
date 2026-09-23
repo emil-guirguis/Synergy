@@ -62,6 +62,20 @@ describe('GET / scoping', () => {
     expect(mockFindAll.mock.calls[0][1].where).toEqual({ qb_deleted_at: null });
   });
 
+  it('always excludes total=0 invoices (packing slips)', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/');
+    expect(mockFindAll.mock.calls[0][1].whereNot).toEqual({ total: 0 });
+  });
+
+  it('joins qb_sales_rep so the list carries a sales_rep name', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.joins).toContain('LEFT JOIN public.qb_sales_rep');
+    expect(opts.selectFields).toContain('qb_sales_rep.name AS sales_rep');
+  });
+
   it("a rep (own scope) is filtered to their linked sales_rep_list_id", async () => {
     currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
     currentPermSet = repPermSet();
@@ -86,6 +100,20 @@ describe('GET / scoping', () => {
     expect(mockFindAll.mock.calls[0][1].where.sales_rep_list_id).toBe('REP-123');
   });
 
+  it('passes txn_date_from/txn_date_to as a whereRange, not an exact-match field', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/?txn_date_from=2026-09-01&txn_date_to=2026-09-24');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.whereRange).toEqual({ txn_date: { gte: '2026-09-01', lte: '2026-09-24' } });
+    expect(opts.where).toEqual({ qb_deleted_at: null });
+  });
+
+  it('omits whereRange entirely when neither date bound is given', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/');
+    expect(mockFindAll.mock.calls[0][1].whereRange).toBeUndefined();
+  });
+
   it('does not redact any columns for the owning rep (unlike orders)', async () => {
     currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
     currentPermSet = repPermSet();
@@ -101,6 +129,14 @@ describe('GET / scoping', () => {
 });
 
 describe('GET /:id', () => {
+  it('joins qb_sales_rep so the form carries a sales_rep name', async () => {
+    mockFindById.mockResolvedValue({ qb_invoice_id: 1, qb_deleted_at: null });
+    await req('/1');
+    const [, , , , , selectFields, joins] = mockFindById.mock.calls[0];
+    expect(joins).toContain('LEFT JOIN public.qb_sales_rep');
+    expect(selectFields).toContain('qb_sales_rep.name AS sales_rep');
+  });
+
   it('404s a soft-deleted invoice', async () => {
     mockFindById.mockResolvedValue({ qb_invoice_id: 1, qb_deleted_at: '2026-01-01' });
     const res = await req('/1');

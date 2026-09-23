@@ -1,11 +1,13 @@
 import React from 'react';
-import { Box, CircularProgress } from '@mui/material';
+import { Box, CircularProgress, Typography } from '@mui/material';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
 import OrderInvoicesPanel from './OrderInvoicesPanel';
+import { parseAllTracking, renderTrackingText } from './trackingLink';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
+import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useAuth } from '../../hooks/useAuth';
 import type { Order } from '../../types/order';
 
@@ -83,8 +85,47 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           variant={variant}
           isDisabled={readOnly}
           fieldsToClean={['id', 'lines', 'documents']}
-          renderCustomField={(fieldName, _fieldDef, value) => {
-            if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} hideAmounts={readOnly} />;
+          renderCustomField={(fieldName, fieldDef, value) => {
+            if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} freight={freshOrder?.freight} hideAmounts={readOnly} />;
+            // shipping_tracking is free-typed shipping notes off the
+            // invoice's FREIGHT line(s) (see orderInvoiceStatus.ts) — a memo,
+            // not a single value: a multi-package shipment carries several
+            // numbers, one per line/comma/whatever separator the person who
+            // typed it used (e.g. six UPS numbers, newline-separated, on
+            // order TBWC 5689). Rendered as plain read-only text with each
+            // recognized number swapped for a link in place — not a real
+            // <textarea> (can't hold clickable content) and not a separate
+            // links list either (would just show every number twice).
+            // parseAllTracking() only recognizes a number when it's an
+            // unambiguous UPS format, or a FedEx one where the text also
+            // names FedEx (see its own comment for why).
+            if (fieldName === 'shipping_tracking') {
+              const tracking = parseAllTracking(value);
+              return (
+                <Box data-field="shipping_tracking">
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    {fieldDef?.label ?? 'Shipping / Tracking'}
+                  </Typography>
+                  <Box
+                    sx={{
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      borderRadius: 1,
+                      px: 1.5,
+                      py: 1,
+                      minHeight: '2.5em',
+                      bgcolor: 'action.hover',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      fontSize: '0.875rem',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {value ? renderTrackingText(value, tracking) : <Typography component="span" variant="body2" color="text.disabled">—</Typography>}
+                  </Box>
+                </Box>
+              );
+            }
             if (fieldName === 'documents') {
               return (
                 <DocumentsGrid
@@ -92,6 +133,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
                   entityId={freshOrder?.id}
                   api={documentsApi}
                   storage={documentsStorage}
+                  classifyDocType={classifyDocTypeForFile}
                 />
           );
         }

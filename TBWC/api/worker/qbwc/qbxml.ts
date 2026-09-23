@@ -16,11 +16,15 @@ export const QBXML_VERSION = '13.0';
 export const QB_TIMEZONE = 'America/Los_Angeles';
 
 /**
- * Render a UTC instant as a qbXML dateTime in QB's local zone WITH an explicit
- * offset (YYYY-MM-DDThh:mm:ss±hh:mm). We store QB's TimeModified as UTC in
- * Postgres; when we send it back as FromModifiedDate, a bare (offset-less) value
- * is read by QB as ITS local time, shifting the incremental window by the whole
- * UTC offset. Emitting the local wall-clock plus the offset removes the ambiguity.
+ * Render a UTC instant as a bare qbXML dateTime wall-clock reading in QB's
+ * local zone (YYYY-MM-DDThh:mm:ss, no offset suffix). We store QB's
+ * TimeModified as UTC in Postgres; QB's own qbXML processor does not honor an
+ * appended ±hh:mm offset on an incoming filter value (confirmed live: an
+ * offset-annotated FromModifiedDate never advanced past already-synced rows —
+ * the same records kept re-matching every session even with the offset
+ * correctly computed for real DST). It reads the wall-clock digits as its own
+ * local time, which is what this returns, using the zone's real DST rule for
+ * the given instant so the digits match what QB's machine clock would show.
  */
 export function toQbLocal(utc: string | Date, tz: string = QB_TIMEZONE): string {
   const d = typeof utc === 'string' ? new Date(utc) : utc;
@@ -32,14 +36,7 @@ export function toQbLocal(utc: string | Date, tz: string = QB_TIMEZONE): string 
   const p: Record<string, string> = {};
   for (const { type, value } of fmt.formatToParts(d)) p[type] = value;
   const hh = p.hour === '24' ? '00' : p.hour; // some ICU builds emit 24 at midnight
-  // Offset = (same wall-clock read as UTC) - (actual instant).
-  const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +hh, +p.minute, +p.second);
-  const offMin = Math.round((asUtc - d.getTime()) / 60000);
-  const sign = offMin >= 0 ? '+' : '-';
-  const abs = Math.abs(offMin);
-  const oh = String(Math.floor(abs / 60)).padStart(2, '0');
-  const om = String(abs % 60).padStart(2, '0');
-  return `${p.year}-${p.month}-${p.day}T${hh}:${p.minute}:${p.second}${sign}${oh}:${om}`;
+  return `${p.year}-${p.month}-${p.day}T${hh}:${p.minute}:${p.second}`;
 }
 
 /**

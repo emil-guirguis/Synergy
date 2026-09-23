@@ -15,9 +15,9 @@
     "deploy:site": "node scripts/deploy-to-site.mjs"
   },
   "dependencies": {
-    "@meterit/framework-frontend": "file:../../framework/frontend",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
+    "@meterit/framework-frontend": "file:../../framework/frontend",
     "@mui/icons-material": "^5.18.0",
     "@mui/material": "^5.18.0",
     "apexcharts": "^5.10.4",

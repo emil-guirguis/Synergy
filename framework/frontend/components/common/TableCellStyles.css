@@ -192,6 +192,17 @@
   color: var(--color-text-secondary);
 }
 
+.table-cell__chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.table-cell__chip-list .badge {
+  border-radius: 9999px;
+  padding: 0.25rem 0.625rem;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .badge {

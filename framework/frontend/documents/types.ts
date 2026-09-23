@@ -21,6 +21,7 @@ export const DOC_TYPES = [
   'waiver',
   'panelboard_schedules',
   'build_of_materials',
+  'credit_memo',
   'other',
 ] as const;
 export type DocType = (typeof DOC_TYPES)[number];
@@ -43,6 +44,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   waiver: 'Waiver',
   panelboard_schedules: 'Panelboard Schedules',
   build_of_materials: 'Build of Materials',
+  credit_memo: 'Credit Memo',
   other: 'Other',
 };
 

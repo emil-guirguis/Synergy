@@ -6,19 +6,20 @@ import {
 } from './qbxml';
 
 describe('qbxml.toQbLocal', () => {
-  it('renders a UTC instant as Pacific wall-clock with offset (DST)', () => {
-    // 2026-09-01T19:52:00Z = 12:52 PDT (UTC-7).
-    expect(toQbLocal('2026-09-01T19:52:00.000Z')).toBe('2026-09-01T12:52:00-07:00');
+  it('renders a UTC instant as bare Pacific wall-clock (DST), no offset suffix', () => {
+    // 2026-09-01T19:52:00Z = 12:52 PDT (UTC-7). QB does not honor an appended
+    // offset on an incoming filter value — see toQbLocal's doc comment.
+    expect(toQbLocal('2026-09-01T19:52:00.000Z')).toBe('2026-09-01T12:52:00');
   });
 
-  it('uses the standard-time offset in winter', () => {
+  it('uses the standard-time wall-clock in winter', () => {
     // 2026-01-15T20:00:00Z = 12:00 PST (UTC-8).
-    expect(toQbLocal('2026-01-15T20:00:00.000Z')).toBe('2026-01-15T12:00:00-08:00');
+    expect(toQbLocal('2026-01-15T20:00:00.000Z')).toBe('2026-01-15T12:00:00');
   });
 
   it('accepts a Date and an explicit zone', () => {
     expect(toQbLocal(new Date('2026-09-01T19:52:00Z'), 'America/New_York'))
-      .toBe('2026-09-01T15:52:00-04:00');
+      .toBe('2026-09-01T15:52:00');
   });
 });
 

@@ -39,10 +39,6 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ShareIcon from '@mui/icons-material/Share';
 import IosShareIcon from '@mui/icons-material/IosShare';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import FacebookIcon from '@mui/icons-material/Facebook';
-import TwitterIcon from '@mui/icons-material/Twitter';
-import LinkedInIcon from '@mui/icons-material/LinkedIn';
-import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import EmailIcon from '@mui/icons-material/Email';
 import {
   listDocsTree,
@@ -341,16 +337,12 @@ export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean 
     closeShare();
   }
 
-  function onSocialShare(network: 'facebook' | 'twitter' | 'linkedin' | 'whatsapp' | 'email') {
+  function onSocialShare(network: 'email') {
     if (!shareUrl) return;
     const encodedUrl = encodeURIComponent(shareUrl);
     const name = sharePath ? sharePath.split('/').pop() || '' : '';
     const text = encodeURIComponent(name);
     const links: Record<typeof network, string> = {
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
-      twitter: `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${text}`,
-      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
-      whatsapp: `https://wa.me/?text=${text}%20${encodedUrl}`,
       email: `mailto:?subject=${text}&body=${encodedUrl}`,
     };
     if (network === 'email') {
@@ -672,31 +664,6 @@ export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean 
             <EmailIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText>Email</ListItemText>
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={() => onSocialShare('facebook')} disabled={!shareUrl}>
-          <ListItemIcon>
-            <FacebookIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Facebook</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={() => onSocialShare('twitter')} disabled={!shareUrl}>
-          <ListItemIcon>
-            <TwitterIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Twitter / X</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={() => onSocialShare('linkedin')} disabled={!shareUrl}>
-          <ListItemIcon>
-            <LinkedInIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>LinkedIn</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={() => onSocialShare('whatsapp')} disabled={!shareUrl}>
-          <ListItemIcon>
-            <WhatsAppIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>WhatsApp</ListItemText>
         </MenuItem>
         <Divider />
         <MenuItem onClick={onCopyShareLink} disabled={!shareUrl}>

@@ -4,6 +4,7 @@ import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { OrderLinesGrid } from '../orders/OrderLinesGrid';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
+import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useInvoices } from './invoiceStore';
 import { useAuth } from '../../hooks/useAuth';
 import type { Invoice } from '../../types/invoice';
@@ -66,6 +67,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) =
               entityId={freshInvoice?.id}
               api={documentsApi}
               storage={documentsStorage}
+              classifyDocType={classifyDocTypeForFile}
               // Reps get invoices view-only, attachments included.
               readOnly={!isAdmin}
             />

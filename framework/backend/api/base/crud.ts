@@ -51,6 +51,10 @@ export interface FindAllOptions {
   where?: Record<string, any>;
   /** Per-field partial (ILIKE) matches, AND'ed together — unlike `search`, which OR's one term across multiple fields. */
   whereLike?: Record<string, string>;
+  /** Per-field >=/<= bounds (e.g. a date range), AND'ed together with everything else. Either bound may be omitted. */
+  whereRange?: Record<string, { gte?: any; lte?: any }>;
+  /** Per-field <> exclusion (e.g. hiding total=0 placeholder rows), AND'ed together with everything else. */
+  whereNot?: Record<string, any>;
   orderBy?: string;
   sortBy?: string;
   sortOrder?: string;
@@ -191,6 +195,8 @@ export function createCrud(execQuery: ExecQueryFn) {
       searchFields = ['name'],
       where = {},
       whereLike = {},
+      whereRange = {},
+      whereNot = {},
       sortBy,
       sortOrder,
       joins = '',
@@ -202,6 +208,8 @@ export function createCrud(execQuery: ExecQueryFn) {
     for (const f of searchFields) assertIdent(f, 'searchField');
     for (const k of Object.keys(where)) assertIdent(k, 'whereKey');
     for (const k of Object.keys(whereLike)) assertIdent(k, 'whereLikeKey');
+    for (const k of Object.keys(whereRange)) assertIdent(k, 'whereRangeKey');
+    for (const k of Object.keys(whereNot)) assertIdent(k, 'whereNotKey');
 
     // Build orderBy: explicit orderBy > sortBy param > primary key fallback
     let orderBy = opts.orderBy;
@@ -260,6 +268,28 @@ export function createCrud(execQuery: ExecQueryFn) {
       paramIdx++;
     }
 
+    // Per-field >=/<= bounds — e.g. a date range drill-down link. Either
+    // bound may be omitted; omitting both makes the entry a no-op.
+    for (const [key, bounds] of Object.entries(whereRange)) {
+      if (bounds.gte !== undefined && bounds.gte !== null) {
+        whereClauses.push(`"${table}".${key} >= $${paramIdx}`);
+        params.push(bounds.gte);
+        paramIdx++;
+      }
+      if (bounds.lte !== undefined && bounds.lte !== null) {
+        whereClauses.push(`"${table}".${key} <= $${paramIdx}`);
+        params.push(bounds.lte);
+        paramIdx++;
+      }
+    }
+
+    // Per-field exclusion — e.g. hiding total=0 placeholder rows.
+    for (const [key, value] of Object.entries(whereNot)) {
+      whereClauses.push(`"${table}".${key} <> $${paramIdx}`);
+      params.push(value);
+      paramIdx++;
+    }
+
     const whereSQL = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     // Count query
@@ -290,12 +320,13 @@ export function createCrud(execQuery: ExecQueryFn) {
     primaryKey: string,
     id: any,
     tenantId?: number,
-    selectFields?: string
+    selectFields?: string,
+    joins: string = ''
   ) {
     assertIdent(table, 'table');
     assertIdent(primaryKey, 'primaryKey');
     const cols = selectFields || `"${table}".*`;
-    let sql = `SELECT ${cols} FROM "${table}" WHERE ${primaryKey} = $1`;
+    let sql = `SELECT ${cols} FROM "${table}" ${joins} WHERE ${primaryKey} = $1`.replace(/\s+/g, ' ').trim();
     const params: any[] = [id];
 
     if (tenantId !== undefined) {

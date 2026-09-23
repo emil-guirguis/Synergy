@@ -29,8 +29,11 @@ export const invoicesSchema = defineSchema({
           fields: [
             field({ name: 'ref_number', order: 1, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice #', dbField: 'ref_number', maxLength: 50, showOn: ['list', 'form'] }),
             field({ name: 'customer_name', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer', dbField: 'customer_name', maxLength: 500, showOn: ['list', 'form'] }),
-            field({ name: 'txn_date', order: 3, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Invoice Date', dbField: 'txn_date', showOn: ['list', 'form'] }),
-            field({ name: 'due_date', order: 4, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Due Date', dbField: 'due_date', showOn: ['list', 'form'] }),
+            // Not a qb_invoice column — joined from public.qb_sales_rep via
+            // sales_rep_list_id (see invoices.ts's findAll/findById joins).
+            field({ name: 'sales_rep', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep', maxLength: 200, showOn: ['list', 'form'] }),
+            field({ name: 'txn_date', order: 4, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Invoice Date', dbField: 'txn_date', showOn: ['list', 'form'] }),
+            field({ name: 'due_date', order: 5, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Due Date', dbField: 'due_date', showOn: ['list', 'form'] }),
           ],
         }),
         section({
