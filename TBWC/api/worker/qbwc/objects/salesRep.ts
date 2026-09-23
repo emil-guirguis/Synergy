@@ -12,6 +12,7 @@ import {
   qbxmlDoc, tag, blocks, statusCode, qbTimeToTs, refField, listModifiedFilter,
 } from '../qbxml';
 import { pullSince } from '../incremental';
+import { logDetail } from '../syncLog';
 
 const REQUEST_ID = 'salesrep';
 
@@ -19,7 +20,12 @@ async function buildRequest(env: Env): Promise<string> {
   const fromMod = listModifiedFilter(await pullSince(env, 'SalesRep', 'qb_sales_rep', 'qbwc.salesrep.since'));
   const rq =
     `    <SalesRepQueryRq requestID="${REQUEST_ID}">\n` +
-    `      <ActiveStatus>ActiveOnly</ActiveStatus>${fromMod}\n` +
+    // All (not ActiveOnly): combined with incremental FromModifiedDate,
+    // ActiveOnly would exclude a rep the moment they go inactive (they no
+    // longer match ActiveOnly), so that transition could never be re-fetched
+    // and the stale is_active=true row would stick around forever. Same fix
+    // as customer.ts — downstream consumers already filter on is_active.
+    `      <ActiveStatus>All</ActiveStatus>${fromMod}\n` +
     `    </SalesRepQueryRq>`;
   return qbxmlDoc(rq);
 }
@@ -32,12 +38,19 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
     return;
   }
 
+  // Must read before the upserts below: once they land, MAX(time_modified) on
+  // qb_sales_rep reflects this response's own rows, so a same-call re-check
+  // would no longer see the pre-pull state that made this a full pull.
+  const wasFullPull = (await pullSince(env, 'SalesRep', 'qb_sales_rep', 'qbwc.salesrep.since')) === null;
+
   const rets = blocks(xml, 'SalesRepRet');
   console.log(`[QBWC] SalesRepQueryRs: ${rets.length} sales rep(s)`);
+  const seenListIds: string[] = [];
 
   for (const ret of rets) {
     const listId = tag(ret, 'ListID');
     if (!listId) continue;
+    seenListIds.push(listId);
     const editSeq = tag(ret, 'EditSequence') ?? null;
     const timeModified = qbTimeToTs(tag(ret, 'TimeModified'));
     const entity = refField(ret, 'SalesRepEntityRef');
@@ -82,6 +95,33 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       [listId, editSeq],
       'qbwc.salesrep.map'
     );
+  }
+
+  // Reconcile stale rows on an unfiltered pull (full reload, or first-ever run):
+  // an ActiveStatus=All query with no FromModifiedDate is a complete answer of
+  // every SalesRep list entry QB currently has, not iterated/paged (no
+  // MaxReturned on this request), so anything already in our table but absent
+  // here has been removed from QB's list entirely. QB's own ListDeletedQueryRq
+  // (listDeleted.ts) only reports deletions from the last ~90 days, so it can
+  // miss older ones — this catches those on the next full reload instead of
+  // leaving them permanently stuck showing as active.
+  if (wasFullPull) {
+    const stale = await execQuery(
+      env,
+      `UPDATE public.qb_sales_rep SET qb_deleted_at = CURRENT_TIMESTAMP
+       WHERE qb_deleted_at IS NULL AND list_id <> ALL($1)
+       RETURNING list_id, name`,
+      [seenListIds],
+      'qbwc.salesrep.reconcile'
+    );
+    if (stale.rows.length > 0) {
+      await logDetail(
+        env, 'SalesRep', 'pull',
+        `Removed ${stale.rows.length} sales rep(s) no longer in QuickBooks (full reload reconcile)`,
+        null, stale.rows.length
+      );
+      console.log(`[QBWC] SalesRep reconcile: ${stale.rows.length} row(s) marked deleted (not in full pull)`);
+    }
   }
 }
 

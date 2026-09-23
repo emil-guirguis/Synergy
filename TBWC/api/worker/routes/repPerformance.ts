@@ -41,7 +41,7 @@ app.get('/summary', async (c) => {
   const [reps, booked, collected, commission, margin, collectionDays, years] = await Promise.all([
     execQuery(
       c.env,
-      `SELECT list_id, name FROM public.qb_sales_rep WHERE is_active = true ORDER BY name`,
+      `SELECT list_id, name FROM public.qb_sales_rep WHERE is_active = true AND qb_deleted_at IS NULL ORDER BY name`,
       [],
       'repPerformance.reps'
     ),

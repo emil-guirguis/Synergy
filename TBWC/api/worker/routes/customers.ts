@@ -25,9 +25,12 @@ const LIKE_FIELDS = likeFieldsFromSchema(customersSchema);
 app.get('/', async (c) => {
   const q = c.req.query();
   const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS });
+  // Hidden by default (CustomerQueryRq pulls ActiveStatus=All so counts match QB
+  // and status flips keep syncing — see qbwc/objects/customer.ts). fieldWhere's
+  // own is_active (an explicit ?is_active=false filter) still wins.
   // Deleted in QB (see qbwc/objects/listDeleted.ts) — the row is kept so history
   // that points at it still resolves, but it must never list as a live customer.
-  const where: Record<string, any> = { ...fieldWhere, qb_deleted_at: null };
+  const where: Record<string, any> = { is_active: true, ...fieldWhere, qb_deleted_at: null };
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
