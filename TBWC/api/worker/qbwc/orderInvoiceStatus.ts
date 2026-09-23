@@ -34,10 +34,18 @@
  * Desc: a no-Item "continuation" line right after it (e.g. FREIGHT "Shipped
  * via UPS Ground. Tracking #:" followed by a bare "1Z2466XW..." line). So
  * this pulls each FREIGHT line's Desc plus every no-Item line trailing it (up
- * to the next real Item line), not just the FREIGHT line's own Desc — see
- * migration 051. A handful of invoices carry more than one FREIGHT line (e.g.
- * two packages shipped separately) — all Descs are joined with '; ', in
- * line-item order.
+ * to the next real Item line) — see migration 051. A handful of invoices
+ * carry more than one FREIGHT line (e.g. two packages shipped separately) —
+ * all Descs are joined with '; ', in line-item order.
+ *
+ * Some invoices skip a FREIGHT item entirely (freight folded into a lump-sum
+ * "LOT" line instead) but still end the invoice with the same no-Item
+ * shipping note — e.g. invoice 10377: last real item is "LOT", followed by a
+ * blank line and then "Tracking:\n1ZK6B2...". So the trailing block at the
+ * very end of the invoice counts too, whatever item started it, as long as
+ * it actually has a continuation line (more than one row) — a last item with
+ * no trailing no-Item line is just that item's own description, not a note.
+ * See migration 052.
  */
 import { Env, execQuery } from '../db';
 
@@ -73,20 +81,38 @@ export async function refreshOrderInvoiceStatus(env: Env): Promise<void> {
                 -- (block_id bumps on every Item line), so a FREIGHT line's
                 -- trailing no-Item tracking-number line(s) land in the same
                 -- block as the FREIGHT line itself instead of being dropped.
-                (SELECT string_agg(blk.block_desc, '; ' ORDER BY blk.block_id)
-                   FROM (
-                     SELECT lo.block_id,
-                            bool_or(lo.item ILIKE 'FREIGHT') AS is_freight,
-                            string_agg(lo.desc, '; ' ORDER BY lo.ord) FILTER (WHERE lo.desc IS NOT NULL) AS block_desc
-                       FROM (
-                         SELECT t.ord, t.line->>'item' AS item, t.line->>'desc' AS desc,
-                                SUM(CASE WHEN t.line->>'item' IS NOT NULL THEN 1 ELSE 0 END)
-                                  OVER (ORDER BY t.ord) AS block_id
-                           FROM jsonb_array_elements(i.lines) WITH ORDINALITY AS t(line, ord)
-                       ) lo
-                      GROUP BY lo.block_id
-                   ) blk
-                  WHERE blk.is_freight) AS shipping_tracking
+                -- The trailing block at the end of the invoice counts too
+                -- (freight sometimes has no FREIGHT item of its own — see
+                -- migration 052) as long as it's more than just that one
+                -- item's own line, i.e. it really has a continuation.
+                (WITH lo AS (
+                   SELECT t.ord, t.line->>'item' AS item, t.line->>'desc' AS desc,
+                          SUM(CASE WHEN t.line->>'item' IS NOT NULL THEN 1 ELSE 0 END)
+                            OVER (ORDER BY t.ord) AS block_id
+                     FROM jsonb_array_elements(i.lines) WITH ORDINALITY AS t(line, ord)
+                 ), blk AS (
+                   SELECT lo.block_id,
+                          bool_or(lo.item ILIKE 'FREIGHT') AS is_freight,
+                          count(*) AS row_count,
+                          -- Whole block (including the block-starting item's own
+                          -- Desc) when it's a FREIGHT line — that Desc IS the
+                          -- shipping note there. Otherwise (the freight-less
+                          -- trailing-block case) only the no-Item continuation
+                          -- lines — the item's own Desc there is just its normal
+                          -- product description, not a shipping note.
+                          string_agg(lo.desc, '; ' ORDER BY lo.ord) FILTER (WHERE lo.desc IS NOT NULL AND lo.desc <> '') AS full_desc,
+                          string_agg(lo.desc, '; ' ORDER BY lo.ord) FILTER (WHERE lo.item IS NULL AND lo.desc IS NOT NULL AND lo.desc <> '') AS continuation_desc
+                     FROM lo
+                    GROUP BY lo.block_id
+                 )
+                 SELECT string_agg(
+                          CASE WHEN blk.is_freight THEN blk.full_desc ELSE blk.continuation_desc END,
+                          '; ' ORDER BY blk.block_id)
+                   FROM blk
+                  WHERE blk.is_freight
+                     OR (blk.row_count > 1 AND blk.continuation_desc IS NOT NULL
+                         AND blk.block_id = (SELECT max(block_id) FROM blk))
+                ) AS shipping_tracking
          FROM public.qb_invoice i
          WHERE i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', so2.txn_id))
            AND i.qb_deleted_at IS NULL
