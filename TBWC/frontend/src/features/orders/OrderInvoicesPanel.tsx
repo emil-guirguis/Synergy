@@ -309,7 +309,8 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
   // Denormalised from the linked invoice's FREIGHT line (orderInvoiceStatus.ts)
   // — QB's own order total never includes it, so without this row "Order
   // total" silently undercounts "Invoiced" by the freight amount whenever one
-  // was added at invoicing time. Hidden when 0/null, same as OrderLinesGrid.
+  // was added at invoicing time. Always shown, even at $0, so its absence
+  // reads as "no freight charged" rather than looking like a missing row.
   const freight = Number(order?.freight) || 0;
 
   // The row we already hold, shaped as the Invoice the form expects. InvoiceForm
@@ -567,7 +568,7 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
             {showMoney ? (
               <>
                 <SummaryLine label={`Order total (${lineCount} items)`} value={currency(Number(order?.total) || 0)} />
-                {!!freight && <SummaryLine label="Freight" value={currency(freight)} />}
+                <SummaryLine label="Freight" value={currency(freight)} />
                 <SummaryLine label="Commission" value={currency(commission)} />
                 <SummaryLine label="Invoiced" value={currency(invoiced)} />
                 <SummaryLine label="Paid" value={currency(paid)} />

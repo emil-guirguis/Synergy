@@ -9,7 +9,8 @@ interface OrderLinesGridProps {
    *  Doesn't include freight (QB never puts it on the sales order — see `freight`). */
   total?: number | string | null;
   /** Denormalised from the linked invoice's FREIGHT line item (see orderInvoiceStatus.ts).
-   *  Added into Grand Total since `total` above never includes it. Null/0 hides the row. */
+   *  Added into Grand Total since `total` above never includes it. Always shown as its
+   *  own row, even at $0, so its absence doesn't read as a missing row. */
   freight?: number | string | null;
   /** Reps see what was ordered, not what it cost: drops Rate, Amount and the totals footer. */
   hideAmounts?: boolean;
@@ -64,7 +65,7 @@ export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total, fr
 
   const footerRows = hideAmounts ? [] : [
     { label: 'Subtotal', value: subtotal, variant: 'body2' as const },
-    ...(freightAmount ? [{ label: 'Freight', value: freightAmount, variant: 'body2' as const }] : []),
+    { label: 'Freight', value: freightAmount, variant: 'body2' as const },
     { label: 'Total', value: grandTotal, variant: 'subtitle2' as const },
   ];
 
