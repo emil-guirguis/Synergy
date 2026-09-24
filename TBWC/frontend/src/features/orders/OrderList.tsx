@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { BaseList } from '@meterit/framework-frontend/components/list';
 import type { ColumnDefinition } from '@meterit/framework-frontend/components/list';
@@ -45,6 +45,83 @@ const STATUS_CHIPS_COLUMN: ColumnDefinition<Order> = {
   responsive: 'always-show',
   render: (_value, row) => renderChipList(getOrderStatusChips(row)),
 };
+
+// Keys mirror CHIP_CONDITIONS in api/worker/routes/orders.ts — the backend
+// reproduces getOrderStatusChips' predicates so filtering happens before
+// pagination rather than only hiding/showing rows already on the current page.
+const CHIP_OPTIONS: { value: string; label: string }[] = [
+  { value: 'notInvoiced', label: 'Not Invoiced' },
+  { value: 'notShipped', label: 'Not Shipped' },
+];
+
+/** Small checkbox-popover filter — show only orders carrying at least one of
+ *  the checked Status chips ("All" — nothing checked — shows every order).
+ *  Bespoke to this page rather than the schema-driven filter system: that
+ *  system's select filters are single-value, and its declared 'multiselect'
+ *  type has no renderer yet (see useBaseList.tsx renderFilters). */
+function ChipFilter({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  const toggle = (chip: string) => {
+    onChange(value.includes(chip) ? value.filter((c) => c !== chip) : [...value, chip]);
+  };
+
+  const summary = value.length === 0
+    ? 'All Status'
+    : value.map((v) => CHIP_OPTIONS.find((o) => o.value === v)?.label || v).join(', ');
+
+  return (
+    <div className="list__filter-item" style={{ position: 'relative' }} ref={rootRef}>
+      <button
+        type="button"
+        className="form-control"
+        style={{ textAlign: 'left', cursor: 'pointer' }}
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        {summary}
+      </button>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            zIndex: 10,
+            background: 'var(--color-surface, #fff)',
+            border: '1px solid var(--color-border, #e0e0e0)',
+            borderRadius: 6,
+            padding: '0.5rem',
+            minWidth: '100%',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+            <input type="checkbox" checked={value.length === 0} onChange={() => onChange([])} />
+            All
+          </label>
+          {CHIP_OPTIONS.map((opt) => (
+            <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+              <input type="checkbox" checked={value.includes(opt.value)} onChange={() => toggle(opt.value)} />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Schema's default boolean-column render is a Yes/No pill; the order list wants
 // a literal checkbox glyph instead for these flag columns.
@@ -263,7 +340,17 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     <div className="order-list">
       <BaseList
         title="Orders"
-        filters={baseList.renderFilters()}
+        filters={
+          <>
+            {baseList.renderFilters()}
+            {canSeeAll && (
+              <ChipFilter
+                value={baseList.filters.chips || []}
+                onChange={(next) => baseList.setFilter('chips', next)}
+              />
+            )}
+          </>
+        }
         defaultFiltersOpen={baseList.filtersExpandedByDefault}
         onCreateClick={baseList.canCreate ? baseList.handleCreate : undefined}
         data={baseList.data}

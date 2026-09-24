@@ -196,6 +196,25 @@
   color: var(--color-text-primary, #333333);
 }
 
+/* Always the trailing control in the filter panel — order:-1 above pins the
+   search box first the same way, both regardless of DOM position, since a
+   page's own filter controls (e.g. OrderList's status-chip dropdown) render
+   after this whole panel's Fragment and would otherwise land after it. */
+.base-list__filters-panel .list__clear-filters-btn {
+  order: 999;
+}
+
+.base-list__filters-panel .btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.base-list__filters-panel .btn:disabled:hover {
+  background-color: var(--color-surface, #ffffff);
+  border-color: var(--color-border, #e0e0e0);
+  color: var(--color-text-primary, #333333);
+}
+
 @media (max-width: 768px) {
   .base-list__toolbar {
     padding: 0.75rem 1rem;

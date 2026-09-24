@@ -55,6 +55,14 @@ export interface FindAllOptions {
   whereRange?: Record<string, { gte?: any; lte?: any }>;
   /** Per-field <> exclusion (e.g. hiding total=0 placeholder rows), AND'ed together with everything else. */
   whereNot?: Record<string, any>;
+  /**
+   * Caller-trusted raw SQL predicates, AND'ed together with everything else.
+   * Use `?` as a positional placeholder in `sql` — each is substituted (in
+   * order) with the matching entry from `params`. For conditions the
+   * where/whereLike/whereRange/whereNot shapes can't express (OR logic,
+   * column-to-column comparisons, etc). Never build `sql` from request input.
+   */
+  whereRaw?: { sql: string; params?: any[] }[];
   orderBy?: string;
   sortBy?: string;
   sortOrder?: string;
@@ -197,6 +205,7 @@ export function createCrud(execQuery: ExecQueryFn) {
       whereLike = {},
       whereRange = {},
       whereNot = {},
+      whereRaw = [],
       sortBy,
       sortOrder,
       joins = '',
@@ -288,6 +297,17 @@ export function createCrud(execQuery: ExecQueryFn) {
       whereClauses.push(`"${table}".${key} <> $${paramIdx}`);
       params.push(value);
       paramIdx++;
+    }
+
+    // Caller-trusted raw predicates — `?` placeholders substituted in order.
+    for (const { sql, params: clauseParams = [] } of whereRaw) {
+      let text = sql;
+      for (const value of clauseParams) {
+        text = text.replace('?', `$${paramIdx}`);
+        params.push(value);
+        paramIdx++;
+      }
+      whereClauses.push(text);
     }
 
     const whereSQL = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';

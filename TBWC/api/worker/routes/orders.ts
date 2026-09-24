@@ -97,6 +97,16 @@ const WRITABLE = new Set([
   // in orderSchema) — excluded here so a PUT can never write it.
 ]);
 
+// Mirrors OrderList.tsx's getOrderStatusChips() exactly — the frontend's
+// "Not Invoiced"/"Not Shipped" status chips aren't real columns, so the
+// list's chip filter needs the same predicate reproduced server-side (chips
+// are computed per-row client-side, but filtering by them has to happen
+// before pagination). Keep both in sync if the chip rules change.
+const CHIP_CONDITIONS: Record<string, string> = {
+  notInvoiced: `"${TABLE}".actual_ship_date IS NOT NULL AND "${TABLE}".invoice_number IS NULL`,
+  notShipped: `"${TABLE}".actual_ship_date IS NULL AND "${TABLE}".ship_no_later_than IS NOT NULL AND "${TABLE}".ship_no_later_than < CURRENT_DATE`,
+};
+
 /** True when this caller's order:read grant is limited to their own rows. */
 function ownOnly(c: any): boolean {
   return c.get('permissions')?.scopeOf('order:read') === 'own';
@@ -111,7 +121,7 @@ app.get('/', requirePermission('order:read'), async (c) => {
   // special-casing — is_fully_invoiced is a real column with its own
   // schema-generated filter, so ?is_fully_invoiced=false already flows through
   // whereFromQuery normally.
-  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped', 'excludeZeroTotal'] });
+  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped', 'excludeZeroTotal', 'chips'] });
   // Field filters first, then the security scope — sales_rep_list_id always
   // wins so a rep can't widen their own visibility via a crafted query param.
   // A rep with no linked qb_sales_rep (sales_rep_list_id null) gets a value
@@ -129,6 +139,15 @@ app.get('/', requirePermission('order:read'), async (c) => {
   // Zero-total rows are packing slips (QB records these as zero-total invoices —
   // see OrderInvoicesPanel.tsx), not real open orders, so exclude them here.
   if (q.excludeZeroTotal === 'true') where.total = { gt: 0 };
+  // chips=notInvoiced,notShipped — show only rows carrying ANY selected chip
+  // (OR'd together in one clause); no chips selected means no filter (all rows).
+  const selectedChips = (q.chips || '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => CHIP_CONDITIONS[t]);
+  const whereRaw = selectedChips.length > 0
+    ? [{ sql: `(${selectedChips.map((t) => `(${CHIP_CONDITIONS[t]})`).join(' OR ')})` }]
+    : [];
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
@@ -142,6 +161,7 @@ app.get('/', requirePermission('order:read'), async (c) => {
     sortOrder: q.sortOrder || DEFAULT_SORT_ORDER,
     where,
     whereLike,
+    whereRaw,
     // Orders on/before 2022-06-30 are always excluded from the list.
     whereRange: { txn_date: { gte: '2022-07-01' } },
     selectFields: SELECT_WITH_REP_NAME,

@@ -140,6 +140,41 @@ describe('crud.findAll', () => {
     ).rejects.toThrow(/Invalid whereNotKey/);
   });
 
+  it("substitutes a whereRaw clause's ? placeholders in order, AND'ed with other conditions", async () => {
+    responses = [{ rows: [{ total: '0' }] }, { rows: [] }];
+    await findAll(ENV, {
+      table: 'qb_sales_order', primaryKey: 'qb_sales_order_id',
+      where: { qb_deleted_at: null },
+      whereRaw: [{ sql: '"qb_sales_order".total > ? AND "qb_sales_order".total < ?', params: [0, 1000] }],
+    });
+    expect(calls[0].sql).toContain('"qb_sales_order".qb_deleted_at IS NULL');
+    expect(calls[0].sql).toContain('"qb_sales_order".total > $1 AND "qb_sales_order".total < $2');
+    expect(calls[0].params).toEqual([0, 1000]);
+  });
+
+  it('allows a whereRaw clause with no params (a fixed boolean predicate)', async () => {
+    responses = [{ rows: [{ total: '0' }] }, { rows: [] }];
+    await findAll(ENV, {
+      table: 'qb_sales_order', primaryKey: 'qb_sales_order_id',
+      whereRaw: [{ sql: '"qb_sales_order".actual_ship_date IS NOT NULL' }],
+    });
+    expect(calls[0].sql).toContain('WHERE "qb_sales_order".actual_ship_date IS NOT NULL');
+    expect(calls[0].params).toEqual([]);
+  });
+
+  it("ANDs multiple whereRaw entries together", async () => {
+    responses = [{ rows: [{ total: '0' }] }, { rows: [] }];
+    await findAll(ENV, {
+      table: 'qb_sales_order', primaryKey: 'qb_sales_order_id',
+      whereRaw: [
+        { sql: 'NOT (a IS NULL AND b = ?)', params: ['x'] },
+        { sql: 'NOT (c > ?)', params: [5] },
+      ],
+    });
+    expect(calls[0].sql).toContain('WHERE NOT (a IS NULL AND b = $1) AND NOT (c > $2)');
+    expect(calls[0].params).toEqual(['x', 5]);
+  });
+
   it('rejects an injection attempt in the table name', async () => {
     await expect(
       findAll(ENV, { table: 'users; DROP TABLE users', primaryKey: 'id' })

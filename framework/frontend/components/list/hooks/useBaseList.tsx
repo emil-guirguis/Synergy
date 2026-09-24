@@ -598,16 +598,19 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
           return <React.Fragment key={filter.key} />;
         })}
 
-        {(searchQuery || Object.keys(buildFilters(filters)).length > 0) && (
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={clearFilters}
-            aria-label="Clear all filters"
-          >
-            Clear Filters
-          </button>
-        )}
+        {/* order: 999 (BaseList.css) keeps this last in the filter panel even
+            when a page appends its own filter controls after renderFilters()
+            (e.g. OrderList's status-chip dropdown) — DOM position alone can't
+            guarantee that, since those controls render outside this Fragment. */}
+        <button
+          type="button"
+          className="btn btn-secondary list__clear-filters-btn"
+          onClick={clearFilters}
+          disabled={!searchQuery && Object.keys(buildFilters(filters)).length === 0}
+          aria-label="Clear all filters"
+        >
+          Clear Filters
+        </button>
       </>
     );
   }, [

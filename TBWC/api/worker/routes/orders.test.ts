@@ -131,6 +131,56 @@ describe('GET / scoping', () => {
   });
 });
 
+describe('GET / status chip filter', () => {
+  it('no chips param -> no whereRaw filter (all rows)', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.whereRaw).toEqual([]);
+  });
+
+  it('a single chip becomes one whereRaw clause for that chip only', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/?chips=notInvoiced');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.whereRaw).toHaveLength(1);
+    expect(opts.whereRaw[0].sql).toContain('actual_ship_date IS NOT NULL');
+    expect(opts.whereRaw[0].sql).toContain('invoice_number IS NULL');
+    expect(opts.whereRaw[0].sql).not.toContain('OR');
+  });
+
+  it("multiple chips are OR'd together in a single clause (match any)", async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/?chips=notInvoiced,notShipped');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.whereRaw).toHaveLength(1);
+    expect(opts.whereRaw[0].sql).toMatch(/^\(\(.*\) OR \(.*\)\)$/);
+  });
+
+  it('ignores an unrecognized chip value', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/?chips=bogus');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.whereRaw).toEqual([]);
+  });
+
+  it('is kept out of the generic field-filter where (chips is a reserved key)', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/?chips=notInvoiced');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.where).toEqual({ qb_deleted_at: null });
+  });
+});
+
+describe('GET / default date floor', () => {
+  it('excludes orders on/before 2022-06-30 by default', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.whereRange).toEqual({ txn_date: { gte: '2022-07-01' } });
+  });
+});
+
 describe('GET /:id', () => {
   it('404s a soft-deleted order', async () => {
     mockFindById.mockResolvedValue({ qb_sales_order_id: 1, qb_deleted_at: '2026-01-01' });
