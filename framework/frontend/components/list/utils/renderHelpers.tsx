@@ -17,6 +17,8 @@ export type BadgeVariant = 'primary' | 'secondary' | 'neutral' | 'success' | 'wa
 export interface ChipItem {
   label: string;
   variant?: BadgeVariant;
+  /** Tooltip text shown on hover (styled CSS tooltip, see TableCellStyles.css). */
+  title?: string;
 }
 
 /**
@@ -200,7 +202,11 @@ export const renderChipList = (
   return (
     <div className="table-cell__chip-list">
       {chips.map((chip) => (
-        <span key={chip.label} className={`badge badge--${chip.variant || 'neutral'}`}>
+        <span
+          key={chip.label}
+          className={`badge badge--${chip.variant || 'neutral'}`}
+          data-tooltip={chip.title || undefined}
+        >
           {chip.label}
         </span>
       ))}

@@ -24,7 +24,11 @@ function getOrderStatusChips(order: Order): ChipItem[] {
 
   // Ship Date (actual_ship_date) entered but no invoice number yet.
   if (order.actual_ship_date && !order.invoice_number) {
-    chips.push({ label: 'Not Invoiced', variant: 'warning' });
+    chips.push({
+      label: 'Not Invoiced',
+      variant: 'warning',
+      title: 'Ship Date is set but no Invoices created yet.',
+    });
   }
 
   // Ship NLT date passed and Ship Date still not filled in.
@@ -33,7 +37,13 @@ function getOrderStatusChips(order: Order): ChipItem[] {
     // constructing Date objects just to compare calendar days.
     const today = new Date().toISOString().slice(0, 10);
     const nlt = order.ship_no_later_than?.slice(0, 10);
-    if (nlt && nlt < today) chips.push({ label: 'Not Shipped', variant: 'error' });
+    if (nlt && nlt < today) {
+      chips.push({
+        label: 'Not Shipped',
+        variant: 'error',
+        title: 'Ship NLT date has passed and Ship Date has not been entered yet.',
+      });
+    }
   }
 
   return chips;

@@ -203,6 +203,68 @@
   padding: 0.25rem 0.625rem;
 }
 
+/* Custom tooltip for chips — replaces the native title attribute (browser
+   default is black-on-white/yellow and unstyleable) with a themed bubble. */
+.table-cell__chip-list .badge[data-tooltip] {
+  position: relative;
+  cursor: default;
+}
+
+.table-cell__chip-list .badge[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  width: max-content;
+  max-width: 220px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.table-cell__chip-list .badge[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1e293b;
+  margin-bottom: 3px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.table-cell__chip-list .badge[data-tooltip]:hover::after,
+.table-cell__chip-list .badge[data-tooltip]:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+.table-cell__chip-list .badge--warning[data-tooltip]::after {
+  border-top: 2px solid var(--color-warning-dark, #92400e);
+}
+
+.table-cell__chip-list .badge--error[data-tooltip]::after {
+  border-top: 2px solid var(--color-error-dark, #d84315);
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .badge {
