@@ -7,6 +7,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import TuneIcon from '@mui/icons-material/Tune';
 import SecurityIcon from '@mui/icons-material/Security';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
+import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import {
   SettingsPageShell,
   OrgInfoForm,
@@ -20,8 +21,11 @@ import {
   getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
 } from '../services/rolesService';
 import DocumentImportPanel from '../features/documentImport/DocumentImportPanel';
+import CommissionImportPanel from '../features/commissionImport/CommissionImportPanel';
 
 const ROLES_TAB_ENABLED = true;
+// Built, tested against real data, not yet ready to expose — see conversation.
+const COMMISSION_IMPORT_TAB_ENABLED = false;
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
@@ -178,6 +182,13 @@ export default function SettingsPage() {
           description: 'Bulk-attach a folder of scanned documents to their orders by PO number.',
           content: <DocumentImportPanel />,
         },
+        ...(COMMISSION_IMPORT_TAB_ENABLED ? [{
+          key: 'commissionImport',
+          label: 'Commission Import',
+          icon: <RequestQuoteIcon fontSize="small" />,
+          description: 'Bulk-update order financials from the build-list workbook, by TBWC#/PO#. Newest year tab wins on a duplicate.',
+          content: <CommissionImportPanel />,
+        }] : []),
         ...(ROLES_TAB_ENABLED ? [{
           key: 'roles',
           label: 'Roles',

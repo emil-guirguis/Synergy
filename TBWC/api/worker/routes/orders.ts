@@ -174,6 +174,34 @@ app.get('/', requirePermission('order:read'), async (c) => {
   return c.json({ success: true, data: { items, total: result.pagination.total } });
 });
 
+// Full match-key + TBWC-owned-field snapshot of every non-deleted order, in one
+// query — used by Settings > Commission Import (see CommissionImportPanel.tsx)
+// to resolve each spreadsheet row's TBWC#/PO# to an order and diff the sheet's
+// values against what's already stored, without one request per row (the
+// build-list workbook runs into the thousands of rows). No txn_date cutoff
+// (unlike GET /) since an older order should still be resolvable for backfill.
+// Registered ABOVE GET /:id deliberately — both are single path segments, and
+// Hono matches these in registration order, so this being below /:id meant
+// "import-index" itself was captured as :id (bigint cast error, 500).
+app.get('/import-index', requirePermission('order:write'), async (c) => {
+  const user = c.get('user');
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT qb_sales_order_id, ref_number, po_number, customer_name, sales_rep_list_id,
+            build_notes, job_name, expedite, jay, ship_no_later_than,
+            sold_for, d_net_cost, overage, commission, project_admin_fee, trade_ally_fee,
+            commission_total, notes
+       FROM public.${TABLE}
+      WHERE qb_deleted_at IS NULL`,
+    [],
+    'orders.importIndex'
+  );
+  const visible = ownOnly(c)
+    ? rows.filter((r: any) => user.sales_rep_list_id && r.sales_rep_list_id === user.sales_rep_list_id)
+    : rows;
+  return c.json({ success: true, data: redactRows(c.get('permissions'), 'order:read', visible) });
+});
+
 app.get('/:id', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const row = await findById(c.env, TABLE, PK, c.req.param('id'), undefined, SELECT_WITH_REP_NAME);

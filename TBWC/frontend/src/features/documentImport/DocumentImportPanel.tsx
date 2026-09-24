@@ -260,7 +260,7 @@ function nextKey(): string {
 
 const STATUS_LABELS: Record<EntryStatus, string> = {
   ready: 'ready to import',
-  already: 'already attached',
+  already: 'already imported',
   'no-match': 'no matching order',
   'too-large': 'too large',
   success: 'imported',
@@ -442,17 +442,23 @@ export const DocumentImportPanel: React.FC = () => {
             : '';
 
           if (!existingByOrder.has(entityId)) {
+            // Covers a file attached any way — manually through the order's own
+            // Documents tab (DocumentsGrid: +Add, Add Folder, drag-drop, paste)
+            // or by a previous run of this importer — not just prior import
+            // runs. Case/whitespace-normalized so a manually-typed name that
+            // differs only by that still counts as the same file, rather than
+            // getting re-attached as a duplicate.
             const existing: DocumentRecord[] = await documentsApi.list('order', entityId).catch(() => []);
-            existingByOrder.set(entityId, new Set(existing.map((d) => d.file_name)));
+            existingByOrder.set(entityId, new Set(existing.map((d) => d.file_name.trim().toLowerCase())));
           }
           const already = existingByOrder.get(entityId)!;
 
           for (const file of group.files) {
             const docType = classify(file.name, po, leafFolder, matchedPo);
-            if (already.has(file.name)) {
+            if (already.has(file.name.trim().toLowerCase())) {
               rows.push({
                 key: nextKey(), customer, po, fileName: file.name, path: file.webkitRelativePath || file.name, docType,
-                status: 'already', message: `Already attached to order ${order.ref_number ?? entityId}.${viaVariantNote}${mismatchNote}${duplicateNote}`, order, file,
+                status: 'already', message: `Already imported to order ${order.ref_number ?? entityId} (found in its Documents tab already — not re-attached).${viaVariantNote}${mismatchNote}${duplicateNote}`, order, file,
               });
             } else if (file.size > MAX_FILE_SIZE) {
               rows.push({

@@ -3,7 +3,7 @@ import { createEntityStore, createEntityHook } from '../../store/slices/createEn
 import { withApiCall } from '../../store/middleware/apiMiddleware';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { API_BASE_URL } from '../../config/api';
-import type { Order, LinkedInvoice, LinkedPayment } from '../../types/order';
+import type { Order, LinkedInvoice, LinkedPayment, OrderImportIndexRow } from '../../types/order';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -60,6 +60,13 @@ export const ordersService = {
       await fetch(`${API_BASE_URL}/orders/lookup-po/${encodeURIComponent(po)}`, { headers: authHeaders() })
     );
     return (data.data || []) as Pick<Order, 'qb_sales_order_id' | 'ref_number' | 'customer_name' | 'po_number'>[];
+  },
+  /** Bulk match-key + TBWC-owned-field snapshot of every order — used by
+   *  Settings > Commission Import to resolve sheet rows and diff in bulk
+   *  instead of one lookup per row. */
+  async importIndex() {
+    const data = await parse(await fetch(`${API_BASE_URL}/orders/import-index`, { headers: authHeaders() }));
+    return (data.data || []) as OrderImportIndexRow[];
   },
   // Orders exist only via the QuickBooks sync — the list disables create/delete;
   // these throw defensively if ever called.

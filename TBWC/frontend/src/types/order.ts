@@ -60,12 +60,37 @@ export interface Order {
   /** Manually entered actual ship date (migration 035) — distinct from
    *  shipped_date, which is QB's own synced <ShipDate>. */
   actual_ship_date: string | null;
+  sold_for: number | null;
   d_net_cost: number | null;
   overage: number | null;
+  commission: number | null;
   project_admin_fee: number | null;
   commission_total: number | null;
   trade_ally_fee: number | null;
   rep_id: string | null;
+}
+
+/** One row from GET /orders/import-index (Settings > Commission Import) — match
+ *  keys plus every TBWC-owned field the sheet can update, in one bulk fetch. */
+export interface OrderImportIndexRow {
+  qb_sales_order_id: number;
+  ref_number: string | null;
+  po_number: string | null;
+  customer_name: string | null;
+  sales_rep_list_id: string | null;
+  build_notes: string | null;
+  job_name: string | null;
+  expedite: boolean;
+  jay: boolean;
+  ship_no_later_than: string | null;
+  sold_for: number | null;
+  d_net_cost: number | null;
+  overage: number | null;
+  commission: number | null;
+  project_admin_fee: number | null;
+  trade_ally_fee: number | null;
+  commission_total: number | null;
+  notes: string | null;
 }
 
 /** One invoice QB has linked to an order (GET /api/orders/:id/invoices).
