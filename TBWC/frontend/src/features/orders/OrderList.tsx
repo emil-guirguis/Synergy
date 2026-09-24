@@ -22,25 +22,18 @@ import type { Order } from '../../types/order';
 function getOrderStatusChips(order: Order): ChipItem[] {
   const chips: ChipItem[] = [];
 
-  // Mirrors orders.ts's missingPo filter (po_number IS NULL).
-  if (!order.po_number) chips.push({ label: 'No PO', variant: 'warning' });
-
-  if (order.shipped_date) {
-    chips.push({ label: 'Shipped', variant: 'success' });
-    // Mirrors OrderAlertsCards' notInvoiced rule — zero-total orders are
-    // packing slips (see LinkedInvoice doc comment) and never get invoiced.
-    if (!order.is_fully_invoiced && Number(order.total) > 0) {
-      chips.push({ label: 'No Invoice', variant: 'error' });
-    }
+  // Ship Date (actual_ship_date) entered but no invoice number yet.
+  if (order.actual_ship_date && !order.invoice_number) {
+    chips.push({ label: 'Not Invoiced', variant: 'warning' });
   }
-  if (!order.shipped_date) {
+
+  // Ship NLT date passed and Ship Date still not filled in.
+  if (!order.actual_ship_date) {
     // Date-only string compare (YYYY-MM-DD prefix) — avoids TZ drift from
     // constructing Date objects just to compare calendar days.
     const today = new Date().toISOString().slice(0, 10);
-    const due = order.ship_no_later_than?.slice(0, 10);
-    if (due && due < today) chips.push({ label: 'Overdue', variant: 'error' });
-    else if (due && due === today) chips.push({ label: 'Due Today', variant: 'warning' });
-    else chips.push({ label: 'Not Shipped', variant: 'neutral' });
+    const nlt = order.ship_no_later_than?.slice(0, 10);
+    if (nlt && nlt < today) chips.push({ label: 'Not Shipped', variant: 'error' });
   }
 
   return chips;

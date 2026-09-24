@@ -1,15 +1,15 @@
 import { Box, Typography } from '@mui/material';
-import DocumentsTab from '../features/repPortal/DocumentsTab';
+import ResourcesTab from '../features/repPortal/ResourcesTab';
 import { useAuth } from '../hooks/useAuth';
 
-export default function DocumentsPage() {
+export default function ResourcesPage() {
   const { isAdmin } = useAuth();
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" fontWeight={700} gutterBottom>
-        Documents
+        Resources
       </Typography>
-      <DocumentsTab readOnly={!isAdmin} />
+      <ResourcesTab readOnly={!isAdmin} />
     </Box>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * Documents tab — admin document manager.
+ * Resources tab — admin document manager.
  *
  * Ports the tbwc-site "Rep Portal" admin card (admin.html): upload PDFs into a
  * category / subcategory tree in the shared private `rep-docs` bucket, browse the
@@ -148,7 +148,7 @@ function cleanSeg(s: string): string {
 
 type Msg = { text: string; severity: 'success' | 'error' } | null;
 
-export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean }) {
+export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean }) {
   const [tree, setTree] = useState<DocTree>({ rootFiles: [], categories: [] });
   const [docTypes, setDocTypes] = useState<Record<string, DocType>>({});
   const [loading, setLoading] = useState(true);
@@ -188,7 +188,7 @@ export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean 
       setTree(t);
       setDocTypes(dt);
     } catch (e) {
-      setMsg({ text: (e as Error).message || 'Could not load documents', severity: 'error' });
+      setMsg({ text: (e as Error).message || 'Could not load resources', severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -297,7 +297,7 @@ export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean 
       const url = await signedViewUrl(path);
       window.open(url, '_blank', 'noopener');
     } catch (e) {
-      setMsg({ text: (e as Error).message || 'Could not open document', severity: 'error' });
+      setMsg({ text: (e as Error).message || 'Could not open resource', severity: 'error' });
     }
   }
 
@@ -448,8 +448,8 @@ export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean 
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {readOnly
-          ? 'Documents shared with reps. Click the download icon to save a file.'
-          : 'Documents reps see in their portal. Upload into a category (and optional subcategory).'}
+          ? 'Resources shared with reps. Click the download icon to save a file.'
+          : 'Resources reps see in their portal. Upload into a category (and optional subcategory).'}
       </Typography>
 
       {msg && (
@@ -582,8 +582,8 @@ export default function DocumentsTab({ readOnly = false }: { readOnly?: boolean 
         ) : filteredTree.rootFiles.length === 0 && filteredTree.categories.length === 0 ? (
           <Typography sx={{ p: 2 }} color="text.secondary">
             {tree.rootFiles.length === 0 && tree.categories.length === 0
-              ? 'No documents yet.'
-              : `No ${TYPE_LABEL[typeSel].toLowerCase()} documents.`}
+              ? 'No resources yet.'
+              : `No ${TYPE_LABEL[typeSel].toLowerCase()} resources.`}
           </Typography>
         ) : (
           <>

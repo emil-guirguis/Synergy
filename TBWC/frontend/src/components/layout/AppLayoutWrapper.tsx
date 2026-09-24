@@ -21,7 +21,7 @@ registerIconMappings({
   orderToCash: 'sync_alt',
   invoiceTotals: 'trending_up',
   repPortal: 'folder_shared',
-  documents: 'folder_shared',
+  resources: 'folder_shared',
   qbSync: 'sync',
   settings: 'settings',
 });
@@ -49,7 +49,7 @@ const NAV: MenuItem[] = [
   { id: 'customers', label: 'Customers', icon: 'customers', path: '/customers', requiredPermission: 'admin' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory', path: '/inventory', requiredPermission: 'admin' },
   { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'admin' },
-  { id: 'documents', label: 'Documents', icon: 'documents', path: '/documents' },
+  { id: 'resources', label: 'Resources', icon: 'resources', path: '/resources' },
   { id: 'qbSync', label: 'QB Sync', icon: 'qbSync', path: '/qb-sync', requiredPermission: 'admin' },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'admin' },
   { id: 'settings', label: 'Settings', icon: 'settings', path: '/settings', requiredPermission: 'admin' },
@@ -58,7 +58,7 @@ const NAV: MenuItem[] = [
 function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/quotes')) return 'Quotes';
   if (pathname.startsWith('/orders')) return 'Orders';
-  if (pathname.startsWith('/documents')) return 'Documents';
+  if (pathname.startsWith('/resources')) return 'Resources';
   if (pathname.startsWith('/ai-chat')) return 'Ask AI';
   if (pathname.startsWith('/inventory')) return 'Inventory';
   if (pathname.startsWith('/customers')) return 'Customers';

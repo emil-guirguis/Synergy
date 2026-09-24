@@ -46,19 +46,11 @@ export const orderSchema = defineSchema({
             field({ name: 'po_number', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'PO #', description: 'Purchase Order Number', dbField: 'po_number', maxLength: 100, showOn: ['list', 'form'] }),
             field({ name: 'job_name', order: 8, type: FieldTypes.STRING, default: '', required: false, label: 'Job Name', dbField: 'job_name', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'sales_rep', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep', maxLength: 200, showOn: ['list', 'form'] }),
-            field({ name: 'invoice_number', order: 5, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice #', dbField: 'invoice_number', maxLength: 100, showOn: ['list', 'form'] }),
+            field({ name: 'invoice_number', order: 5, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice #', dbField: 'invoice_number', maxLength: 100, showOn: ['list'] }),
             // List-only: QB's own is_fully_invoiced flag is a column (and filter)
-            // in the list, while the form carries the finer-grained
-            // invoice_status (Not Invoiced/Partially/Invoiced/Paid/Closed),
-            // which already says everything the checkbox did.
+            // in the list, while invoice_status carries the finer-grained state
+            // (Not Invoiced/Partially/Invoiced/Paid/Closed).
             // field({ name: 'is_fully_invoiced', order: 6, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Invoiced', dbField: 'is_fully_invoiced', showOn: ['list'] }),
-            field({ name: 'invoice_status', order: 7, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Invoice Status', dbField: 'invoice_status', maxLength: 100, showOn: ['form'], enumValues: ['Not Invoiced', 'Partially Invoiced', 'Invoiced', 'Paid', 'Closed'] }),
-            // True when a zero-total invoice (this company's QB stand-in for a
-            // packing slip — see OrderInvoicesPanel.tsx) is linked, independent
-            // of invoice_number/invoice_status above which only ever reflect a
-            // real (>0) invoice. Not list-shown: the order list surfaces this
-            // as a "Packing Slip" status pill instead of a raw column.
-            field({ name: 'has_packing_slip', order: 9, type: FieldTypes.BOOLEAN, default: false, required: false, readOnly: true, label: 'Packing Slip', dbField: 'has_packing_slip', showOn: [] }),
             // No QB source (checked, see migration 014/020) — manually entered,
             // TBWC-owned like build_notes; survives every re-sync.
           ],
