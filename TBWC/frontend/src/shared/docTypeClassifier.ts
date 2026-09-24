@@ -61,7 +61,8 @@ const CREDIT_MEMO_RE = /\b(?:cr|credit)\s*memo\b/i;
  *   15. contains "email", or ends in ".msg"                -> email
  *   16. contains "packing slip"                            -> packing_slip
  *   17. starts with "PO", or contains "purchase order"     -> order
- *   18. otherwise                                          -> other
+ *   18. starts with "TBWC" and ends in ".xlsx"             -> load_schedule
+ *   19. otherwise                                          -> other
  *
  * Callers that have no PO/order context to layer a further rule on top
  * (e.g. DocumentsGrid's drag-and-drop) should treat a remaining 'other'
@@ -87,6 +88,7 @@ export function classifyDocType(fileName: string, leafFolder = ''): DocType {
   if (/email/i.test(fileName) || /\.msg$/i.test(fileName)) return 'email';
   if (/packing\s*slip/i.test(fileName)) return 'packing_slip';
   if (/^po/i.test(fileName) || /purchase\s*order/i.test(fileName)) return 'order';
+  if (/^tbwc\b/i.test(fileName.trim()) && /\.xlsx$/i.test(fileName)) return 'load_schedule';
   return 'other';
 }
 
