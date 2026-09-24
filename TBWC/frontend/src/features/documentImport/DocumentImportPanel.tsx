@@ -33,6 +33,24 @@
  * again. Files already attached (matched by file name on the target order)
  * are detected at plan time and marked 'already', so a rerun only retries
  * what actually failed.
+ *
+ * "Choose folder…" uses the File System Access API (showDirectoryPicker,
+ * requested with readwrite access up front) when the browser has it — Chrome/
+ * Edge only, not Firefox/Safari, which silently fall back to a plain
+ * <input webkitdirectory> picker instead (read-only). Only the modern picker
+ * hands back real FileSystemFileHandles, stashed in fileHandlesRef per File —
+ * without one, a row just never gets its local copy touched.
+ *
+ * Start Import both uploads AND deletes: the instant a file's upload+metadata
+ * write succeeds (or, for a row already attached from before, immediately —
+ * see the 'already' cleanup pass after the main upload loop), its local copy
+ * is deleted for real via handle.remove() — permanent, no Recycle Bin, no
+ * undo. A failed upload is never deleted. Deleting a file that leaves its
+ * folder empty removes that folder too, cascading up through any ancestor
+ * that's now empty as well — see removeEmptyAncestors — stopping at the first
+ * folder that still holds something, or at the picked root itself. There's no
+ * separate delete step or confirmation beyond Start Import itself; the
+ * planning table (and its downloadable CSV) is the review step for that.
  */
 import React, { useMemo, useRef, useState } from 'react';
 import {
@@ -96,6 +114,8 @@ interface Entry {
   message: string;
   order: OrderMatch | null;
   file: File;
+  /** Set once "Delete imported files from disk" has actually removed this file locally. */
+  deletedFromDisk?: boolean;
 }
 
 interface FolderGroup {
@@ -194,6 +214,77 @@ function customerMatches(orderCustomerName: string | null, folderCustomer: strin
   const b = normalize(folderCustomer);
   if (!a || !b) return false;
   return a === b || a.includes(b) || b.includes(a);
+}
+
+/**
+ * Recurse a directory handle from showDirectoryPicker(), producing the same
+ * File[] shape <input webkitdirectory> would (webkitRelativePath prefixed
+ * with the picked folder's own name) so the rest of the plan-building logic
+ * doesn't need to know which picker was used. Each File's real
+ * FileSystemFileHandle is recorded in fileHandleMap — the only way any of
+ * this gets deleted later, since a plain File never carries one. fileParentMap
+ * and dirParentMap record the directory tree shape (a directory handle never
+ * exposes its own parent) so a delete can walk back up and remove any folder
+ * that becomes empty as a result — dirParentMap maps the picked root itself
+ * to null, capping the walk there rather than reaching outside picked scope.
+ * `any`-typed throughout: the File System Access API isn't in this project's
+ * DOM lib, same as the framework's own DocumentsGrid.tsx drop handling.
+ */
+async function collectFilesFromDirectory(
+  dirHandle: any,
+  rootName: string,
+  fileHandleMap: WeakMap<File, any>,
+  fileParentMap: WeakMap<File, any>,
+  dirParentMap: Map<any, any | null>,
+  parentHandle: any | null,
+  prefix = ''
+): Promise<File[]> {
+  dirParentMap.set(dirHandle, parentHandle);
+  const out: File[] = [];
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (name.startsWith('.') || IGNORED_FILE_NAMES.has(name)) continue;
+    if (handle.kind === 'file') {
+      const file: File = await handle.getFile();
+      try {
+        Object.defineProperty(file, 'webkitRelativePath', { value: `${rootName}/${prefix}${name}`, configurable: true });
+      } catch {
+        // Can't shadow the getter in this engine — folder-context rules just see no path.
+      }
+      fileHandleMap.set(file, handle);
+      fileParentMap.set(file, dirHandle);
+      out.push(file);
+    } else if (handle.kind === 'directory') {
+      out.push(...(await collectFilesFromDirectory(handle, rootName, fileHandleMap, fileParentMap, dirParentMap, dirHandle, `${prefix}${name}/`)));
+    }
+  }
+  return out;
+}
+
+/**
+ * After a file delete empties its parent directory, remove that directory too
+ * and keep walking up through ancestors while each in turn becomes empty —
+ * stops at the first non-empty directory, or at the picked root (dirParentMap
+ * has it mapped to null). A directory still holding anything at all (including
+ * a file this importer skipped, e.g. Thumbs.db) is left alone, live-checked
+ * via `.values()` rather than trusted from a stale count.
+ */
+async function removeEmptyAncestors(dirHandle: any, dirParentMap: Map<any, any | null>): Promise<void> {
+  let current = dirHandle;
+  while (current) {
+    let hasEntries = false;
+    for await (const _entry of current.values()) {
+      hasEntries = true;
+      break;
+    }
+    if (hasEntries) return;
+    const parent = dirParentMap.get(current) ?? null;
+    try {
+      await current.remove();
+    } catch {
+      return; // not actually empty (race), or no permission — stop; don't touch its ancestor either
+    }
+    current = parent;
+  }
 }
 
 /** Group files by their exact containing folder (everything but the filename). */
@@ -315,6 +406,18 @@ export const DocumentImportPanel: React.FC = () => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<EntryStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<DocType | 'all'>('all');
+  // Populated only by the File System Access picker (collectFilesFromDirectory) —
+  // a File from the legacy <input webkitdirectory> fallback has no entry, so
+  // delete is simply unavailable for those (hasFsAccess stays false for that pick).
+  const fileHandlesRef = useRef(new WeakMap<File, any>());
+  // Directory tree shape, for cascading an empty-folder cleanup after a delete
+  // — see removeEmptyAncestors. fileParentDirRef: a File's immediate parent
+  // directory handle. dirParentRef: that directory's own parent (the picked
+  // root maps to null, capping the walk there).
+  const fileParentDirRef = useRef(new WeakMap<File, any>());
+  const dirParentRef = useRef(new Map<any, any | null>());
+  const [hasFsAccess, setHasFsAccess] = useState(false);
+  const [deletedCount, setDeletedCount] = useState(0);
 
   React.useEffect(() => {
     const el = folderInputRef.current;
@@ -489,22 +592,76 @@ export const DocumentImportPanel: React.FC = () => {
     setPlanning(false);
   };
 
+  // Legacy fallback (Firefox/Safari, or any browser without showDirectoryPicker) —
+  // read-only, so delete-from-disk stays unavailable for this pick.
   const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
     if (!picked.length) return;
+    setHasFsAccess(false);
+    setDeletedCount(0);
     const usable = picked.filter((f) => !f.name.startsWith('.') && !IGNORED_FILE_NAMES.has(f.name));
     void buildPlan(usable);
   };
 
+  /** "Choose folder…" — File System Access API when available, so files can later be deleted for real. */
+  const pickFolder = async () => {
+    const showDirectoryPicker = (window as any).showDirectoryPicker;
+    if (typeof showDirectoryPicker !== 'function') {
+      folderInputRef.current?.click();
+      return;
+    }
+    let dirHandle: any;
+    try {
+      dirHandle = await showDirectoryPicker({ mode: 'readwrite' });
+    } catch {
+      return; // cancelled, or readwrite denied — nothing to do
+    }
+    setDeletedCount(0);
+    const fileHandleMap = new WeakMap<File, any>();
+    const fileParentMap = new WeakMap<File, any>();
+    const dirParentMap = new Map<any, any | null>();
+    const files = await collectFilesFromDirectory(dirHandle, dirHandle.name, fileHandleMap, fileParentMap, dirParentMap, null);
+    fileHandlesRef.current = fileHandleMap;
+    fileParentDirRef.current = fileParentMap;
+    dirParentRef.current = dirParentMap;
+    setHasFsAccess(true);
+    void buildPlan(files);
+  };
+
   const runImport = async () => {
     const ready = entries.filter((e) => e.status === 'ready');
-    if (!ready.length) return;
+    // 'already' rows never go through the upload loop below (nothing to
+    // upload — they're already attached), but Start Import is still the one
+    // explicit "yes, handle this folder now" click, so their local copies get
+    // cleaned up here too rather than needing a second action for them.
+    const alreadyToClean = hasFsAccess ? entries.filter((e) => e.status === 'already' && !e.deletedFromDisk && fileHandlesRef.current.get(e.file)) : [];
+    if (!ready.length && !alreadyToClean.length) return;
     setRunning(true);
     setProgress({ done: 0, total: ready.length });
+    let deleted = 0;
 
     const setEntry = (key: string, patch: Partial<Entry>) =>
       setEntries((es) => es.map((e) => (e.key === key ? { ...e, ...patch } : e)));
+
+    // Real, permanent local delete (no Recycle Bin) — only ever reached for a
+    // row this run just confirmed imported. Left alone entirely for a browser
+    // without the File System Access API (hasFsAccess false, no handle to use).
+    const deleteLocalIfPossible = async (entry: Entry) => {
+      const handle = fileHandlesRef.current.get(entry.file);
+      if (!handle) return;
+      try {
+        await handle.remove();
+        deleted++;
+        setEntry(entry.key, { deletedFromDisk: true });
+        // The file is gone — if that emptied its folder, remove the folder
+        // too, cascading up through any ancestor that's now empty as well.
+        const parentDir = fileParentDirRef.current.get(entry.file);
+        if (parentDir) await removeEmptyAncestors(parentDir, dirParentRef.current);
+      } catch {
+        // Leave it — nothing more to do; the file just stays for manual cleanup.
+      }
+    };
 
     await runPool(ready, CONCURRENCY, async (entry) => {
       const order = entry.order!;
@@ -526,6 +683,7 @@ export const DocumentImportPanel: React.FC = () => {
           throw metaError;
         }
         setEntry(entry.key, { status: 'success', message: `Attached to order ${order.ref_number ?? entityId}.` });
+        await deleteLocalIfPossible(entry);
       } catch (err: any) {
         setEntry(entry.key, { status: 'failed', message: err?.message || 'Upload failed.' });
       } finally {
@@ -533,8 +691,13 @@ export const DocumentImportPanel: React.FC = () => {
       }
     });
 
+    for (const entry of alreadyToClean) {
+      await deleteLocalIfPossible(entry);
+    }
+
     setProgress(null);
     setRunning(false);
+    setDeletedCount(deleted);
   };
 
   const readyCount = entries.filter((e) => e.status === 'ready').length;
@@ -544,7 +707,9 @@ export const DocumentImportPanel: React.FC = () => {
   const tooLargeCount = entries.filter((e) => e.status === 'too-large').length;
   const blockedCount = noMatchCount + tooLargeCount;
   const alreadyCount = entries.filter((e) => e.status === 'already').length;
-  const hasRun = successCount + failedCount > 0;
+  // 'already' rows this run could still clean up locally, even with nothing new to upload.
+  const cleanableAlreadyCount = hasFsAccess ? entries.filter((e) => e.status === 'already' && !e.deletedFromDisk && fileHandlesRef.current.get(e.file)).length : 0;
+  const hasRun = successCount + failedCount > 0 || deletedCount > 0;
 
   const statusCounts: Record<EntryStatus, number> = {
     ready: readyCount, already: alreadyCount, 'no-match': noMatchCount,
@@ -568,11 +733,16 @@ export const DocumentImportPanel: React.FC = () => {
         <Button
           variant="outlined"
           startIcon={<DriveFolderUploadIcon />}
-          onClick={() => folderInputRef.current?.click()}
+          onClick={() => void pickFolder()}
           disabled={planning || running}
         >
           Choose folder…
         </Button>
+        {!planning && !hasFsAccess && typeof (window as any).showDirectoryPicker !== 'function' && (
+          <Typography variant="caption" color="text.secondary">
+            This browser can't delete files from disk — use Chrome or Edge for that.
+          </Typography>
+        )}
         {planning && (
           <Typography variant="body2" color="text.secondary">
             Resolving folder {planningProgress?.done ?? 0} of {planningProgress?.total ?? 0}
@@ -582,7 +752,7 @@ export const DocumentImportPanel: React.FC = () => {
         {!planning && entries.length > 0 && (
           <Typography variant="body2" color="text.secondary">
             {entries.length} file(s) planned — {readyCount} ready, {alreadyCount} already attached, {blockedCount} need
-            fixing{hasRun ? `, ${successCount} imported, ${failedCount} failed` : ''}.
+            fixing{hasRun ? `, ${successCount} imported, ${failedCount} failed${hasFsAccess ? `, ${deletedCount} deleted from disk` : ''}` : ''}.
           </Typography>
         )}
         {!planning && entries.length > 0 && (
@@ -591,9 +761,13 @@ export const DocumentImportPanel: React.FC = () => {
           </Button>
         )}
         {!planning && entries.length > 0 && (
-          <Button variant="contained" onClick={() => void runImport()} disabled={running || readyCount === 0}>
-            {running ? 'Importing…' : `Start Import (${readyCount})`}
-          </Button>
+          <Tooltip title={hasFsAccess ? "Also deletes each file's local copy from disk once it's confirmed imported — permanent, no Recycle Bin." : ''}>
+            <span>
+              <Button variant="contained" onClick={() => void runImport()} disabled={running || (readyCount === 0 && cleanableAlreadyCount === 0)}>
+                {running ? 'Importing…' : readyCount > 0 ? `Start Import (${readyCount})` : 'Clean Up Local Files'}
+              </Button>
+            </span>
+          </Tooltip>
         )}
       </Box>
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
@@ -662,7 +836,7 @@ export const DocumentImportPanel: React.FC = () => {
 
       {hasRun && !running && (
         <Alert severity={failedCount ? 'warning' : 'success'} sx={{ mb: 2 }}>
-          {successCount} imported, {failedCount} failed.
+          {successCount} imported, {failedCount} failed{hasFsAccess ? `, ${deletedCount} deleted from disk` : ''}.
           {failedCount ? ' Fix the failures, then choose the same folder again — everything already attached is left alone.' : ''}
         </Alert>
       )}
@@ -718,6 +892,9 @@ export const DocumentImportPanel: React.FC = () => {
                   <TableCell>{entry.docType ? DOC_TYPE_LABELS[entry.docType] : ''}</TableCell>
                   <TableCell>
                     <Chip label={STATUS_LABELS[entry.status]} color={STATUS_COLOR[entry.status]} variant="outlined" />
+                    {entry.deletedFromDisk && (
+                      <Chip label="deleted from disk" size="small" variant="outlined" sx={{ ml: 0.5 }} />
+                    )}
                   </TableCell>
                   <TableCell>{entry.order ? (entry.order.ref_number || entry.order.qb_sales_order_id) : ''}</TableCell>
                   <TableCell>{entry.message}</TableCell>
