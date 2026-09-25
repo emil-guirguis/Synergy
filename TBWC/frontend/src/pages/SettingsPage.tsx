@@ -24,8 +24,7 @@ import DocumentImportPanel from '../features/documentImport/DocumentImportPanel'
 import CommissionImportPanel from '../features/commissionImport/CommissionImportPanel';
 
 const ROLES_TAB_ENABLED = true;
-// Built, tested against real data, not yet ready to expose — see conversation.
-const COMMISSION_IMPORT_TAB_ENABLED = false;
+const COMMISSION_IMPORT_TAB_ENABLED = true;
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
