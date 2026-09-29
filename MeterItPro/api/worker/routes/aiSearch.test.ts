@@ -267,5 +267,82 @@ describe('AI Search Routes', () => {
       const body = await res.json();
       expect(body.data.executionTime).toBeGreaterThanOrEqual(0);
     });
+
+    it('includes tenant_document metadata matches alongside devices', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [] } as any) // no devices
+        .mockResolvedValueOnce({
+          rows: [
+            { id: 7, description: 'Panel spec', fileName: 'panel-cutsheet.pdf', fileType: 'application/pdf', fileSize: 1234 },
+            { id: 8, description: null, fileName: 'unrelated.pdf', fileType: 'application/pdf', fileSize: 999 },
+          ],
+        } as any); // tenant_document
+
+      const res = await aiSearchApp.request('/', {
+        method: 'POST',
+        headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'cutsheet', limit: 20, offset: 0 }),
+      }, TEST_ENV);
+
+      const body = await res.json();
+      expect(body.data.results).toHaveLength(1);
+      expect(body.data.results[0]).toMatchObject({ id: 7, name: 'panel-cutsheet.pdf', type: 'document', mimeType: 'application/pdf' });
+      expect(body.data.documentsTotal).toBe(2);
+    });
+
+    it('reports documentsTotal even when nothing matches by name', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [] } as any) // no devices
+        .mockResolvedValueOnce({
+          rows: [{ id: 9, description: null, fileName: 'readme.txt', fileType: 'text/plain', fileSize: 10 }],
+        } as any); // tenant_document
+
+      const res = await aiSearchApp.request('/', {
+        method: 'POST',
+        headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'zzznomatch', limit: 20, offset: 0 }),
+      }, TEST_ENV);
+
+      const body = await res.json();
+      expect(body.data.results).toHaveLength(0);
+      expect(body.data.documentsTotal).toBe(1);
+    });
+  });
+
+  describe('POST /content', () => {
+    it('returns 400 when query is missing', async () => {
+      const res = await aiSearchApp.request('/content', {
+        method: 'POST',
+        headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ limit: 20, offset: 0 }),
+      }, TEST_ENV);
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe('INVALID_QUERY');
+    });
+
+    it('matches a plain-text document by content, decoded straight from the DB blob', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 5, fileName: 'notes.txt', fileType: 'text/plain', fileSize: 40,
+            fileData: Buffer.from('breaker panel needs replacement', 'utf-8').toString('base64'),
+          },
+        ],
+      } as any);
+
+      const res = await aiSearchApp.request('/content', {
+        method: 'POST',
+        headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'breaker', limit: 20, offset: 0 }),
+      }, TEST_ENV);
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data.results).toHaveLength(1);
+      expect(body.data.results[0]).toMatchObject({ id: 5, name: 'notes.txt', type: 'document' });
+      expect(body.data.results[0].snippet).toContain('breaker');
+    });
   });
 });

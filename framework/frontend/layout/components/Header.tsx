@@ -65,6 +65,13 @@ export const Header: React.FC<HeaderProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [isAiAnswering, setIsAiAnswering] = useState(false);
+  // Documents matched by name/type are already in searchResults; documentsTotal
+  // is how many documents exist at all, so "search file contents" can be
+  // offered even when nothing matched by name. Content search is a separate,
+  // slower opt-in call (see handleSearchContent).
+  const [documentsTotal, setDocumentsTotal] = useState(0);
+  const [isSearchingContent, setIsSearchingContent] = useState(false);
+  const [contentSearched, setContentSearched] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -167,6 +174,9 @@ export const Header: React.FC<HeaderProps> = ({
       return;
     }
 
+    setDocumentsTotal(0);
+    setContentSearched(false);
+
     try {
       setIsSearching(true);
 
@@ -202,6 +212,7 @@ export const Header: React.FC<HeaderProps> = ({
         const data = await response.json();
         console.log('✅ [SEARCH] Results received:', data.data?.results?.length || 0, 'items');
         setSearchResults(data.data?.results || []);
+        setDocumentsTotal(data.data?.documentsTotal || 0);
         setShowSearchResults(true);
       } else if (response.status === 401 || response.status === 403) {
         console.error('❌ [SEARCH] Authentication failed:', response.status, response.statusText);
@@ -223,6 +234,50 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const handleSearchContent = async () => {
+    if (!searchQuery.trim() || isSearchingContent) return;
+    const authToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+    if (!authToken) return;
+
+    setIsSearchingContent(true);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch('/api/ai/search/content', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ query: searchQuery }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        const contentResults = data.data?.results || [];
+        // Merge in file-content matches that weren't already found by name/type.
+        setSearchResults((prev) => {
+          const existingIds = new Set(prev.map((r) => `${r.type}:${r.id}`));
+          const merged = [...prev];
+          for (const r of contentResults) {
+            if (!existingIds.has(`${r.type}:${r.id}`)) merged.push(r);
+          }
+          return merged;
+        });
+      } else {
+        console.error('❌ [SEARCH] Content search failed:', response.status, response.statusText);
+      }
+    } catch (error) {
+      console.error('❌ [SEARCH] Content search error:', error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSearchingContent(false);
+      setContentSearched(true);
+    }
+  };
+
   const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchQuery(value);
@@ -231,6 +286,8 @@ export const Header: React.FC<HeaderProps> = ({
       handleSearch(value);
     } else {
       setSearchResults([]);
+      setDocumentsTotal(0);
+      setContentSearched(false);
       setShowSearchResults(false);
     }
   };
@@ -360,28 +417,46 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Search Results Dropdown */}
             {showSearchResults && (searchResults.length > 0 || isAiAnswering || aiResponse) && (
               <div className="search-results-dropdown" role="region" aria-label="Search results">
-                {/* Device / meter quick results */}
+                {/* Device / meter / document quick results */}
                 {searchResults.length > 0 && (
                   <div className="search-results-list">
                     {searchResults.slice(0, 5).map((result) => (
-                      <div key={result.id} className="search-result-item">
-                        <div className="result-icon">
-                          {getIconElement('electric_bolt', 'result-icon')}
-                        </div>
-                        <div className="result-content">
-                          <div className="result-name">{result.name}</div>
-                          <div className="result-meta">
-                            <span className="result-type">{result.type}</span>
-                            <span className="result-location">{result.location}</span>
+                      result.type === 'document' ? (
+                        <div key={`document:${result.id}`} className="search-result-item">
+                          <div className="result-icon">
+                            {getIconElement('description', 'result-icon')}
                           </div>
-                          <div className="result-consumption">
-                            {result.currentConsumption} {result.unit}
+                          <div className="result-content">
+                            <div className="result-name">{result.name}</div>
+                            <div className="result-meta">
+                              {result.docType && <span className="result-type">{result.docType}</span>}
+                              {result.mimeType && <span className="result-location">{result.mimeType}</span>}
+                            </div>
+                            {result.snippet && (
+                              <div className="result-consumption">&hellip;{result.snippet}&hellip;</div>
+                            )}
                           </div>
                         </div>
-                        <div className={`result-status ${result.status}`}>
-                          {result.status}
+                      ) : (
+                        <div key={`device:${result.id}`} className="search-result-item">
+                          <div className="result-icon">
+                            {getIconElement('electric_bolt', 'result-icon')}
+                          </div>
+                          <div className="result-content">
+                            <div className="result-name">{result.name}</div>
+                            <div className="result-meta">
+                              <span className="result-type">{result.type}</span>
+                              <span className="result-location">{result.location}</span>
+                            </div>
+                            <div className="result-consumption">
+                              {result.currentConsumption} {result.unit}
+                            </div>
+                          </div>
+                          <div className={`result-status ${result.status}`}>
+                            {result.status}
+                          </div>
                         </div>
-                      </div>
+                      )
                     ))}
                     {searchResults.length > 5 && (
                       <div className="search-results-footer">
@@ -390,6 +465,24 @@ export const Header: React.FC<HeaderProps> = ({
                         </button>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Content search is slow (downloads + parses each file), so it's
+                    offered only after the fast metadata pass, and only when
+                    documents exist at all. */}
+                {documentsTotal > 0 && !contentSearched && (
+                  <div className="search-results-footer">
+                    <button
+                      type="button"
+                      className="view-all-button"
+                      onClick={handleSearchContent}
+                      disabled={isSearchingContent}
+                    >
+                      {isSearchingContent
+                        ? 'Searching file contents…'
+                        : `Search inside ${documentsTotal} document${documentsTotal === 1 ? '' : 's'}?`}
+                    </button>
                   </div>
                 )}
 
@@ -414,9 +507,28 @@ export const Header: React.FC<HeaderProps> = ({
             {showSearchResults && searchQuery && !isAiAnswering && !aiResponse && searchResults.length === 0 && (
               <div className="search-results-dropdown" role="region" aria-label="Search results">
                 <div className="no-results">
-                  <p>No devices or meters found matching "{searchQuery}"</p>
+                  <p>No matches found for "{searchQuery}"</p>
                   <p className="no-results-hint">Press <kbd>Enter</kbd> to ask the AI</p>
                 </div>
+                {documentsTotal > 0 && !contentSearched && (
+                  <div className="search-results-footer">
+                    <button
+                      type="button"
+                      className="view-all-button"
+                      onClick={handleSearchContent}
+                      disabled={isSearchingContent}
+                    >
+                      {isSearchingContent
+                        ? 'Searching file contents…'
+                        : `Search inside ${documentsTotal} document${documentsTotal === 1 ? '' : 's'}?`}
+                    </button>
+                  </div>
+                )}
+                {contentSearched && searchResults.length === 0 && (
+                  <div className="no-results">
+                    <p className="no-results-hint">No matches in file contents either.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

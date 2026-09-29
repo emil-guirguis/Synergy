@@ -28,6 +28,7 @@ import verifyRoutes from './routes/verify';
 import docTypeRoutes from './routes/docTypes';
 import documentRoutes from './routes/documents';
 import aiChatRoutes from './routes/aiChat';
+import aiSearchRoutes from './routes/aiSearch';
 import { lockStaleReps } from './reverification';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -80,6 +81,7 @@ app.route('/api/doc-types', docTypeRoutes);
 app.route('/api/documents', documentRoutes);
 app.route('/api/qb-sync', qbSyncRoutes);
 app.route('/api/ai/chat', aiChatRoutes);
+app.route('/api/ai/search', aiSearchRoutes);
 // QuickBooks Web Connector SOAP endpoint (no Supabase auth — QBWC is not a browser
 // and authenticates with its own username/password inside the SOAP body).
 app.route('/qbwc', qbwcRoutes);
