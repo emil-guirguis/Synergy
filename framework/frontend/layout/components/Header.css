@@ -81,7 +81,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  width: 250px;
+  width: 320px;
   max-width: 100%;
 }
 
@@ -863,7 +863,7 @@
   }
 
   .search-container {
-    width: 200px;
+    width: 240px;
   }
 
   .app-header__title {

@@ -24,7 +24,7 @@ import OpenAI from 'openai';
 import { Env, execQuery } from '../db';
 import { authenticateToken, requirePermission, AuthVariables } from '../middleware';
 import { runAiChatLoop, AiChatMessage, describeAiChatError } from '@meterit/framework-backend/api/base/aiChat';
-import { searchDocumentsMetadata } from '@meterit/framework-backend/api/base/aiSearch';
+import { searchDocumentsMetadata, searchDocumentsContent } from '@meterit/framework-backend/api/base/aiSearch';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -38,14 +38,15 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     function: {
       name: 'search_orders',
       description:
-        "Search sales orders by customer name, job name, PO number, order ref number, sales rep, or notes/build " +
-        "notes text — use this to find an order when you don't know its exact order number, e.g. by job site or a note. " +
-        "Does NOT search line item text — a serial number, part number, or shipping tracking number lives inside a " +
-        'line\'s description, not these header fields, so use search_order_lines for those instead.',
+        "Search sales orders by customer name, job name, PO number, order ref number, sales rep, ship/bill " +
+        "address, or notes/build notes text — use this to find an order when you don't know its exact order " +
+        'number, e.g. by job site, customer address, or a note. Does NOT search line item text — a serial ' +
+        "number, part number, or shipping tracking number lives inside a line's description, not these header " +
+        'fields, so use search_order_lines for those instead.',
       parameters: {
         type: 'object',
         properties: {
-          text: { type: 'string', description: 'Text to match (substring, case-insensitive) against customer name, job name, PO number, ref number, sales rep, or notes' },
+          text: { type: 'string', description: 'Text to match (substring, case-insensitive) against customer name, job name, PO number, ref number, sales rep, ship/bill address, or notes' },
           limit: { type: 'number', description: 'Maximum number of orders to return (default 20)' },
         },
         required: ['text'],
@@ -137,8 +138,9 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
       name: 'search_documents',
       description:
         'Search uploaded documents (attachments on orders, invoices, inventory items, etc.) by file name, ' +
-        'document type, or mime type — use this when the user asks for a document, file, PDF, photo, or attachment. ' +
-        'Does NOT search inside file contents, only file name/type metadata.',
+        'document type, or mime type — use this when the user asks for a document, file, PDF, photo, or attachment ' +
+        "by its name/type. Only matches file name/type metadata, NOT what's written inside the file — if the user " +
+        'wants text found inside a document\'s contents, use search_document_contents instead.',
       parameters: {
         type: 'object',
         properties: {
@@ -152,15 +154,39 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'search_document_contents',
+      description:
+        'Search INSIDE the text content of uploaded documents (PDF, DOCX, XLSX, plain text) — use this when the ' +
+        'user wants something found in what a file actually says, not just its name or type (e.g. "which document ' +
+        'mentions serial number X", "find the PO that has this note in it", "search the load schedule for panel ' +
+        'A"). Downloads and text-extracts every matching-size document to search, so it is much slower than ' +
+        'search_documents — only use it when the request specifically needs file contents, and prefer ' +
+        'search_documents/search_orders_by_document first when a file name or type alone would answer the question.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text to search for within document contents' },
+          limit: { type: 'number', description: 'Maximum number of matching documents to return (default 10)' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'search_orders_by_document',
       description:
-        'Find orders that have an attached document matching a type or file name — use this for "orders with a ' +
-        '[X] document/attached" questions, e.g. "latest orders with a meter schedule", "orders that have a waiver ' +
-        'on file". Matches against the document\'s type (e.g. load_schedule, panelboard_schedules, cutsheet, waiver, ' +
-        'rma, change_order) or file name, substring/case-insensitive — "meter schedule" matches doc type ' +
-        'load_schedule or a file named "Meter Schedule.pdf" either way. Returns one row per matching order (not per ' +
-        'document), most recently dated order first — use this instead of search_documents when the question is ' +
-        'about which orders have a document, not about the documents themselves.',
+        'Find orders (across ALL customers) that have an attached document matching a type or file name — use ' +
+        'this ONLY for "which orders have a [X] document" questions where no specific customer/order was named, ' +
+        'e.g. "latest orders with a meter schedule", "orders that have a waiver on file". Matches against the ' +
+        "document's type (e.g. load_schedule, panelboard_schedules, cutsheet, waiver, rma, change_order) or file " +
+        'name, substring/case-insensitive — "meter schedule" matches doc type load_schedule or a file named ' +
+        '"Meter Schedule.pdf" either way. Returns one row per matching order (not per document), most recently ' +
+        "dated order first, UNSCOPED to any particular customer — do NOT use this to find a document for a " +
+        "customer/order you already identified (e.g. via search_orders), since the top match here may belong to " +
+        'a completely different customer. For "the [doc type] for [customer/order]" questions, resolve the order ' +
+        'with search_orders first, then use get_order_documents with that order\'s id.',
       parameters: {
         type: 'object',
         properties: {
@@ -168,6 +194,28 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
           limit: { type: 'number', description: 'Maximum number of orders to return (default 5)' },
         },
         required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_order_documents',
+      description:
+        'List the documents actually attached to ONE specific order, given its qb_sales_order_id (from ' +
+        'search_orders or search_orders_by_document). Use this whenever the user asks for a document tied to a ' +
+        'named customer, job, or order (e.g. "packing slip for Main Electric", "load schedule on order 51199") — ' +
+        'resolve the order first with search_orders, then call this with that order\'s id so the result is ' +
+        "guaranteed to belong to the right customer. Optionally narrow by doc type/file name text. Never " +
+        'substitute search_documents or search_orders_by_document for this when a specific customer/order is ' +
+        'already known — those search across every order and can return the wrong customer\'s document.',
+      parameters: {
+        type: 'object',
+        properties: {
+          orderId: { type: 'number', description: "The order's qb_sales_order_id, from a prior search_orders/search_orders_by_document result" },
+          text: { type: 'string', description: 'Optional: text to match against the document type or file name within this order, e.g. "packing slip"' },
+        },
+        required: ['orderId'],
       },
     },
   },
@@ -185,7 +233,8 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
         const result = await execQuery(
           env,
           `SELECT qb_sales_order_id, txn_id, ref_number, customer_name, job_name, po_number, sales_rep,
-                  invoice_number, invoice_status, total, sold_for, txn_date, notes, build_notes
+                  invoice_number, invoice_status, total, sold_for, txn_date, notes, build_notes,
+                  ship_address_block, bill_address_block
            FROM public.qb_sales_order
            WHERE qb_deleted_at IS NULL
              AND (
@@ -196,6 +245,8 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
                OR sales_rep ILIKE '%' || $1 || '%'
                OR notes ILIKE '%' || $1 || '%'
                OR build_notes ILIKE '%' || $1 || '%'
+               OR ship_address_block ILIKE '%' || $1 || '%'
+               OR bill_address_block ILIKE '%' || $1 || '%'
              )
            ORDER BY txn_date DESC NULLS LAST
            LIMIT $2`,
@@ -296,6 +347,14 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
         return JSON.stringify(matches.slice(0, limit));
       }
 
+      case 'search_document_contents': {
+        const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        if (!text) return JSON.stringify({ error: 'text is required' });
+        const limit = Math.min(toolInput.limit ?? 10, 50);
+        const { results } = await searchDocumentsContent(execQuery, env, text);
+        return JSON.stringify(results.slice(0, limit));
+      }
+
       case 'search_orders_by_document': {
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
         if (!text) return JSON.stringify({ error: 'text is required' });
@@ -322,6 +381,31 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
             LIMIT $2`,
           [text, limit],
           'aiChat.search_orders_by_document'
+        );
+        return JSON.stringify(result.rows);
+      }
+
+      case 'get_order_documents': {
+        const orderId = Number(toolInput.orderId);
+        if (!Number.isFinite(orderId)) return JSON.stringify({ error: 'orderId is required' });
+        const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        const result = await execQuery(
+          env,
+          `SELECT o.qb_sales_order_id, o.ref_number, o.customer_name, o.job_name, o.txn_date,
+                  d.doc_type, d.file_name, d.document_id, d.storage_path
+             FROM public.qb_sales_order o
+             JOIN public.document d ON d.entity_id = o.qb_sales_order_id::text AND d.entity_type = 'order'
+            WHERE o.qb_sales_order_id = $1
+              AND o.qb_deleted_at IS NULL
+              AND (
+                $2 = ''
+                OR $2 ILIKE '%' || replace(d.doc_type, '_', ' ') || '%'
+                OR replace(d.doc_type, '_', ' ') ILIKE '%' || $2 || '%'
+                OR d.file_name ILIKE '%' || $2 || '%'
+              )
+            ORDER BY d.document_id DESC`,
+          [orderId, text],
+          'aiChat.get_order_documents'
         );
         return JSON.stringify(result.rows);
       }
@@ -368,7 +452,9 @@ Guidelines:
 - A tracking number, serial number, or part number is line item text, not a header field — go to search_order_lines / search_invoice_lines for these directly. If you search the header tool (search_orders / search_invoices) for one of these and get nothing, ALWAYS try the matching line-item search before telling the user there's no match — do not report "not found" after only a header search.
 - Pricing/product questions ("how much is X", "what does X cost", "do we carry X") are about the product catalog, not an order or invoice — use search_inventory directly. Only fall back to order/invoice line search if search_inventory finds nothing and the user seems to be asking about something on a specific past order/invoice.
 - A request for a document, file, photo, or attachment uses search_documents (file name/type only, not contents) — don't say you have no access to documents.
+- If the user wants something found inside a file's actual contents (not just its name/type), use search_document_contents — you DO have access to read inside PDF/DOCX/XLSX/text files. Don't tell the user you can only search by name/type/MIME type; that's only true of search_documents, not the tool set as a whole.
 - "Which orders have a [X] document" / "latest orders with a [X] attached" is about orders, not documents — use search_orders_by_document, not search_documents. It already sorts most-recent-order-first and returns one row per order.
+- "The [document type] for [customer/job/order]" (a SPECIFIC customer or order was named) is a two-step lookup: resolve the order with search_orders first (customer name, job name, or address all work), then call get_order_documents with that order's qb_sales_order_id. NEVER use search_orders_by_document or search_documents for this — both search across every order regardless of customer, so their top result can easily belong to someone else. Only present a document as matching the customer/order the user asked about if you got it back from get_order_documents for that exact order's id, or you independently confirmed (e.g. via search_orders) that the order it came from is theirs — never assume a search_orders_by_document/search_documents hit is the right customer just because it matched a document type.
 - Only write out details in prose when there's no search result to back it up, or when the user asks a follow-up question about one specific result.
 - If nothing matches, say so plainly rather than inventing results.
 - Today's date: ${new Date().toISOString().split('T')[0]}`;

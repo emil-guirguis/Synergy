@@ -93,7 +93,7 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
         actions: [{ label: 'Open invoice', onClick: () => navigate(`/invoices?openId=${row.qb_invoice_id}`) }],
       };
     }
-    if (tool === 'search_orders_by_document') {
+    if (tool === 'search_orders_by_document' || tool === 'get_order_documents') {
       if (!row.qb_sales_order_id) return null;
       const lines = [formatDate(row.txn_date), row.doc_type ? String(row.doc_type).replace(/_/g, ' ') : null, row.file_name].filter(Boolean);
       const actions = [{ label: 'Open order', onClick: () => navigate(`/orders?openId=${row.qb_sales_order_id}`) }];
@@ -109,6 +109,20 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
       const route = row.entityType ? routeByEntity[row.entityType] : undefined;
       if (!route || !row.entityId) return null;
       const lines = [row.docType ? String(row.docType).replace(/_/g, ' ') : null, row.mimeType].filter(Boolean);
+      const entityLabel = row.entityType === 'order' ? 'order' : row.entityType === 'invoice' ? 'invoice' : 'record';
+      const actions = [{ label: `Open ${entityLabel}`, onClick: () => navigate(`${route}?openId=${row.entityId}`) }];
+      if (row.storagePath) actions.push({ label: 'Open file', onClick: () => void openFile(row.storagePath) });
+      return {
+        label: row.fileName ?? 'Document',
+        sublabel: lines.length ? lines.join('\n') : undefined,
+        actions,
+      };
+    }
+    if (tool === 'search_document_contents') {
+      const routeByEntity: Record<string, string> = { order: '/orders', invoice: '/invoices', inventory: '/inventory' };
+      const route = row.entityType ? routeByEntity[row.entityType] : undefined;
+      if (!route || !row.entityId) return null;
+      const lines = [row.docType ? String(row.docType).replace(/_/g, ' ') : null, row.snippet ? `…${row.snippet}…` : null].filter(Boolean);
       const entityLabel = row.entityType === 'order' ? 'order' : row.entityType === 'invoice' ? 'invoice' : 'record';
       const actions = [{ label: `Open ${entityLabel}`, onClick: () => navigate(`${route}?openId=${row.entityId}`) }];
       if (row.storagePath) actions.push({ label: 'Open file', onClick: () => void openFile(row.storagePath) });
