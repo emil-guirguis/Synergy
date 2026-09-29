@@ -7,6 +7,18 @@ import {
 } from '@meterit/framework-frontend/ai-chat';
 import { API_BASE_URL } from '../../config/api';
 import { tokenStorage } from '../../utils/tokenStorage';
+import { documentsStorage } from '../../services/documentsClient';
+
+/** Signs the stored path and opens it in a new tab — same call DocumentsGrid's
+ *  own "open" action makes, just triggered from a chat result instead of a row. */
+async function openFile(storagePath: string): Promise<void> {
+  try {
+    const url = await documentsStorage.viewUrl(storagePath);
+    window.open(url, '_blank', 'noopener');
+  } catch (e: any) {
+    window.alert(e?.message || 'Could not open the file.');
+  }
+}
 
 const SUGGESTED_QUESTIONS = [
   'Find the invoice line item with serial number 12345',
@@ -69,7 +81,7 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
       return {
         label: `Order ${row.ref_number ?? row.qb_sales_order_id} — ${row.customer_name ?? 'Unknown customer'}`,
         sublabel: lines.length ? lines.join('\n') : undefined,
-        onClick: () => navigate(`/orders?openId=${row.qb_sales_order_id}`),
+        actions: [{ label: 'Open order', onClick: () => navigate(`/orders?openId=${row.qb_sales_order_id}`) }],
       };
     }
     if (tool === 'search_invoices' || tool === 'search_invoice_lines') {
@@ -78,16 +90,18 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
       return {
         label: `Invoice ${row.ref_number ?? row.qb_invoice_id} — ${row.customer_name ?? 'Unknown customer'}`,
         sublabel: lines.length ? lines.join('\n') : undefined,
-        onClick: () => navigate(`/invoices?openId=${row.qb_invoice_id}`),
+        actions: [{ label: 'Open invoice', onClick: () => navigate(`/invoices?openId=${row.qb_invoice_id}`) }],
       };
     }
     if (tool === 'search_orders_by_document') {
       if (!row.qb_sales_order_id) return null;
       const lines = [formatDate(row.txn_date), row.doc_type ? String(row.doc_type).replace(/_/g, ' ') : null, row.file_name].filter(Boolean);
+      const actions = [{ label: 'Open order', onClick: () => navigate(`/orders?openId=${row.qb_sales_order_id}`) }];
+      if (row.storage_path) actions.push({ label: 'Open file', onClick: () => void openFile(row.storage_path) });
       return {
         label: `Order ${row.ref_number ?? row.qb_sales_order_id} — ${row.customer_name ?? 'Unknown customer'}`,
         sublabel: lines.length ? lines.join('\n') : undefined,
-        onClick: () => navigate(`/orders?openId=${row.qb_sales_order_id}`),
+        actions,
       };
     }
     if (tool === 'search_documents') {
@@ -95,10 +109,13 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
       const route = row.entityType ? routeByEntity[row.entityType] : undefined;
       if (!route || !row.entityId) return null;
       const lines = [row.docType ? String(row.docType).replace(/_/g, ' ') : null, row.mimeType].filter(Boolean);
+      const entityLabel = row.entityType === 'order' ? 'order' : row.entityType === 'invoice' ? 'invoice' : 'record';
+      const actions = [{ label: `Open ${entityLabel}`, onClick: () => navigate(`${route}?openId=${row.entityId}`) }];
+      if (row.storagePath) actions.push({ label: 'Open file', onClick: () => void openFile(row.storagePath) });
       return {
         label: row.fileName ?? 'Document',
         sublabel: lines.length ? lines.join('\n') : undefined,
-        onClick: () => navigate(`${route}?openId=${row.entityId}`),
+        actions,
       };
     }
     if (tool === 'search_inventory') {
@@ -108,7 +125,7 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
       return {
         label: row.full_name ?? row.name ?? `Item ${row.qb_item_id}`,
         sublabel: lines.length ? lines.join('\n') : undefined,
-        onClick: () => navigate(`/inventory?openId=${row.qb_item_id}`),
+        actions: [{ label: 'Open item', onClick: () => navigate(`/inventory?openId=${row.qb_item_id}`) }],
       };
     }
     return null;

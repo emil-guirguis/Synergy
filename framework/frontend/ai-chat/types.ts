@@ -18,10 +18,17 @@ export interface AiChatResponse {
   tool_results?: AiChatToolResultGroup[];
 }
 
+export interface AiChatResultLinkAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface AiChatResultLink {
   label: string;
   sublabel?: string;
-  onClick: () => void;
+  /** One action clicks the card directly; two or more show a picker menu
+   *  (e.g. "Open order" vs "Open file" for a document-backed result). */
+  actions: AiChatResultLinkAction[];
 }
 
 export interface AiChatPageConfig {

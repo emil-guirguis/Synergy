@@ -23,13 +23,66 @@ import {
   CircularProgress,
   Chip,
   Stack,
+  Menu,
+  MenuItem,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
 import { useAiChatStore } from './store';
-import type { AiChatPageConfig } from './types';
+import type { AiChatPageConfig, AiChatResultLink } from './types';
+
+/** One tool-result row → its clickable card. A single action clicks straight
+ *  through; two or more (e.g. a document-backed order result) pop a small
+ *  menu to pick which one, instead of guessing which the user wants. */
+const ResultCard: React.FC<{ link: AiChatResultLink }> = ({ link }) => {
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const single = link.actions.length === 1 ? link.actions[0] : null;
+
+  return (
+    <>
+      <Paper
+        variant="outlined"
+        onClick={(e) => (single ? single.onClick() : setAnchorEl(e.currentTarget))}
+        sx={{
+          px: 1.5,
+          py: 1,
+          cursor: 'pointer',
+          '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
+        }}
+      >
+        <Typography variant="body2" fontWeight={600}>
+          {link.label}
+        </Typography>
+        {link.sublabel && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', whiteSpace: 'pre-line', mt: 0.25, lineHeight: 1.5 }}
+          >
+            {link.sublabel}
+          </Typography>
+        )}
+      </Paper>
+      {!single && (
+        <Menu anchorEl={anchorEl} open={!!anchorEl} onClose={() => setAnchorEl(null)}>
+          {link.actions.map((action) => (
+            <MenuItem
+              key={action.label}
+              onClick={() => {
+                setAnchorEl(null);
+                action.onClick();
+              }}
+            >
+              {action.label}
+            </MenuItem>
+          ))}
+        </Menu>
+      )}
+    </>
+  );
+};
 
 export const AiChatPage: React.FC<AiChatPageConfig> = ({
   sendMessage,
@@ -219,32 +272,7 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
                     group.data.slice(0, 8).map((row, i) => {
                       const link = resultLink(group.tool, row);
                       if (!link) return null;
-                      return (
-                        <Paper
-                          key={`${group.tool}-${i}`}
-                          variant="outlined"
-                          onClick={link.onClick}
-                          sx={{
-                            px: 1.5,
-                            py: 1,
-                            cursor: 'pointer',
-                            '&:hover': { bgcolor: 'action.hover', borderColor: 'primary.main' },
-                          }}
-                        >
-                          <Typography variant="body2" fontWeight={600}>
-                            {link.label}
-                          </Typography>
-                          {link.sublabel && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: 'block', whiteSpace: 'pre-line', mt: 0.25, lineHeight: 1.5 }}
-                            >
-                              {link.sublabel}
-                            </Typography>
-                          )}
-                        </Paper>
-                      );
+                      return <ResultCard key={`${group.tool}-${i}`} link={link} />;
                     })
                   )}
                 </Stack>

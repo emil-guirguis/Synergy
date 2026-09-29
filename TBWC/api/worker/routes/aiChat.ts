@@ -302,11 +302,11 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
         const limit = Math.min(toolInput.limit ?? 5, 100);
         const result = await execQuery(
           env,
-          `SELECT qb_sales_order_id, txn_id, ref_number, customer_name, job_name, txn_date, total, doc_type, file_name
+          `SELECT qb_sales_order_id, txn_id, ref_number, customer_name, job_name, txn_date, total, doc_type, file_name, document_id, storage_path
              FROM (
                SELECT DISTINCT ON (o.qb_sales_order_id)
                       o.qb_sales_order_id, o.txn_id, o.ref_number, o.customer_name, o.job_name, o.txn_date, o.total,
-                      d.doc_type, d.file_name
+                      d.doc_type, d.file_name, d.document_id, d.storage_path
                  FROM public.document d
                  JOIN public.qb_sales_order o ON o.qb_sales_order_id::text = d.entity_id
                 WHERE d.entity_type = 'order'
