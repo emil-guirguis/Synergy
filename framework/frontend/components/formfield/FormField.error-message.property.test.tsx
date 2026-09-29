@@ -1,5 +1,5 @@
 import { describe, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, cleanup } from '@testing-library/react';
 import fc from 'fast-check';
 import { FormField } from './FormField';
 
@@ -15,10 +15,14 @@ describe('FormField Error Message Property-Based Tests', () => {
           name: fc.string({ minLength: 1, maxLength: 50 }),
           label: fc.string({ minLength: 1, maxLength: 50 }),
           type: fc.constantFrom('text', 'email', 'password', 'number', 'textarea', 'select', 'url', 'tel' as const),
-          error: fc.string({ minLength: 1, maxLength: 100 }),
+          // Exclude whitespace-only strings: MUI substitutes a zero-width-space
+          // placeholder for whitespace-only helper text (to stop it collapsing
+          // invisibly), which isn't a meaningful "error message" to test anyway.
+          error: fc.string({ minLength: 1, maxLength: 100 }).filter((s) => s.trim().length > 0),
         }),
         (props) => {
-          const { queryByText } = render(
+          cleanup();
+          const { container } = render(
             <FormField
               name={props.name}
               label={props.label}
@@ -30,8 +34,11 @@ describe('FormField Error Message Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const errorElement = queryByText(props.error);
-          return errorElement !== null;
+          // Exact textContent match rather than getByText, since getByText
+          // normalizes (collapses/trims) whitespace and fast-check can
+          // legitimately generate whitespace-only error strings.
+          const errorElement = container.querySelector('.MuiFormHelperText-root');
+          return errorElement !== null && errorElement.textContent === props.error;
         }
       ),
       { numRuns: 100 }
@@ -43,9 +50,13 @@ describe('FormField Error Message Property-Based Tests', () => {
       fc.property(
         fc.record({
           name: fc.string({ minLength: 1, maxLength: 50 }),
-          error: fc.string({ minLength: 1, maxLength: 100 }),
+          // Exclude whitespace-only strings: MUI substitutes a zero-width-space
+          // placeholder for whitespace-only helper text (to stop it collapsing
+          // invisibly), which isn't a meaningful "error message" to test anyway.
+          error: fc.string({ minLength: 1, maxLength: 100 }).filter((s) => s.trim().length > 0),
         }),
         (props) => {
+          cleanup();
           const { container } = render(
             <FormField
               name={props.name}
@@ -58,7 +69,7 @@ describe('FormField Error Message Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const errorElement = container.querySelector('.form-field__error');
+          const errorElement = container.querySelector('.MuiFormHelperText-root');
           const styles = window.getComputedStyle(errorElement!);
           return styles.color !== '';
         }
@@ -72,9 +83,13 @@ describe('FormField Error Message Property-Based Tests', () => {
       fc.property(
         fc.record({
           name: fc.string({ minLength: 1, maxLength: 50 }),
-          error: fc.string({ minLength: 1, maxLength: 100 }),
+          // Exclude whitespace-only strings: MUI substitutes a zero-width-space
+          // placeholder for whitespace-only helper text (to stop it collapsing
+          // invisibly), which isn't a meaningful "error message" to test anyway.
+          error: fc.string({ minLength: 1, maxLength: 100 }).filter((s) => s.trim().length > 0),
         }),
         (props) => {
+          cleanup();
           const { queryByText } = render(
             <FormField
               name={props.name}
@@ -102,6 +117,7 @@ describe('FormField Error Message Property-Based Tests', () => {
           name: fc.string({ minLength: 1, maxLength: 50 }),
         }),
         (props) => {
+          cleanup();
           const { container } = render(
             <FormField
               name={props.name}
@@ -113,7 +129,7 @@ describe('FormField Error Message Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const errorElement = container.querySelector('.form-field__error');
+          const errorElement = container.querySelector('.MuiFormHelperText-root');
           return errorElement === null;
         }
       ),
@@ -126,9 +142,13 @@ describe('FormField Error Message Property-Based Tests', () => {
       fc.property(
         fc.record({
           name: fc.string({ minLength: 1, maxLength: 50 }),
-          error: fc.string({ minLength: 1, maxLength: 100 }),
+          // Exclude whitespace-only strings: MUI substitutes a zero-width-space
+          // placeholder for whitespace-only helper text (to stop it collapsing
+          // invisibly), which isn't a meaningful "error message" to test anyway.
+          error: fc.string({ minLength: 1, maxLength: 100 }).filter((s) => s.trim().length > 0),
         }),
         (props) => {
+          cleanup();
           const { container } = render(
             <FormField
               name={props.name}
@@ -141,8 +161,17 @@ describe('FormField Error Message Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const errorElement = container.querySelector('[role="alert"]');
-          return errorElement !== null;
+          // FormField's a11y contract is aria-invalid + aria-describedby
+          // pointing at the visible helper text (MUI doesn't use role="alert"
+          // for field-level errors).
+          const input = container.querySelector('input');
+          const describedById = input?.getAttribute('aria-describedby');
+          const describedEl = describedById ? document.getElementById(describedById) : null;
+          return (
+            input?.getAttribute('aria-invalid') === 'true' &&
+            describedEl !== null &&
+            describedEl.textContent === props.error
+          );
         }
       ),
       { numRuns: 100 }

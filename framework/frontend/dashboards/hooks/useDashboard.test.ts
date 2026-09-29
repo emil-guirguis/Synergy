@@ -163,31 +163,34 @@ describe('useDashboard Hook', () => {
     it('should auto-refresh at specified interval', async () => {
       vi.useFakeTimers();
 
-      const fetchDataMock = vi.fn().mockResolvedValue({ value: 42 });
+      try {
+        const fetchDataMock = vi.fn().mockResolvedValue({ value: 42 });
 
-      const config = {
-        id: 'test-dashboard',
-        layout: { columns: 3, gap: 16 },
-        fetchData: fetchDataMock,
-        refreshInterval: 1000,
-        persistState: false
-      };
+        const config = {
+          id: 'test-dashboard',
+          layout: { columns: 3, gap: 16 },
+          fetchData: fetchDataMock,
+          refreshInterval: 1000,
+          persistState: false
+        };
 
-      renderHook(() => useDashboard(config));
+        renderHook(() => useDashboard(config));
 
-      // Initial call
-      await waitFor(() => {
+        // Initial call — flush the mount effect's promise without relying on
+        // waitFor's internal polling, which never fires while timers are faked.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
         expect(fetchDataMock).toHaveBeenCalledTimes(1);
-      });
 
-      // Advance time by refresh interval
-      vi.advanceTimersByTime(1000);
-
-      await waitFor(() => {
+        // Advance time by refresh interval and flush the resulting promise.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1000);
+        });
         expect(fetchDataMock).toHaveBeenCalledTimes(2);
-      });
-
-      vi.useRealTimers();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

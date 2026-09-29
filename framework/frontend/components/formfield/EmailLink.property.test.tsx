@@ -22,8 +22,8 @@ describe('EmailLink Property-Based Tests', () => {
           // Link should exist for non-empty email
           if (email && email.trim() !== '') {
             if (link) {
-              // Link should have the email-link class for blue styling
-              return link.classList.contains('email-link');
+              // Link should have the email-link__link class for blue styling
+              return link.classList.contains('email-link__link');
             }
           }
           return true;

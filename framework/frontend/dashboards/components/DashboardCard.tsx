@@ -176,6 +176,9 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
     return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   };
 
+  const formatColumnLabel = (column: string): string =>
+    column.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
   const formatLastRefreshed = (): string => {
     if (!lastRefreshed) return '';
     const diffMs = Date.now() - lastRefreshed.getTime();
@@ -372,6 +375,22 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
           </Box>
         ) : data ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, gap: 1, minHeight: 0 }}>
+            {/* Stat tiles — one per selected column */}
+            {selectedColumns.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                {selectedColumns.map((column) => (
+                  <Box key={column} sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', lineHeight: 1.2 }}>
+                      {formatNumber(data.aggregated_values?.[column])}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                      {formatColumnLabel(column)}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+
             {/* Chart — click to expand */}
             {VisualizationComponent && (
               <Box

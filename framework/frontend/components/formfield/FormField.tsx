@@ -179,7 +179,7 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
     onBlur,
   }, ref) => {
     const [showPassword, setShowPassword] = React.useState(false);
-    const showError = touched && error;
+    const showError = Boolean(touched && error);
     const fieldId = `field-${name}`;
     const errorId = `${fieldId}-error`;
 
@@ -319,7 +319,7 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
             );
           }
           return (
-            <FormControl fullWidth error={showError} disabled={disabled} variant="outlined" data-field={name} data-component="select">
+            <FormControl fullWidth required={required} error={showError} disabled={disabled} variant="outlined" data-field={name} data-component="select">
               <InputLabel id={`${fieldId}-label`}>{label}</InputLabel>
               <Select
                 labelId={`${fieldId}-label`}
@@ -388,7 +388,7 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
             { code: 'VE', name: 'Venezuela' },
           ];
           return (
-            <FormControl fullWidth error={showError} disabled={disabled} variant="outlined" data-field={name} data-component="country">
+            <FormControl fullWidth required={required} error={showError} disabled={disabled} variant="outlined" data-field={name} data-component="country">
               <InputLabel id={`${fieldId}-label`}>{label}</InputLabel>
               <Select
                 labelId={`${fieldId}-label`}
@@ -435,7 +435,7 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
 
         case 'radio':
           return (
-            <FormControl error={showError} disabled={disabled} variant="outlined" data-field={name} data-component="radio">
+            <FormControl required={required} error={showError} disabled={disabled} variant="outlined" data-field={name} data-component="radio">
               <InputLabel>{label}</InputLabel>
               <RadioGroup
                 name={name}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, cleanup } from '@testing-library/react';
 import * as userEvent from '@testing-library/user-event';
 import fc from 'fast-check';
 import { DatePickerModal } from './DatePickerModal';
@@ -108,7 +108,7 @@ describe('DatePickerModal', () => {
         />
       );
       
-      const header = screen.getByRole('button', { name: new RegExp(`${monthName}.*${year}`) });
+      const header = screen.getByRole('button', { name: new RegExp(`^${monthName} ${year}$`) });
       expect(header).toBeInTheDocument();
     });
 
@@ -190,7 +190,7 @@ describe('DatePickerModal', () => {
         />
       );
       
-      const dateButton = screen.getByRole('button', { name: /^\d+$/ });
+      const dateButton = screen.getAllByRole('button', { name: /^[A-Za-z]+ \d+, \d+$/ })[0];
       await user.click(dateButton);
       
       expect(handleDateSelect).toHaveBeenCalled();
@@ -228,11 +228,11 @@ describe('DatePickerModal', () => {
     it('should advance to next month when next button is clicked', async () => {
       await fc.assert(
         fc.asyncProperty(
-          fc.integer({ min: 0, max: 11 }),
-          fc.integer({ min: 2000, max: 2100 }),
-          async (month, year) => {
+          fc.constant(null),
+          async () => {
+            cleanup();
             const user = userEvent.setup();
-            const { rerender } = render(
+            render(
               <DatePickerModal
                 isOpen={true}
                 onDateSelect={vi.fn()}
@@ -240,32 +240,19 @@ describe('DatePickerModal', () => {
               />
             );
 
-            // Get initial month display
             const currentDate = new Date();
-            const initialMonth = currentDate.toLocaleString('default', { month: 'long' });
+            const expectedNextDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1);
+            const expectedHeader = `${expectedNextDate.toLocaleString('default', { month: 'long' })} ${expectedNextDate.getFullYear()}`;
 
-            // Click next month button
             const nextButton = screen.getByRole('button', { name: /next month/i });
             await user.click(nextButton);
 
-            // Verify the month has changed
-            const expectedNextDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1);
-            const expectedMonth = expectedNextDate.toLocaleString('default', { month: 'long' });
-
-            // Re-render to get updated content
-            rerender(
-              <DatePickerModal
-                isOpen={true}
-                onDateSelect={vi.fn()}
-                onClose={vi.fn()}
-              />
-            );
-
-            // The month should have advanced
-            expect(expectedMonth).not.toBe(initialMonth);
+            // The header should now show the following month, read from the
+            // live DOM rather than recomputed independently.
+            expect(screen.getByRole('button', { name: expectedHeader })).toBeInTheDocument();
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 5 }
       );
     });
 
@@ -276,11 +263,11 @@ describe('DatePickerModal', () => {
     it('should go back to previous month when previous button is clicked', async () => {
       await fc.assert(
         fc.asyncProperty(
-          fc.integer({ min: 0, max: 11 }),
-          fc.integer({ min: 2000, max: 2100 }),
-          async (month, year) => {
+          fc.constant(null),
+          async () => {
+            cleanup();
             const user = userEvent.setup();
-            const { rerender } = render(
+            render(
               <DatePickerModal
                 isOpen={true}
                 onDateSelect={vi.fn()}
@@ -288,32 +275,19 @@ describe('DatePickerModal', () => {
               />
             );
 
-            // Get initial month display
             const currentDate = new Date();
-            const initialMonth = currentDate.toLocaleString('default', { month: 'long' });
+            const expectedPrevDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1);
+            const expectedHeader = `${expectedPrevDate.toLocaleString('default', { month: 'long' })} ${expectedPrevDate.getFullYear()}`;
 
-            // Click previous month button
             const prevButton = screen.getByRole('button', { name: /previous month/i });
             await user.click(prevButton);
 
-            // Verify the month has changed
-            const expectedPrevDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1);
-            const expectedMonth = expectedPrevDate.toLocaleString('default', { month: 'long' });
-
-            // Re-render to get updated content
-            rerender(
-              <DatePickerModal
-                isOpen={true}
-                onDateSelect={vi.fn()}
-                onClose={vi.fn()}
-              />
-            );
-
-            // The month should have gone back
-            expect(expectedMonth).not.toBe(initialMonth);
+            // The header should now show the preceding month, read from the
+            // live DOM rather than recomputed independently.
+            expect(screen.getByRole('button', { name: expectedHeader })).toBeInTheDocument();
           }
         ),
-        { numRuns: 100 }
+        { numRuns: 5 }
       );
     });
 

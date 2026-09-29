@@ -28,15 +28,15 @@ describe('FormField Required Indicator Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const requiredIndicator = container.querySelector('.form-field__required');
-          return requiredIndicator !== null && requiredIndicator.textContent === '*';
+          const requiredIndicator = container.querySelector('.MuiFormLabel-asterisk');
+          return requiredIndicator !== null && requiredIndicator.textContent?.trim() === '*';
         }
       ),
       { numRuns: 100 }
     );
   });
 
-  it('Property 11: Required indicator has error color styling', () => {
+  it('Property 11: Required indicator has error color styling when the field is in error', () => {
     fc.assert(
       fc.property(
         fc.record({
@@ -51,13 +51,18 @@ describe('FormField Required Indicator Property-Based Tests', () => {
               type="text"
               value=""
               required={true}
+              error="This field is required"
+              touched={true}
               onChange={() => {}}
               onBlur={() => {}}
             />
           );
-          const requiredIndicator = container.querySelector('.form-field__required');
+          // The asterisk itself is neutral-colored when merely required; it
+          // only takes on MUI's error color once the field is touched+errored
+          // (MUI's InputLabel picks up error state from FormControl context).
+          const requiredIndicator = container.querySelector('.MuiFormLabel-asterisk');
           const styles = window.getComputedStyle(requiredIndicator!);
-          return styles.color !== '';
+          return styles.color === 'rgb(211, 47, 47)';
         }
       ),
       { numRuns: 100 }
@@ -84,7 +89,7 @@ describe('FormField Required Indicator Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const requiredIndicator = container.querySelector('.form-field__required');
+          const requiredIndicator = container.querySelector('.MuiFormLabel-asterisk');
           return requiredIndicator === null;
         }
       ),
@@ -112,7 +117,7 @@ describe('FormField Required Indicator Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const requiredIndicator = container.querySelector('.form-field__required');
+          const requiredIndicator = container.querySelector('.MuiFormLabel-asterisk');
           return requiredIndicator !== null;
         }
       ),

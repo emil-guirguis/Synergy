@@ -242,7 +242,8 @@ describe('ExpandedCardModal', () => {
     expect(mockRenderVisualization).toHaveBeenCalledWith(
       mockData.grouped_data,
       mockCard.selected_columns,
-      600
+      600,
+      undefined
     );
   });
 
@@ -267,7 +268,8 @@ describe('ExpandedCardModal', () => {
     expect(mockRenderVisualization).toHaveBeenCalledWith(
       dataWithoutGrouped.aggregated_values,
       mockCard.selected_columns,
-      600
+      600,
+      undefined
     );
   });
 

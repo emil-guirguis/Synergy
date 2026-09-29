@@ -156,38 +156,41 @@ describe('useCardData Hook', () => {
     it('should auto-refresh card data at specified interval', async () => {
       vi.useFakeTimers();
 
-      const card: DashboardCard = {
-        id: 1,
-        title: 'Test Card',
-        visualization_type: 'line'
-      };
+      try {
+        const card: DashboardCard = {
+          id: 1,
+          title: 'Test Card',
+          visualization_type: 'line'
+        };
 
-      const fetchDataMock = vi.fn().mockResolvedValue({
-        card_id: 1,
-        aggregated_values: {}
-      });
+        const fetchDataMock = vi.fn().mockResolvedValue({
+          card_id: 1,
+          aggregated_values: {}
+        });
 
-      const config = {
-        card,
-        fetchData: fetchDataMock,
-        refreshInterval: 5000
-      };
+        const config = {
+          card,
+          fetchData: fetchDataMock,
+          refreshInterval: 5000
+        };
 
-      renderHook(() => useCardData(config));
+        renderHook(() => useCardData(config));
 
-      // Initial call
-      await waitFor(() => {
+        // Initial call — flush the mount effect's promise without relying on
+        // waitFor's internal polling, which never fires while timers are faked.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
         expect(fetchDataMock).toHaveBeenCalledTimes(1);
-      });
 
-      // Advance time by refresh interval
-      vi.advanceTimersByTime(5000);
-
-      await waitFor(() => {
+        // Advance time by refresh interval and flush the resulting promise.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5000);
+        });
         expect(fetchDataMock).toHaveBeenCalledTimes(2);
-      });
-
-      vi.useRealTimers();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

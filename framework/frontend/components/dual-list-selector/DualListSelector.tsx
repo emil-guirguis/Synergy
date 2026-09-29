@@ -191,22 +191,21 @@ export const DualListSelector = React.forwardRef<
       const ariaLabel = side === 'left' ? 'Available items' : 'Selected items';
 
       return (
-        <>
-          <div
-            className="dual-list-selector__list-container"
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, side)}
-            role="listbox"
-            aria-label={ariaLabel}
-          >
-            {items.map((item) => renderListItem(item, side))}
-          </div>
-          {isEmpty && (
+        <div
+          className="dual-list-selector__list-container"
+          onDragOver={handleDragOver}
+          onDrop={(e) => handleDrop(e, side)}
+          role="listbox"
+          aria-label={ariaLabel}
+        >
+          {isEmpty ? (
             <div className="dual-list-selector__empty-state">
               {emptyStateMessage}
             </div>
+          ) : (
+            items.map((item) => renderListItem(item, side))
           )}
-        </>
+        </div>
       );
     };
 

@@ -16,6 +16,14 @@ function toDateInputValue(iso: string): string {
   return iso ? iso.split('T')[0] : '';
 }
 
+// Parse a YYYY-MM-DD date-only string as a local calendar date, not UTC
+// midnight — `new Date('2024-01-01')` parses as UTC and can display as the
+// previous day in any timezone west of UTC.
+function parseLocalDate(dateOnly: string): Date {
+  const [year, month, day] = dateOnly.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 export const ExpandedCardModal: React.FC<ExpandedCardModalProps> = ({
   card,
   data,
@@ -153,7 +161,9 @@ export const ExpandedCardModal: React.FC<ExpandedCardModalProps> = ({
         return 'Since Installation';
       case 'custom':
         if (card.custom_start_date && card.custom_end_date) {
-          return `${new Date(card.custom_start_date).toLocaleDateString()} - ${new Date(card.custom_end_date).toLocaleDateString()}`;
+          const start = parseLocalDate(card.custom_start_date.split('T')[0]);
+          const end = parseLocalDate(card.custom_end_date.split('T')[0]);
+          return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
         }
         return 'Custom Range';
       default:
@@ -187,6 +197,7 @@ export const ExpandedCardModal: React.FC<ExpandedCardModalProps> = ({
         {/* Metadata */}
         <div className="expanded-card-modal__metadata">
           <span className="expanded-card-modal__visualization">📊 {card.visualization_type || 'Chart'}</span>
+          <span className="expanded-card-modal__time-frame">🗓️ {formatTimeFrame()}</span>
           <div className="expanded-card-modal__date-range">
             <label className="expanded-card-modal__date-label">From</label>
             <input

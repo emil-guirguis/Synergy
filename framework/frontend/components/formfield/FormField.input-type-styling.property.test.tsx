@@ -23,8 +23,10 @@ describe('FormField Input Type Styling Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const input = container.querySelector('input');
-          const styles = window.getComputedStyle(input!);
+          // MUI's outlined variant draws the border on the sibling <fieldset>
+          // (the notched-outline), not on the <input> itself.
+          const fieldset = container.querySelector('fieldset');
+          const styles = window.getComputedStyle(fieldset!);
           return styles.borderStyle === 'solid' && styles.borderWidth === '1px';
         }
       ),
@@ -81,8 +83,8 @@ describe('FormField Input Type Styling Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const textarea = container.querySelector('textarea');
-          const styles = window.getComputedStyle(textarea!);
+          const fieldset = container.querySelector('fieldset');
+          const styles = window.getComputedStyle(fieldset!);
           return styles.borderStyle === 'solid' && styles.borderWidth === '1px';
         }
       ),
@@ -114,8 +116,10 @@ describe('FormField Input Type Styling Property-Based Tests', () => {
               onBlur={() => {}}
             />
           );
-          const select = container.querySelector('select');
-          const styles = window.getComputedStyle(select!);
+          // MUI's Select renders a div[role="combobox"], not a native <select>;
+          // its outlined border, like the other variants, is on the fieldset.
+          const fieldset = container.querySelector('fieldset');
+          const styles = window.getComputedStyle(fieldset!);
           return styles.borderStyle === 'solid' && styles.borderWidth === '1px';
         }
       ),
