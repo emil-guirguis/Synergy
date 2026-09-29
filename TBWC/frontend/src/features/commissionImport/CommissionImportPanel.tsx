@@ -38,22 +38,12 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   LinearProgress,
-  MenuItem,
-  Paper,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DownloadIcon from '@mui/icons-material/Download';
+import { ImportPanel, StatusChip, downloadCsv as downloadCsvFile, type ImportColumn, type ImportFacet } from '@meterit/framework-frontend/import';
 import { ordersService } from '../orders/ordersStore';
 import type { Order, OrderImportIndexRow } from '../../types/order';
 
@@ -226,13 +216,9 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promis
   await Promise.all(lanes);
 }
 
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function downloadCsv(entries: StagedRow[]): void {
   const header = ['Sheet', 'Row', 'Key Type', 'Key', 'Customer (sheet)', 'Order', 'Status', 'Changes', 'Message'];
-  const lines = [header, ...entries.map((e) => [
+  const rows = entries.map((e) => [
     e.sheet,
     String(e.rowNum),
     e.keyType,
@@ -242,18 +228,8 @@ function downloadCsv(entries: StagedRow[]): void {
     STATUS_LABELS[e.status],
     e.diffs.map((d) => `${d.def.label}: ${d.from || '(blank)'} -> ${d.to}`).join('; '),
     e.message,
-  ])].map((row) => row.map(csvCell).join(',')).join('\r\n');
-
-  const blob = new Blob([lines], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  a.href = url;
-  a.download = `commission-import-log-${stamp}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  ]);
+  downloadCsvFile('commission-import-log', header, rows);
 }
 
 export const CommissionImportPanel: React.FC = () => {
@@ -509,6 +485,42 @@ export const CommissionImportPanel: React.FC = () => {
     [entries, statusFilter, sheetFilter]
   );
 
+  const facets: ImportFacet[] = [
+    {
+      id: 'status',
+      value: statusFilter,
+      onChange: (v) => setStatusFilter(v as RowStatus | 'all'),
+      allLabel: 'All statuses',
+      minWidth: 220,
+      options: (Object.keys(STATUS_LABELS) as RowStatus[]).map((s) => ({ value: s, label: STATUS_LABELS[s], count: statusCounts[s] })),
+    },
+    {
+      id: 'sheet',
+      value: sheetFilter,
+      onChange: (v) => setSheetFilter(v),
+      allLabel: 'All sheets',
+      minWidth: 180,
+      options: sheetNames.map((s) => ({ value: s, label: s, count: entries.filter((e) => e.sheet === s).length })),
+    },
+  ];
+
+  const columns: ImportColumn<StagedRow>[] = [
+    { header: 'Sheet', width: 130, render: (entry) => entry.sheet },
+    { header: 'Row', width: 70, render: (entry) => entry.rowNum },
+    {
+      header: 'Key',
+      width: 140,
+      render: (entry) => (
+        <span title={`${entry.keyType === 'ref' ? 'TBWC#' : 'PO#'} — customer "${entry.customerSheet || '(blank)'}"`}>
+          {entry.keyValue}
+        </span>
+      ),
+    },
+    { header: 'Order', width: 160, render: (entry) => (entry.order ? (entry.order.ref_number || entry.order.qb_sales_order_id) : '') },
+    { header: 'Status', width: 150, render: (entry) => <StatusChip label={STATUS_LABELS[entry.status]} color={STATUS_COLOR[entry.status]} /> },
+    { header: 'Changes / Message', render: (entry) => entry.message },
+  ];
+
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
@@ -537,79 +549,26 @@ export const CommissionImportPanel: React.FC = () => {
 
       {planError && <Alert severity="error" sx={{ mb: 2 }}>{planError}</Alert>}
 
-      {entries.length > 0 && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
-          <Typography variant="body2" color="text.secondary">Filter:</Typography>
-          <Select size="small" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as RowStatus | 'all')} sx={{ minWidth: 220 }}>
-            <MenuItem value="all">All statuses ({entries.length})</MenuItem>
-            {(Object.keys(STATUS_LABELS) as RowStatus[]).map((s) => (
-              <MenuItem key={s} value={s} disabled={statusCounts[s] === 0}>{STATUS_LABELS[s]} ({statusCounts[s]})</MenuItem>
-            ))}
-          </Select>
-          <Select size="small" value={sheetFilter} onChange={(e) => setSheetFilter(e.target.value)} sx={{ minWidth: 180 }}>
-            <MenuItem value="all">All sheets ({entries.length})</MenuItem>
-            {sheetNames.map((s) => (
-              <MenuItem key={s} value={s}>{s} ({entries.filter((e) => e.sheet === s).length})</MenuItem>
-            ))}
-          </Select>
-          {(statusFilter !== 'all' || sheetFilter !== 'all') && (
-            <Button size="small" onClick={() => { setStatusFilter('all'); setSheetFilter('all'); }}>Clear filters</Button>
-          )}
-          {(statusFilter !== 'all' || sheetFilter !== 'all') && (
-            <Typography variant="body2" color="text.secondary">Showing {filteredEntries.length} of {entries.length}.</Typography>
-          )}
-        </Box>
-      )}
-
-      {progress && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>Importing {progress.done} of {progress.total}…</Typography>
-          <LinearProgress variant="determinate" value={progress.total ? (progress.done / progress.total) * 100 : 0} />
-        </Box>
-      )}
-
-      {hasRun && !running && (
-        <Alert severity={failedCount ? 'warning' : 'success'} sx={{ mb: 2 }}>
-          {successCount} imported, {failedCount} failed.
-          {failedCount ? ' Fix the failures, then choose the same workbook again — rows that already match are left alone.' : ''}
-        </Alert>
-      )}
-
-      {entries.length > 0 && (
-        <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 720, overflowX: 'auto' }}>
-          <Table stickyHeader sx={{ minWidth: 1400, tableLayout: 'fixed', '& .MuiTableCell-root': { fontSize: '0.9rem', py: 1.25, whiteSpace: 'normal', wordBreak: 'break-word' } }}>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, width: 130 }}>Sheet</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 70 }}>Row</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 140 }}>Key</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 160 }}>Order</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 150 }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Changes / Message</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredEntries.length === 0 && (
-                <TableRow><TableCell colSpan={6} align="center"><Typography variant="body2" color="text.secondary">No rows match the current filter.</Typography></TableCell></TableRow>
-              )}
-              {filteredEntries.map((entry) => (
-                <TableRow key={entry.key} hover>
-                  <TableCell>{entry.sheet}</TableCell>
-                  <TableCell>{entry.rowNum}</TableCell>
-                  <TableCell>
-                    <Tooltip title={`${entry.keyType === 'ref' ? 'TBWC#' : 'PO#'} — customer "${entry.customerSheet || '(blank)'}"`}>
-                      <span>{entry.keyValue}</span>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>{entry.order ? (entry.order.ref_number || entry.order.qb_sales_order_id) : ''}</TableCell>
-                  <TableCell><Chip label={STATUS_LABELS[entry.status]} color={STATUS_COLOR[entry.status]} variant="outlined" /></TableCell>
-                  <TableCell>{entry.message}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
+      <ImportPanel<StagedRow>
+        rowKey={(entry) => entry.key}
+        rows={filteredEntries}
+        totalCount={entries.length}
+        filtersActive={statusFilter !== 'all' || sheetFilter !== 'all'}
+        onClearFilters={() => { setStatusFilter('all'); setSheetFilter('all'); }}
+        facets={facets}
+        progress={progress ? { done: progress.done, total: progress.total, label: `Importing ${progress.done} of ${progress.total}…` } : null}
+        resultAlert={hasRun && !running ? {
+          severity: failedCount ? 'warning' : 'success',
+          message: (
+            <>
+              {successCount} imported, {failedCount} failed.
+              {failedCount ? ' Fix the failures, then choose the same workbook again — rows that already match are left alone.' : ''}
+            </>
+          ),
+        } : null}
+        minTableWidth={1400}
+        columns={columns}
+      />
     </Box>
   );
 };

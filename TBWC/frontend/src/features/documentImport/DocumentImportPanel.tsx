@@ -54,20 +54,10 @@
  */
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Box,
   Button,
   Chip,
   LinearProgress,
-  MenuItem,
-  Paper,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -82,6 +72,7 @@ import {
   type DocType,
   type DocumentRecord,
 } from '@meterit/framework-frontend/documents';
+import { ImportPanel, StatusChip, downloadCsv as downloadCsvFile, type ImportColumn, type ImportFacet } from '@meterit/framework-frontend/import';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { ordersService } from '../orders/ordersStore';
 import { classifyDocType, isImageFile } from '../../shared/docTypeClassifier';
@@ -367,13 +358,9 @@ const STATUS_COLOR: Record<EntryStatus, 'success' | 'default' | 'error' | 'warni
   failed: 'error',
 };
 
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function downloadCsv(entries: Entry[]): void {
   const header = ['Customer Folder', 'PO Folder', 'File', 'Local Path', 'Type', 'Status', 'Order', 'Message'];
-  const lines = [header, ...entries.map((e) => [
+  const rows = entries.map((e) => [
     e.customer,
     e.po,
     e.fileName,
@@ -382,18 +369,8 @@ function downloadCsv(entries: Entry[]): void {
     STATUS_LABELS[e.status],
     e.order ? (e.order.ref_number || String(e.order.qb_sales_order_id)) : '',
     e.message,
-  ])].map((row) => row.map(csvCell).join(',')).join('\r\n');
-
-  const blob = new Blob([lines], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  a.href = url;
-  a.download = `document-import-log-${stamp}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  ]);
+  downloadCsvFile('document-import-log', header, rows);
 }
 
 export const DocumentImportPanel: React.FC = () => {
@@ -727,6 +704,62 @@ export const DocumentImportPanel: React.FC = () => {
     [entries, statusFilter, typeFilter]
   );
 
+  const facets: ImportFacet[] = [
+    {
+      id: 'status',
+      value: statusFilter,
+      onChange: (v) => setStatusFilter(v as EntryStatus | 'all'),
+      allLabel: 'All statuses',
+      minWidth: 220,
+      options: (Object.keys(STATUS_LABELS) as EntryStatus[]).map((s) => ({ value: s, label: STATUS_LABELS[s], count: statusCounts[s] })),
+    },
+    {
+      id: 'type',
+      value: typeFilter,
+      onChange: (v) => setTypeFilter(v as DocType | 'all'),
+      allLabel: 'All types',
+      minWidth: 180,
+      options: DOC_TYPES.map((t) => ({ value: t, label: DOC_TYPE_LABELS[t], count: typeCounts.get(t) ?? 0 })),
+    },
+  ];
+
+  const columns: ImportColumn<Entry>[] = [
+    {
+      header: 'Local Path',
+      width: 380,
+      render: (entry) => (
+        <Box
+          onClick={() => void copyFolderPath(entry)}
+          title={copiedKey === entry.key ? 'Copied!' : "Browsers can't open File Explorer directly — click to copy this folder's path"}
+          sx={{
+            display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer',
+            color: copiedKey === entry.key ? 'success.main' : 'text.secondary',
+            '&:hover': { color: 'primary.main' },
+          }}
+        >
+          <ContentCopyIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+          <Typography variant="body2" component="span" sx={{ wordBreak: 'break-all' }}>
+            {folderOf(entry.path) || '(root)'}
+          </Typography>
+        </Box>
+      ),
+    },
+    { header: 'File', width: 220, render: (entry) => entry.fileName },
+    { header: 'Type', width: 130, render: (entry) => (entry.docType ? DOC_TYPE_LABELS[entry.docType] : '') },
+    {
+      header: 'Status',
+      width: 150,
+      render: (entry) => (
+        <>
+          <StatusChip label={STATUS_LABELS[entry.status]} color={STATUS_COLOR[entry.status]} />
+          {entry.deletedFromDisk && <Chip label="deleted from disk" size="small" variant="outlined" sx={{ ml: 0.5 }} />}
+        </>
+      ),
+    },
+    { header: 'Order', width: 110, render: (entry) => (entry.order ? (entry.order.ref_number || entry.order.qb_sales_order_id) : '') },
+    { header: 'Message', render: (entry) => entry.message },
+  ];
+
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
@@ -772,48 +805,6 @@ export const DocumentImportPanel: React.FC = () => {
       </Box>
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
 
-      {entries.length > 0 && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2, flexWrap: 'wrap' }}>
-          <Typography variant="body2" color="text.secondary">Filter:</Typography>
-          <Select
-            size="small"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as EntryStatus | 'all')}
-            sx={{ minWidth: 220 }}
-          >
-            <MenuItem value="all">All statuses ({entries.length})</MenuItem>
-            {(Object.keys(STATUS_LABELS) as EntryStatus[]).map((s) => (
-              <MenuItem key={s} value={s} disabled={statusCounts[s] === 0}>
-                {STATUS_LABELS[s]} ({statusCounts[s]})
-              </MenuItem>
-            ))}
-          </Select>
-          <Select
-            size="small"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as DocType | 'all')}
-            sx={{ minWidth: 180 }}
-          >
-            <MenuItem value="all">All types ({entries.length})</MenuItem>
-            {DOC_TYPES.map((t) => (
-              <MenuItem key={t} value={t} disabled={!typeCounts.get(t)}>
-                {DOC_TYPE_LABELS[t]} ({typeCounts.get(t) ?? 0})
-              </MenuItem>
-            ))}
-          </Select>
-          {(statusFilter !== 'all' || typeFilter !== 'all') && (
-            <Button size="small" onClick={() => { setStatusFilter('all'); setTypeFilter('all'); }}>
-              Clear filters
-            </Button>
-          )}
-          {(statusFilter !== 'all' || typeFilter !== 'all') && (
-            <Typography variant="body2" color="text.secondary">
-              Showing {filteredEntries.length} of {entries.length}.
-            </Typography>
-          )}
-        </Box>
-      )}
-
       {planningProgress && (
         <LinearProgress
           sx={{ mb: 2 }}
@@ -822,88 +813,26 @@ export const DocumentImportPanel: React.FC = () => {
         />
       )}
 
-      {progress && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-            Importing {progress.done} of {progress.total}…
-          </Typography>
-          <LinearProgress
-            variant="determinate"
-            value={progress.total ? (progress.done / progress.total) * 100 : 0}
-          />
-        </Box>
-      )}
-
-      {hasRun && !running && (
-        <Alert severity={failedCount ? 'warning' : 'success'} sx={{ mb: 2 }}>
-          {successCount} imported, {failedCount} failed{hasFsAccess ? `, ${deletedCount} deleted from disk` : ''}.
-          {failedCount ? ' Fix the failures, then choose the same folder again — everything already attached is left alone.' : ''}
-        </Alert>
-      )}
-
-      {entries.length > 0 && (
-        <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 720, overflowX: 'auto' }}>
-          <Table
-            stickyHeader
-            sx={{
-              minWidth: 1500,
-              tableLayout: 'fixed',
-              '& .MuiTableCell-root': { fontSize: '0.9rem', py: 1.25, whiteSpace: 'normal', wordBreak: 'break-word' },
-            }}
-          >
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, width: 380 }}>Local Path</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 220 }}>File</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 130 }}>Type</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 150 }}>Status</TableCell>
-                <TableCell sx={{ fontWeight: 600, width: 110 }}>Order</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>Message</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredEntries.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} align="center">
-                    <Typography variant="body2" color="text.secondary">No rows match the current filter.</Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-              {filteredEntries.map((entry) => (
-                <TableRow key={entry.key} hover>
-                  <TableCell>
-                    <Tooltip title={copiedKey === entry.key ? 'Copied!' : "Browsers can't open File Explorer directly — click to copy this folder's path"}>
-                      <Box
-                        onClick={() => void copyFolderPath(entry)}
-                        sx={{
-                          display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer',
-                          color: copiedKey === entry.key ? 'success.main' : 'text.secondary',
-                          '&:hover': { color: 'primary.main' },
-                        }}
-                      >
-                        <ContentCopyIcon sx={{ fontSize: 14, flexShrink: 0 }} />
-                        <Typography variant="body2" component="span" sx={{ wordBreak: 'break-all' }}>
-                          {folderOf(entry.path) || '(root)'}
-                        </Typography>
-                      </Box>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell>{entry.fileName}</TableCell>
-                  <TableCell>{entry.docType ? DOC_TYPE_LABELS[entry.docType] : ''}</TableCell>
-                  <TableCell>
-                    <Chip label={STATUS_LABELS[entry.status]} color={STATUS_COLOR[entry.status]} variant="outlined" />
-                    {entry.deletedFromDisk && (
-                      <Chip label="deleted from disk" size="small" variant="outlined" sx={{ ml: 0.5 }} />
-                    )}
-                  </TableCell>
-                  <TableCell>{entry.order ? (entry.order.ref_number || entry.order.qb_sales_order_id) : ''}</TableCell>
-                  <TableCell>{entry.message}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
+      <ImportPanel<Entry>
+        rowKey={(entry) => entry.key}
+        rows={filteredEntries}
+        totalCount={entries.length}
+        filtersActive={statusFilter !== 'all' || typeFilter !== 'all'}
+        onClearFilters={() => { setStatusFilter('all'); setTypeFilter('all'); }}
+        facets={facets}
+        progress={progress ? { done: progress.done, total: progress.total, label: `Importing ${progress.done} of ${progress.total}…` } : null}
+        resultAlert={hasRun && !running ? {
+          severity: failedCount ? 'warning' : 'success',
+          message: (
+            <>
+              {successCount} imported, {failedCount} failed{hasFsAccess ? `, ${deletedCount} deleted from disk` : ''}.
+              {failedCount ? ' Fix the failures, then choose the same folder again — everything already attached is left alone.' : ''}
+            </>
+          ),
+        } : null}
+        minTableWidth={1500}
+        columns={columns}
+      />
     </Box>
   );
 };
