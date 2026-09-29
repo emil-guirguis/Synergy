@@ -41,6 +41,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: generate-version.mjs counts commits via `git log`,
+          # which undercounts (or errors) on the default shallow checkout.
+          fetch-depth: 0
 
       - name: Generate version
         id: version

@@ -20,6 +20,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Full history: generate-version.mjs counts commits via `git log`,
+          # which undercounts (or errors) on the default shallow checkout.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -52,11 +56,6 @@ jobs:
         working-directory: ./MeterItPro/frontend
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
-          # Monotonic build number for the version shown in the user menu —
-          # version.json is committed to Synergy, but this workflow never writes
-          # its bump back, so every checkout starts from the same stale value
-          # and the file-based counter would repeat instead of advancing.
-          VERSION_BUILD_OVERRIDE: ${{ github.run_number }}
 
       # --- TBWC portal: built into the SAME Pages artifact under /TBWCPortal/ ---
       - name: Install dependencies (TBWC portal)
@@ -68,7 +67,6 @@ jobs:
         working-directory: ./TBWC/frontend
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/TBWCPortal/
-          VERSION_BUILD_OVERRIDE: ${{ github.run_number }}
 
       - name: Merge TBWC portal into site artifact
         run: |

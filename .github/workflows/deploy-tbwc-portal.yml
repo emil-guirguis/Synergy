@@ -45,6 +45,10 @@ jobs:
 
       - name: Checkout Synergy
         uses: actions/checkout@v4
+        with:
+          # Full history: generate-version.mjs counts commits via `git log`,
+          # which undercounts (or errors) on the default shallow checkout.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -72,12 +76,6 @@ jobs:
         working-directory: ./TBWC/frontend
         env:
           VITE_BASE_PATH: ${{ env.BASE_PATH }}
-          # Monotonic build number for the version shown on the login screen —
-          # version.json is committed to Synergy, but this workflow never writes
-          # its bump back, so every checkout starts from the same stale value
-          # and the file-based counter would repeat instead of advancing. The
-          # run number always goes up.
-          VERSION_BUILD_OVERRIDE: ${{ github.run_number }}
 
       - name: Checkout tbwc-site
         uses: actions/checkout@v4
