@@ -83,6 +83,7 @@ export interface OrderImportIndexRow {
   expedite: boolean;
   jay: boolean;
   ship_no_later_than: string | null;
+  actual_ship_date: string | null;
   sold_for: number | null;
   d_net_cost: number | null;
   overage: number | null;

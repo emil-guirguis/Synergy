@@ -8,6 +8,7 @@ import { FormTabs } from './FormTabs';
 import { ValidationFieldSelect } from '../validationfieldselect/ValidationFieldSelect';
 import { FormField } from '../formfield/FormField';
 import { TIMEZONE_OPTIONS } from '../formfield/fieldOptions';
+import { Tooltip } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import RouterOutlinedIcon from '@mui/icons-material/RouterOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -546,6 +547,11 @@ export const BaseForm: React.FC<BaseFormProps> = ({
           <h3 className={`${className}__section-title base-form__section-title`}>
             {getSectionIcon(sectionTitle)}
             {sectionTitle}
+            {visibleFields.includes('documents') && (
+              <Tooltip title="Drag files here, or hover the grid and press Ctrl+V to paste a copied file.">
+                <InfoOutlinedIcon sx={{ fontSize: 16, ml: 0.5, color: 'text.secondary', cursor: 'help', verticalAlign: 'text-bottom' }} />
+              </Tooltip>
+            )}
             {/address/i.test(sectionTitle) && (() => {
               const d = form?.formData || {};
               const parts = [d.street, d.street2, d.city, d.state, d.zip, d.country].filter(Boolean);

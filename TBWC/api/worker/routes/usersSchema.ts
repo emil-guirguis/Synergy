@@ -17,6 +17,7 @@ export const usersSchema = defineSchema({
   description: 'Rep portal user profile (tbwc-site public.users)',
   formMaxWidth: '760px',
   customListColumns: {},
+  defaultSortBy: 'first_name asc',
 
   formTabs: [
     tab({

@@ -84,8 +84,25 @@ export async function runAiChatLoop(
   const toolResults: AiChatToolResult[] = [];
   const maxIterations = config.maxIterations ?? 8;
 
+  const validToolNames = config.tools.map((t) => t.function.name);
+
   for (let i = 0; i < maxIterations; i++) {
     const assistantMsg = await config.complete(messages);
+
+    // Groq's gpt-oss models occasionally leak an internal "harmony" format
+    // control token onto the end of an otherwise-correct tool name, e.g.
+    // "search_orders<|channel|>commentary" instead of "search_orders". Left
+    // alone, that garbled name re-enters the conversation history below and
+    // the provider's own request validation 400s the *next* completion call
+    // because it no longer matches any tool in `tools` — repair it here,
+    // before it's used or persisted.
+    for (const toolCall of assistantMsg.tool_calls ?? []) {
+      if (!validToolNames.includes(toolCall.function.name)) {
+        const repaired = validToolNames.find((name) => toolCall.function.name.startsWith(name));
+        if (repaired) toolCall.function.name = repaired;
+      }
+    }
+
     messages.push(assistantMsg);
 
     if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {

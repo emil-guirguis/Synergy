@@ -17,6 +17,7 @@ export const quoteSchema = defineSchema({
   description: 'TBWC price quote (header + line items)',
   formMaxWidth: '1100px',
   customListColumns: {},
+  defaultSortBy: 'quote_number asc',
 
   formTabs: [
     tab({

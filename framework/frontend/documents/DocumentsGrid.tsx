@@ -70,6 +70,7 @@ import {
   ListItemText,
   Menu,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -911,12 +912,6 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         </Box>
       )}
 
-      {!disabled && !readOnly && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          Drag files here, or hover the grid and press Ctrl+V to paste a copied file.
-        </Typography>
-      )}
-
       <TableContainer
         component={Paper}
         variant="outlined"
@@ -945,10 +940,11 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
                   <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                     <Button
                       size="small"
+                      startIcon={<AddIcon fontSize="small" />}
                       onClick={() => setDrafts((ds) => [...ds, newDraft()])}
                       disabled={disabled || folderBusy}
                     >
-                      + Add
+                      Add
                     </Button>
                     <Tooltip title="Upload every file in a folder">
                       <span>
@@ -958,7 +954,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
                           onClick={() => folderInputRef.current?.click()}
                           disabled={disabled || folderBusy}
                         >
-                          Add Folder
+                          Folder
                         </Button>
                       </span>
                     </Tooltip>

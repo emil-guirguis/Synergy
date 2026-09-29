@@ -236,6 +236,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onInventoryEdit, o
         emptyMessage="No inventory items found."
         onEdit={baseList.handleEdit}
         pagination={baseList.pagination}
+        sortBy={baseList.sortBy}
+        sortOrder={baseList.sortOrder}
       />
     </div>
   );

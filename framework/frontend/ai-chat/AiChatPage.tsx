@@ -13,6 +13,7 @@
  * conversation on the way back. "New Chat" is the only thing that clears it.
  */
 import React, { useRef, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box,
   TextField,
@@ -30,8 +31,15 @@ import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
+import MicIcon from '@mui/icons-material/Mic';
+import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import { useAiChatStore } from './store';
 import type { AiChatPageConfig, AiChatResultLink } from './types';
+
+/** Chrome/Edge only; feature-detected so other browsers just don't see the mic. */
+const SpeechRecognitionCtor: any =
+  typeof window !== 'undefined' ? (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition : undefined;
 
 /** One tool-result row → its clickable card. A single action clicks straight
  *  through; two or more (e.g. a document-backed order result) pop a small
@@ -95,11 +103,156 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
 }) => {
   const { messages, loading, error, addMessage, setLoading, setError, reset } = useAiChatStore();
   const [input, setInput] = useState('');
+  const [listening, setListening] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const baseTextRef = useRef('');
+  const voiceModeRef = useRef(false);
+  const speakingRef = useRef(false);
+  const voiceTranscriptRef = useRef('');
+  const autoRanRef = useRef(false);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
+  // Header search bar hands off "press Enter" here with the typed query —
+  // run it once, then clear the nav state so a refresh/back doesn't resend it.
+  useEffect(() => {
+    const autoQuery = (location.state as any)?.autoQuery;
+    if (autoQuery && !autoRanRef.current) {
+      autoRanRef.current = true;
+      handleSend(autoQuery);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleListening = () => {
+    if (!SpeechRecognitionCtor) return;
+
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    baseTextRef.current = input ? `${input} ` : '';
+
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput(baseTextRef.current + transcript);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  const setSpeakingState = (value: boolean) => {
+    speakingRef.current = value;
+    setSpeaking(value);
+  };
+
+  /** Reads text aloud; resolves once done (or immediately if TTS isn't available).
+   *  Resolves early if `cancel()` interrupts it — e.g. the barge-in check below. */
+  const speak = (text: string) =>
+    new Promise<void>((resolve) => {
+      if (!text || !('speechSynthesis' in window)) return resolve();
+      const utterance = new SpeechSynthesisUtterance(text);
+      const finish = () => {
+        setSpeakingState(false);
+        resolve();
+      };
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      window.speechSynthesis.cancel();
+      setSpeakingState(true);
+      window.speechSynthesis.speak(utterance);
+    });
+
+  /** One hands-free turn: listen for a single utterance, auto-send it once the
+   *  user stops talking. Started right after each assistant reply — while
+   *  voice mode is on — so the mic is already live both for barge-in (talking
+   *  over the reply) and for capturing whatever comes next once it finishes. */
+  const startVoiceTurn = () => {
+    if (!SpeechRecognitionCtor || !voiceModeRef.current) return;
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    voiceTranscriptRef.current = '';
+
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      voiceTranscriptRef.current = transcript;
+      setInput(transcript);
+      // Barge-in: the user started talking while the assistant was still
+      // reading its reply out loud — cut it off so it doesn't talk over them.
+      // (Relies on the browser's own echo cancellation to avoid the mic
+      // re-triggering off the TTS audio itself; behavior varies by device.)
+      if (transcript.trim() && speakingRef.current) {
+        window.speechSynthesis?.cancel();
+      }
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      const said = voiceTranscriptRef.current.trim();
+      if (said) {
+        handleSend(said);
+      } else if (voiceModeRef.current) {
+        // Silence (no speech detected) — keep listening rather than dropping out of voice mode.
+        startVoiceTurn();
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  };
+
+  const toggleVoiceMode = () => {
+    if (!SpeechRecognitionCtor) return;
+    if (voiceMode) {
+      if (speakingRef.current) {
+        // Tap-to-interrupt: stop the assistant talking without leaving voice mode.
+        window.speechSynthesis?.cancel();
+        return;
+      }
+      voiceModeRef.current = false;
+      setVoiceMode(false);
+      recognitionRef.current?.stop();
+      window.speechSynthesis?.cancel();
+    } else {
+      voiceModeRef.current = true;
+      setVoiceMode(true);
+      startVoiceTurn();
+    }
+  };
 
   const handleSend = async (text: string) => {
     const userMessage = text.trim();
@@ -122,11 +275,20 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
           toolsUsed: data.tools_used,
           toolResults: data.tool_results,
         });
+        if (voiceModeRef.current) {
+          // Start listening before speaking, not after — this is what makes
+          // barge-in possible, and it doubles as listening for the next reply
+          // once the assistant finishes talking.
+          startVoiceTurn();
+          await speak(data.response ?? '');
+        }
       } else {
         setError(data.message ?? 'An error occurred.');
+        if (voiceModeRef.current) startVoiceTurn();
       }
     } catch (err: any) {
       setError(err?.message ?? 'Failed to reach the AI. Please try again.');
+      if (voiceModeRef.current) startVoiceTurn();
     } finally {
       setLoading(false);
     }
@@ -160,16 +322,59 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
             {subtitle}
           </Typography>
         </Box>
-        <Button
-          size="small"
-          variant="outlined"
-          onClick={reset}
-          disabled={messages.length === 0 && !loading}
-          startIcon={<AddIcon fontSize="small" />}
-          sx={{ borderRadius: 999, px: 1.5, py: 0.25, fontSize: 12, minHeight: 0 }}
-        >
-          New Chat
-        </Button>
+        <Stack direction="row" gap={1}>
+          {SpeechRecognitionCtor && (
+            <Button
+              size="small"
+              variant={voiceMode ? 'contained' : 'outlined'}
+              color={voiceMode ? (speaking ? 'warning' : 'error') : 'primary'}
+              onClick={toggleVoiceMode}
+              title={voiceMode ? (speaking ? 'Tap to interrupt' : 'Tap to end voice chat') : 'Start voice chat'}
+              startIcon={
+                speaking ? (
+                  <VolumeUpIcon
+                    fontSize="small"
+                    sx={{
+                      animation: 'ai-chat-speaking-pulse 0.9s ease-in-out infinite',
+                      '@keyframes ai-chat-speaking-pulse': {
+                        '0%, 100%': { opacity: 1 },
+                        '50%': { opacity: 0.4 },
+                      },
+                    }}
+                  />
+                ) : (
+                  <HeadsetMicIcon
+                    fontSize="small"
+                    sx={
+                      listening
+                        ? {
+                            animation: 'ai-chat-mic-pulse 1.2s ease-in-out infinite',
+                            '@keyframes ai-chat-mic-pulse': {
+                              '0%, 100%': { opacity: 1 },
+                              '50%': { opacity: 0.4 },
+                            },
+                          }
+                        : undefined
+                    }
+                  />
+                )
+              }
+              sx={{ borderRadius: 999, px: 1.5, py: 0.25, fontSize: 12, minHeight: 0 }}
+            >
+              {voiceMode ? (speaking ? 'Speaking…' : listening ? 'Listening…' : 'Voice Chat On') : 'Voice Chat'}
+            </Button>
+          )}
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={reset}
+            disabled={messages.length === 0 && !loading}
+            startIcon={<AddIcon fontSize="small" />}
+            sx={{ borderRadius: 999, px: 1.5, py: 0.25, fontSize: 12, minHeight: 0 }}
+          >
+            New Chat
+          </Button>
+        </Stack>
       </Box>
 
       <Paper
@@ -342,6 +547,32 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
           disabled={loading}
           size="small"
           sx={{ bgcolor: 'background.paper' }}
+          InputProps={{
+            endAdornment: SpeechRecognitionCtor && !voiceMode ? (
+                <IconButton
+                  size="small"
+                  onClick={toggleListening}
+                  disabled={loading}
+                  color={listening ? 'error' : 'default'}
+                  title={listening ? 'Stop voice input' : 'Speak your question'}
+                >
+                  <MicIcon
+                    fontSize="small"
+                    sx={
+                      listening
+                        ? {
+                            animation: 'ai-chat-mic-pulse 1.2s ease-in-out infinite',
+                            '@keyframes ai-chat-mic-pulse': {
+                              '0%, 100%': { opacity: 1 },
+                              '50%': { opacity: 0.4 },
+                            },
+                          }
+                        : { opacity: 0.6 }
+                    }
+                  />
+                </IconButton>
+            ) : undefined,
+          }}
         />
         <IconButton
           color="primary"

@@ -17,6 +17,7 @@ export const customersSchema = defineSchema({
   description: 'QuickBooks customers (synced QB → TBWC, read-only)',
   formMaxWidth: '900px',
   customListColumns: {},
+  defaultSortBy: 'full_name asc',
 
   formTabs: [
     tab({

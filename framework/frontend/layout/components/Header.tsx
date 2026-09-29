@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { HeaderProps } from '../types';
 import { HamburgerIcon } from './HamburgerIcon';
 import { getIconElement } from '../../utils/iconHelper';
@@ -63,8 +64,6 @@ export const Header: React.FC<HeaderProps> = ({
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [aiResponse, setAiResponse] = useState<string | null>(null);
-  const [isAiAnswering, setIsAiAnswering] = useState(false);
   // Documents matched by name/type are already in searchResults; documentsTotal
   // is how many documents exist at all, so "search file contents" can be
   // offered even when nothing matched by name. Content search is a separate,
@@ -76,6 +75,9 @@ export const Header: React.FC<HeaderProps> = ({
   const notificationsRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const navigate = useNavigate();
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -152,6 +154,8 @@ export const Header: React.FC<HeaderProps> = ({
       if (recognitionRef.current) {
         recognitionRef.current.abort();
       }
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchAbortRef.current?.abort();
     };
   }, []);
 
@@ -177,12 +181,18 @@ export const Header: React.FC<HeaderProps> = ({
     setDocumentsTotal(0);
     setContentSearched(false);
 
+    // Cancel any still-in-flight search so an earlier (slower) response can't
+    // land after this one and stomp its results — that race was the flashing.
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
     try {
       setIsSearching(true);
 
       // Get auth token from storage
       const authToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      
+
       if (!authToken) {
         console.warn('⚠️ [SEARCH] No authentication token found in storage');
         setSearchResults([]);
@@ -193,7 +203,6 @@ export const Header: React.FC<HeaderProps> = ({
       console.log('🔍 [SEARCH] Searching for:', query);
 
       // Call AI search endpoint with timeout
-      const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
       const response = await fetch('/api/ai/search', {
@@ -207,6 +216,11 @@ export const Header: React.FC<HeaderProps> = ({
       });
 
       clearTimeout(timeoutId);
+
+      // A newer keystroke may have already superseded this request — its abort()
+      // reaches here as a resolved-but-stale response too, not just a thrown
+      // AbortError, so drop it before touching state either way.
+      if (searchAbortRef.current !== controller) return;
 
       if (response.ok) {
         const data = await response.json();
@@ -223,6 +237,7 @@ export const Header: React.FC<HeaderProps> = ({
         setSearchResults([]);
       }
     } catch (error) {
+      if (searchAbortRef.current !== controller) return; // superseded, not a real failure
       if (error instanceof Error && error.name === 'AbortError') {
         console.error('❌ [SEARCH] Search timeout');
       } else {
@@ -230,7 +245,7 @@ export const Header: React.FC<HeaderProps> = ({
       }
       setSearchResults([]);
     } finally {
-      setIsSearching(false);
+      if (searchAbortRef.current === controller) setIsSearching(false);
     }
   };
 
@@ -281,63 +296,34 @@ export const Header: React.FC<HeaderProps> = ({
   const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchQuery(value);
-    setAiResponse(null);
-    if (value.trim()) {
-      handleSearch(value);
-    } else {
+
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+
+    if (!value.trim()) {
+      searchAbortRef.current?.abort();
       setSearchResults([]);
       setDocumentsTotal(0);
       setContentSearched(false);
       setShowSearchResults(false);
+      return;
     }
+
+    // Debounced so search fires once typing pauses, not on every keystroke —
+    // firing per-keystroke was spamming requests whose out-of-order responses
+    // caused the results dropdown to flash/flicker while typing.
+    searchDebounceRef.current = setTimeout(() => handleSearch(value), 300);
   };
 
-  const handleAskAI = async (query: string) => {
-    if (!query.trim()) return;
-    const authToken = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-    if (!authToken) return;
-
-    setIsAiAnswering(true);
-    setAiResponse(null);
-    setShowSearchResults(true);
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ message: query }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        setAiResponse(data.response ?? 'No response from AI.');
-      } else {
-        setAiResponse('AI is not available right now. Please try again.');
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        setAiResponse('Request timed out. Please try a shorter question.');
-      } else {
-        setAiResponse('Could not reach the AI. Please check your connection.');
-      }
-    } finally {
-      setIsAiAnswering(false);
-    }
-  };
-
+  // Enter hands off to the full AI chat page rather than answering inline —
+  // the inline dropdown couldn't show tool results/follow-ups the chat page can.
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      handleAskAI(searchQuery);
+      const query = searchQuery.trim();
+      if (!query) return;
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      setShowSearchResults(false);
+      navigate('/ai-chat', { state: { autoQuery: query } });
     }
   };
 
@@ -396,7 +382,7 @@ export const Header: React.FC<HeaderProps> = ({
               onChange={handleSearchInputChange}
               onKeyDown={handleSearchKeyDown}
               onFocus={() => searchQuery && setShowSearchResults(true)}
-              disabled={isSearching || isAiAnswering}
+              disabled={isSearching}
             />
             {isSearching && (
               <div className="search-loading" aria-label="Searching...">
@@ -415,7 +401,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {/* Search Results Dropdown */}
-            {showSearchResults && (searchResults.length > 0 || isAiAnswering || aiResponse) && (
+            {showSearchResults && searchResults.length > 0 && (
               <div className="search-results-dropdown" role="region" aria-label="Search results">
                 {/* Device / meter / document quick results */}
                 {searchResults.length > 0 && (
@@ -486,25 +472,10 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 )}
 
-                {/* AI Answer panel */}
-                {(isAiAnswering || aiResponse) && (
-                  <div className="search-ai-answer">
-                    <div className="search-ai-answer__header">
-                      {getIconElement('smart_toy', 'search-ai-answer__icon')}
-                      <span>AI Answer</span>
-                      {isAiAnswering && <span className="search-ai-answer__spinner"></span>}
-                    </div>
-                    <div className="search-ai-answer__body">
-                      {isAiAnswering
-                        ? 'Thinking...'
-                        : aiResponse}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
-            {showSearchResults && searchQuery && !isAiAnswering && !aiResponse && searchResults.length === 0 && (
+            {showSearchResults && searchQuery && searchResults.length === 0 && (
               <div className="search-results-dropdown" role="region" aria-label="Search results">
                 <div className="no-results">
                   <p>No matches found for "{searchQuery}"</p>

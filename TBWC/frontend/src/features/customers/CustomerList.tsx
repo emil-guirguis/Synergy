@@ -59,6 +59,8 @@ export const CustomerList: React.FC = () => {
         error={baseList.error}
         emptyMessage="No customers found. Run a QuickBooks sync to pull customers."
         pagination={baseList.pagination}
+        sortBy={baseList.sortBy}
+        sortOrder={baseList.sortOrder}
       />
     </div>
   );

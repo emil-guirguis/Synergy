@@ -27,10 +27,14 @@
  * header isn't present on a given sheet is simply not sourced from that sheet.
  *
  * A blank cell means "no opinion, don't touch the existing value" for every
- * text/currency/date field — it's never written as an overwrite-to-null. The
- * two checkbox-style flags (EXP/JAY) are the one exception: the sheet only
- * ever marks them with a literal "x" or leaves them blank, so blank there is
- * read as an authoritative "false" when that column exists on the sheet.
+ * field here — it's never written as an overwrite-to-null. Ship date
+ * (actual_ship_date) additionally never overwrites an already-set DB value
+ * even when the sheet disagrees — the sheet only backfills a blank there.
+ *
+ * Scope: commission/financial fields (DNC, SOLD FOR, COMM 15%, OVG 75/25,
+ * PROJ ADM, Trade Ally) plus ship date. Non-commission columns on the sheet
+ * (BUILD NOTES, EXP, JAY, NOTES, JOB NAME, SHIP NLT) are deliberately not
+ * imported here.
  */
 import React, { useRef, useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
@@ -54,24 +58,26 @@ interface FieldDef {
   label: string;
   headers: string[];
   kind: FieldKind;
+  /** DB value wins when it's already set — sheet only backfills a blank. */
+  fillOnlyIfBlank?: boolean;
 }
 
-// The full TBWC-owned set from the sheet, per tbwc-orders-spreadsheet-mapping.
-// "JAY TER" (2024's column) is deliberately NOT listed as an alias for JAY —
-// different header text, not proven to mean the same thing.
+// Commission-only subset of the TBWC-owned set from the sheet, per
+// tbwc-orders-spreadsheet-mapping. Non-commission fields (BUILD NOTES, EXP,
+// JAY, NOTES, JOB NAME, SHIP NLT) are deliberately excluded — this panel
+// imports commission/financial fields plus actual ship date only.
 const FIELD_DEFS: FieldDef[] = [
-  { dbField: 'build_notes', label: 'Build Notes', headers: ['BUILD NOTES'], kind: 'text' },
-  { dbField: 'expedite', label: 'Expedite', headers: ['EXP'], kind: 'boolean' },
-  { dbField: 'jay', label: 'Jay', headers: ['JAY'], kind: 'boolean' },
-  { dbField: 'notes', label: 'Notes', headers: ['NOTES'], kind: 'text' },
-  { dbField: 'job_name', label: 'Job Name', headers: ['JOB NAME'], kind: 'text' },
-  { dbField: 'ship_no_later_than', label: 'Ship NLT', headers: ['SHIP NLT'], kind: 'date' },
   { dbField: 'd_net_cost', label: 'D-Net Cost', headers: ['DNC'], kind: 'currency' },
   { dbField: 'sold_for', label: 'Sold For', headers: ['SOLD FOR'], kind: 'currency' },
   { dbField: 'commission', label: 'Commission', headers: ['COMM 15%'], kind: 'currency' },
   { dbField: 'overage', label: 'Overage', headers: ['OVG 75/25'], kind: 'currency' },
   { dbField: 'project_admin_fee', label: 'Proj Admin Fee', headers: ['PROJ ADM'], kind: 'currency' },
   { dbField: 'trade_ally_fee', label: 'Trade Ally Fee', headers: ['Trade Ally'], kind: 'currency' },
+  // Column I, "SHIPMENT DATE" — informal free text (e.g. "Shipped 1-7-26"),
+  // not a real date cell, hence parseInformalDate below. actual_ship_date is
+  // TBWC-owned/manual (migration 035, distinct from QB-synced shipped_date),
+  // so an existing DB value is trusted over the sheet — this only backfills.
+  { dbField: 'actual_ship_date', label: 'Ship Date', headers: ['SHIPMENT DATE'], kind: 'date', fillOnlyIfBlank: true },
 ];
 
 const CUSTOMER_HEADERS = ['CUSTOMER', 'CUSTOMERS', 'CUSTOMER+'];
@@ -176,6 +182,20 @@ function displayValue(v: unknown): string {
   if (v instanceof Date) return dateToIso(v);
   if (typeof v === 'number') return v.toFixed(2);
   return String(v).trim();
+}
+
+/** Column I ("SHIPMENT DATE") is free text like "Shipped 1-7-26", not a real
+ *  date cell — pull an embedded M/D/YY(YY) date out of it. 2-digit years are
+ *  assumed 2000s (no TBWC order predates that). Null if nothing recognizable. */
+function parseInformalDate(text: string): Date | null {
+  const m = text.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (!m) return null;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const d = new Date(year, month - 1, day);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /** Local-date components only — avoids the UTC-shift toISOString() would apply to a sheet's local date. */
@@ -389,8 +409,10 @@ export const CommissionImportPanel: React.FC = () => {
                   diffs.push({ def, from: from == null ? '' : formatCurrency(from), to: formatCurrency(to), value: Math.round(to * 100) / 100 });
                 }
               } else if (def.kind === 'date') {
-                if (!(raw instanceof Date)) { skipNotes.push(`${def.label} cell isn't a date ("${String(raw).trim()}") — not imported, verify sheet.`); continue; }
-                const to = dateToIso(raw);
+                const parsed = raw instanceof Date ? raw : parseInformalDate(String(raw));
+                if (!parsed) { skipNotes.push(`${def.label} cell isn't a date ("${String(raw).trim()}") — not imported, verify sheet.`); continue; }
+                if (def.fillOnlyIfBlank && currentRaw) continue; // DB already has a value — sheet never overwrites here
+                const to = dateToIso(parsed);
                 const from = currentRaw || '';
                 if (to !== from) diffs.push({ def, from, to, value: to });
               } else {

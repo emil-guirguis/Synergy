@@ -23,6 +23,7 @@ export const inventorySchema = defineSchema({
   description: 'TBWC product catalog (QuickBooks item list + TBWC-owned fields)',
   formMaxWidth: '900px',
   customListColumns: {},
+  defaultSortBy: 'name asc',
 
   formTabs: [
     tab({

@@ -81,6 +81,8 @@ export const QuoteList: React.FC<QuoteListProps> = ({ onQuoteEdit, onQuoteCreate
         emptyMessage="No quotes found."
         onEdit={baseList.handleEdit}
         pagination={baseList.pagination}
+        sortBy={baseList.sortBy}
+        sortOrder={baseList.sortOrder}
       />
     </div>
   );

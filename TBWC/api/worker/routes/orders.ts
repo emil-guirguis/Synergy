@@ -188,7 +188,7 @@ app.get('/import-index', requirePermission('order:write'), async (c) => {
   const { rows } = await execQuery(
     c.env,
     `SELECT qb_sales_order_id, ref_number, po_number, customer_name, sales_rep_list_id,
-            build_notes, job_name, expedite, jay, ship_no_later_than,
+            build_notes, job_name, expedite, jay, ship_no_later_than, actual_ship_date,
             sold_for, d_net_cost, overage, commission, project_admin_fee, trade_ally_fee,
             commission_total, notes
        FROM public.${TABLE}

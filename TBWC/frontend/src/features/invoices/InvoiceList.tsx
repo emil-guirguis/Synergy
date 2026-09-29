@@ -118,6 +118,8 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
         onView={onInvoiceView}
         onExportClick={baseList.canExport ? baseList.handleExportAll : undefined}
         pagination={baseList.pagination}
+        sortBy={baseList.sortBy}
+        sortOrder={baseList.sortOrder}
       />
     </div>
   );
