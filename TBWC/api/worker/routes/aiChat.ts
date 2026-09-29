@@ -17,7 +17,7 @@
  * Admin-only. None of the tools below scope their queries to the caller's own
  * sales rep, so a rep asking a question would read every rep's orders plus the
  * whole invoice/customer set — the rest of the rep portal is scoped to their
- * own rep_id. The Ask AI nav item and /ai-chat route are admin-gated to match.
+ * own rep_id. The Ask SI nav item and /ai-chat route are admin-gated to match.
  */
 import { Hono } from 'hono';
 import OpenAI from 'openai';
@@ -149,6 +149,28 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'search_orders_by_document',
+      description:
+        'Find orders that have an attached document matching a type or file name — use this for "orders with a ' +
+        '[X] document/attached" questions, e.g. "latest orders with a meter schedule", "orders that have a waiver ' +
+        'on file". Matches against the document\'s type (e.g. load_schedule, panelboard_schedules, cutsheet, waiver, ' +
+        'rma, change_order) or file name, substring/case-insensitive — "meter schedule" matches doc type ' +
+        'load_schedule or a file named "Meter Schedule.pdf" either way. Returns one row per matching order (not per ' +
+        'document), most recently dated order first — use this instead of search_documents when the question is ' +
+        'about which orders have a document, not about the documents themselves.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text to match against the document type or file name, e.g. "meter schedule"' },
+          limit: { type: 'number', description: 'Maximum number of orders to return (default 5)' },
+        },
+        required: ['text'],
+      },
+    },
+  },
 ];
 
 // --- Tool executor ------------------------------------------------------------
@@ -274,6 +296,36 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
         return JSON.stringify(matches.slice(0, limit));
       }
 
+      case 'search_orders_by_document': {
+        const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        if (!text) return JSON.stringify({ error: 'text is required' });
+        const limit = Math.min(toolInput.limit ?? 5, 100);
+        const result = await execQuery(
+          env,
+          `SELECT qb_sales_order_id, txn_id, ref_number, customer_name, job_name, txn_date, total, doc_type, file_name
+             FROM (
+               SELECT DISTINCT ON (o.qb_sales_order_id)
+                      o.qb_sales_order_id, o.txn_id, o.ref_number, o.customer_name, o.job_name, o.txn_date, o.total,
+                      d.doc_type, d.file_name
+                 FROM public.document d
+                 JOIN public.qb_sales_order o ON o.qb_sales_order_id::text = d.entity_id
+                WHERE d.entity_type = 'order'
+                  AND o.qb_deleted_at IS NULL
+                  AND (
+                    $1 ILIKE '%' || replace(d.doc_type, '_', ' ') || '%'
+                    OR replace(d.doc_type, '_', ' ') ILIKE '%' || $1 || '%'
+                    OR d.file_name ILIKE '%' || $1 || '%'
+                  )
+                ORDER BY o.qb_sales_order_id, o.txn_date DESC NULLS LAST
+             ) matched
+            ORDER BY txn_date DESC NULLS LAST
+            LIMIT $2`,
+          [text, limit],
+          'aiChat.search_orders_by_document'
+        );
+        return JSON.stringify(result.rows);
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${toolName}` });
     }
@@ -316,6 +368,7 @@ Guidelines:
 - A tracking number, serial number, or part number is line item text, not a header field — go to search_order_lines / search_invoice_lines for these directly. If you search the header tool (search_orders / search_invoices) for one of these and get nothing, ALWAYS try the matching line-item search before telling the user there's no match — do not report "not found" after only a header search.
 - Pricing/product questions ("how much is X", "what does X cost", "do we carry X") are about the product catalog, not an order or invoice — use search_inventory directly. Only fall back to order/invoice line search if search_inventory finds nothing and the user seems to be asking about something on a specific past order/invoice.
 - A request for a document, file, photo, or attachment uses search_documents (file name/type only, not contents) — don't say you have no access to documents.
+- "Which orders have a [X] document" / "latest orders with a [X] attached" is about orders, not documents — use search_orders_by_document, not search_documents. It already sorts most-recent-order-first and returns one row per order.
 - Only write out details in prose when there's no search result to back it up, or when the user asks a follow-up question about one specific result.
 - If nothing matches, say so plainly rather than inventing results.
 - Today's date: ${new Date().toISOString().split('T')[0]}`;

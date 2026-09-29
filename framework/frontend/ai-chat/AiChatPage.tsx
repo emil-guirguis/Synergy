@@ -1,5 +1,5 @@
 /**
- * Shared "ask AI" chat page. Renders the conversation UI and drives the
+ * Shared "ask SI" chat page. Renders the conversation UI and drives the
  * assistant/tool-call turn-taking; each consuming app supplies its own
  * `sendMessage` (their HTTP client + auth convention differ — MIP uses an
  * axios instance, TBWC plain `fetch` + Supabase token) and its own copy
@@ -33,7 +33,7 @@ import type { AiChatPageConfig } from './types';
 
 export const AiChatPage: React.FC<AiChatPageConfig> = ({
   sendMessage,
-  title = 'AI Assistant',
+  title = 'SI Assistant',
   subtitle = 'Ask a question to get started.',
   placeholder = 'Ask a question...',
   emptyStateText = 'Ask anything.',
@@ -193,8 +193,8 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
                 sx={{
                   px: 2,
                   py: 1.5,
-                  bgcolor: msg.role === 'user' ? 'primary.light' : 'background.paper',
-                  color: msg.role === 'user' ? '#fff' : 'text.primary',
+                  bgcolor: msg.role === 'user' ? 'primary.main' : 'background.paper',
+                  color: msg.role === 'user' ? 'primary.contrastText' : 'text.primary',
                   borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                   border: msg.role === 'assistant' ? '1px solid' : 'none',
                   borderColor: 'divider',

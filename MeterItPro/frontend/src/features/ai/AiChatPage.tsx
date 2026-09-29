@@ -24,7 +24,7 @@ async function sendMessage(
 export const AiChatPage: React.FC = () => (
   <SharedAiChatPage
     sendMessage={sendMessage}
-    title="AI Assistant (Zenith)"
+    title="SI Assistant (Zenith)"
     subtitle="Ask questions about your meters, readings, and alerts."
     placeholder="Ask about your meters, readings, alerts..."
     emptyStateText="Ask anything about your facility's energy data."

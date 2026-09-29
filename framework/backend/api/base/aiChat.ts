@@ -1,5 +1,5 @@
 /**
- * Shared tool-use agentic loop for "ask AI" chat routes. Each consuming app's
+ * Shared tool-use agentic loop for "ask SI" chat routes. Each consuming app's
  * worker/routes/aiChat.ts keeps its own OpenAI-compatible client, tool
  * definitions, and executeTool() (queries differ per app/tenant model) and
  * hands this module a `complete` callback plus the tool set — this only owns

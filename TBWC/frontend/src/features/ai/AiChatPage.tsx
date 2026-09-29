@@ -81,6 +81,26 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
         onClick: () => navigate(`/invoices?openId=${row.qb_invoice_id}`),
       };
     }
+    if (tool === 'search_orders_by_document') {
+      if (!row.qb_sales_order_id) return null;
+      const lines = [formatDate(row.txn_date), row.doc_type ? String(row.doc_type).replace(/_/g, ' ') : null, row.file_name].filter(Boolean);
+      return {
+        label: `Order ${row.ref_number ?? row.qb_sales_order_id} — ${row.customer_name ?? 'Unknown customer'}`,
+        sublabel: lines.length ? lines.join('\n') : undefined,
+        onClick: () => navigate(`/orders?openId=${row.qb_sales_order_id}`),
+      };
+    }
+    if (tool === 'search_documents') {
+      const routeByEntity: Record<string, string> = { order: '/orders', invoice: '/invoices', inventory: '/inventory' };
+      const route = row.entityType ? routeByEntity[row.entityType] : undefined;
+      if (!route || !row.entityId) return null;
+      const lines = [row.docType ? String(row.docType).replace(/_/g, ' ') : null, row.mimeType].filter(Boolean);
+      return {
+        label: row.fileName ?? 'Document',
+        sublabel: lines.length ? lines.join('\n') : undefined,
+        onClick: () => navigate(`${route}?openId=${row.entityId}`),
+      };
+    }
     if (tool === 'search_inventory') {
       if (!row.qb_item_id) return null;
       const price = formatPrice(row.sales_price);
@@ -100,7 +120,7 @@ export const AiChatPage: React.FC = () => {
   return (
     <SharedAiChatPage
       sendMessage={sendMessage}
-      title="AI Assistant"
+      title="SI Assistant"
       subtitle="Ask questions about orders, invoices, and inventory."
       placeholder="Ask about orders, invoices, inventory..."
       emptyStateText="Ask anything about your orders, invoices, and inventory."

@@ -30,7 +30,7 @@ const NAV: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
   { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes', disabled: true },
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders' },
-  { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat', requiredPermission: 'admin' },
+  { id: 'aiChat', label: 'Ask SI', icon: 'smart_toy', path: '/ai-chat', requiredPermission: 'admin' },
   // Reps see Invoices too, scoped to their own by the API (see invoices.ts).
   { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices' },
   { id: 'payments', label: 'Payments', icon: 'payments', path: '/payments', requiredPermission: 'admin' },
@@ -59,7 +59,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/quotes')) return 'Quotes';
   if (pathname.startsWith('/orders')) return 'Orders';
   if (pathname.startsWith('/resources')) return 'Resources';
-  if (pathname.startsWith('/ai-chat')) return 'Ask AI';
+  if (pathname.startsWith('/ai-chat')) return 'Ask SI';
   if (pathname.startsWith('/inventory')) return 'Inventory';
   if (pathname.startsWith('/customers')) return 'Customers';
   if (pathname.startsWith('/invoices')) return 'Invoices';

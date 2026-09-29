@@ -152,7 +152,7 @@ const staticMenuItems: MenuItem[] = [
   },
   {
     id: 'ai-chat',
-    label: 'AI Assistant (Zenith)',
+    label: 'SI Assistant (Zenith)',
     icon: 'smart_toy',
     path: '/ai-chat',
   },
