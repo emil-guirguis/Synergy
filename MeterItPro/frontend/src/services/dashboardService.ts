@@ -64,6 +64,23 @@ export interface AggregatedData {
   };
 }
 
+export interface MeterAnomaly {
+  meter_reading_anomaly_id: number;
+  meter_id: number;
+  meter_element_id: number;
+  metric: string;
+  reading_at: string;
+  // NUMERIC columns come back as strings from pg (avoids float precision loss) — cast with Number() before math/formatting.
+  actual_value: string;
+  expected_value: string;
+  deviation: string;
+  z_score: string | null;
+  detected_at: string;
+  meter_name: string;
+  element_code: string | null;
+  element_name: string | null;
+}
+
 export interface DetailedMeterReading {
   meter_reading_id: string;
   created_at: string;
@@ -280,6 +297,18 @@ class DashboardService {
       return response.data.data;
     } catch (error) {
       console.error(`Failed to fetch meter elements for meter ${meterId}:`, error);
+      return [];
+    }
+  }
+
+  // Get recent kW spikes flagged by the quality engine
+  async getAnomalies(limit = 10): Promise<MeterAnomaly[]> {
+    try {
+      const response: AxiosResponse<{ success: boolean; data: MeterAnomaly[] }> =
+        await this.apiClient.get('/dashboard/anomalies', { params: { limit } });
+      return response.data.data;
+    } catch (error) {
+      console.error('Failed to fetch anomalies:', error);
       return [];
     }
   }

@@ -21,10 +21,10 @@ describe('runQualityEngine', () => {
     mockExecQuery.mockResolvedValue({ rows: [] } as any);
   });
 
-  it('runs all six steps in order', async () => {
+  it('runs all seven steps in order', async () => {
     await runQualityEngine(TEST_ENV);
 
-    expect(mockExecQuery).toHaveBeenCalledTimes(6);
+    expect(mockExecQuery).toHaveBeenCalledTimes(7);
     const sqls = mockExecQuery.mock.calls.map(call => String(call[1]));
 
     // 1. seed watermarks
@@ -39,12 +39,23 @@ describe('runQualityEngine', () => {
     // 4. close backfilled gaps
     expect(sqls[3]).toContain("SET status = 'closed'");
     expect(sqls[3]).toContain('EXISTS');
-    // 5. advance watermarks
-    expect(sqls[4]).toContain('UPDATE meter_element_watermark');
-    expect(sqls[4]).toContain('last_checked_at');
-    // 6. open tail gaps for silent elements
-    expect(sqls[5]).toContain('INSERT INTO meter_reading_gap');
-    expect(sqls[5]).toContain('gap_end IS NULL');
+    // 5. detect spikes (before watermarks advance, so it sees the same new rows)
+    expect(sqls[4]).toContain('INSERT INTO meter_reading_anomaly');
+    expect(sqls[4]).toContain('CROSS JOIN LATERAL');
+    // 6. advance watermarks
+    expect(sqls[5]).toContain('UPDATE meter_element_watermark');
+    expect(sqls[5]).toContain('last_checked_at');
+    // 7. open tail gaps for silent elements
+    expect(sqls[6]).toContain('INSERT INTO meter_reading_gap');
+    expect(sqls[6]).toContain('gap_end IS NULL');
+  });
+
+  it('flags spikes only past the z-score and sample-count thresholds', async () => {
+    await runQualityEngine(TEST_ENV);
+    const spikeSql = String(mockExecQuery.mock.calls[4][1]);
+    expect(spikeSql).toContain('sample_count >= 20');
+    expect(spikeSql).toContain('GREATEST(3 * stddev_kw, 1)');
+    expect(spikeSql).toContain('ON CONFLICT (meter_reading_id) DO NOTHING');
   });
 
   it('interior gap scan is incremental (watermark-bounded)', async () => {
@@ -61,7 +72,7 @@ describe('runQualityEngine', () => {
 
   it('opens tail gaps only when no open tail gap exists', async () => {
     await runQualityEngine(TEST_ENV);
-    const tailSql = String(mockExecQuery.mock.calls[5][1]);
+    const tailSql = String(mockExecQuery.mock.calls[6][1]);
     expect(tailSql).toContain('NOT EXISTS');
     expect(tailSql).toContain("w.last_reading_at < NOW() - ((w.expected_interval_minutes * 2)");
   });

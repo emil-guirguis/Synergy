@@ -870,6 +870,35 @@ app.get('/meters/:meterId/elements', authenticateToken, async (c) => {
   }
 });
 
+// GET /anomalies - Recent kW spikes flagged by the quality engine (migration 054)
+app.get('/anomalies', requirePermission('dashboard:read'), async (c) => {
+  try {
+    const tenantId = c.get('tenantId');
+    if (!tenantId) return c.json({ success: false, message: 'User must have a valid tenant_id' }, 400);
+
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '10') || 10));
+
+    const result = await execQuery(
+      c.env,
+      `SELECT a.meter_reading_anomaly_id, a.meter_id, a.meter_element_id, a.metric,
+              a.reading_at, a.actual_value, a.expected_value, a.deviation, a.z_score, a.detected_at,
+              m.name AS meter_name, me.element AS element_code, me.name AS element_name
+       FROM meter_reading_anomaly a
+       JOIN meter m ON m.meter_id = a.meter_id
+       LEFT JOIN meter_element me ON me.meter_element_id = a.meter_element_id
+       WHERE a.tenant_id = $1
+       ORDER BY a.detected_at DESC
+       LIMIT $2`,
+      [tenantId, limit]
+    );
+
+    return c.json({ success: true, data: result.rows });
+  } catch (error: any) {
+    logError('Error fetching anomalies', error);
+    return c.json({ success: false, message: 'Failed to fetch anomalies' }, 500);
+  }
+});
+
 // Mapping of register names to actual meter_reading column names
 const columnNameMapping: Record<string, string> = {
   // Energy totals (old -> new mapping support backwards compatibility)

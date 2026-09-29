@@ -14,6 +14,7 @@ vi.mock('../services/dashboardService', () => ({
     createDashboardCard: vi.fn().mockResolvedValue(undefined),
     getPowerColumns: vi.fn().mockResolvedValue([]),
     getMeterElementsByMeter: vi.fn().mockResolvedValue([]),
+    getAnomalies: vi.fn().mockResolvedValue([]),
   }
 }));
 

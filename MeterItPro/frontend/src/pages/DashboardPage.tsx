@@ -7,6 +7,7 @@ import { ExpandedCardModal as FrameworkExpandedCardModal } from '@meterit/framew
 import { Visualization } from '@meterit/framework-frontend/dashboards/components/Visualization';
 import type { DashboardCard as FrameworkDashboardCardType } from '@meterit/framework-frontend/dashboards/types';
 import { dashboardService, type DashboardCard as DashboardCardType, type AggregatedData } from '../services/dashboardService';
+import { AnomalyInsightsPanel } from '../features/dashboard/AnomalyInsightsPanel';
 // import { DashboardBanner } from '../features/dashboard/DashboardBanner';
 import './DashboardPage.css';
 
@@ -645,6 +646,7 @@ export const DashboardPage: React.FC = () => {
   return (
     <DashboardContext.Provider value={dashboardContextValue}>
       <div className="dashboard-with-banner">
+        <AnomalyInsightsPanel />
         <FrameworkDashboardPage
           cards={cards.map(card => ({
             ...card,

@@ -367,6 +367,42 @@ describe('Dashboard Routes', () => {
     });
   });
 
+  describe('GET /anomalies', () => {
+    it('returns recent anomalies for the tenant', async () => {
+      queueAuth(mockQuery, ADMIN_USER)
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              meter_reading_anomaly_id: 1, meter_id: 1, meter_element_id: 1, metric: 'kw',
+              reading_at: '2026-09-28T00:00:00Z', actual_value: 50, expected_value: 10, deviation: 2, z_score: 20,
+              detected_at: '2026-09-28T00:05:00Z', meter_name: 'Meter A', element_code: 'A', element_name: 'Phase A',
+            },
+          ],
+        } as any);
+
+      const res = await dashboardApp.request('/anomalies', {
+        headers: { authorization: 'Bearer valid-token' },
+      }, TEST_ENV);
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(1);
+      expect(mockQuery).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining('meter_reading_anomaly'), [1, 10]);
+    });
+
+    it('caps the limit query param at 100', async () => {
+      queueAuth(mockQuery, ADMIN_USER).mockResolvedValueOnce({ rows: [] } as any);
+
+      const res = await dashboardApp.request('/anomalies?limit=9999', {
+        headers: { authorization: 'Bearer valid-token' },
+      }, TEST_ENV);
+
+      expect(res.status).toBe(200);
+      expect(mockQuery).toHaveBeenLastCalledWith(expect.anything(), expect.any(String), [1, 100]);
+    });
+  });
+
   describe('GET /power-columns', () => {
     it('returns power columns for a device', async () => {
       queueAuth(mockQuery, ADMIN_USER)
