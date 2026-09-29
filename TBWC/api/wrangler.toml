@@ -11,10 +11,10 @@ FRONTEND_URL = "http://localhost:5174,http://localhost:5173"
 # Local dev: direct non-SSL connection to the Supabase pooler (workerd can't do
 # Postgres TLS locally, and the pooler accepts plaintext). A deployed Worker
 # should drop this and use the Hyperdrive binding below (edge-managed TLS).
-DATABASE_URL = "postgresql://postgres.detwkqhqekaiyuajixhs:%23cxQEPx3%2B%40dL%3F2u@aws-0-ca-central-1.pooler.supabase.com:6543/postgres"
-SUPABASE_URL = "https://detwkqhqekaiyuajixhs.supabase.co"
+DATABASE_URL = "postgresql://postgres.ihnezwvduwimprqascsf:h6kJwcfbGAiR8B2jjXwyLTud@aws-0-us-west-1.pooler.supabase.com:6543/postgres"
+SUPABASE_URL = "https://ihnezwvduwimprqascsf.supabase.co"
 # Public anon key (same one the browser uses). Not a secret.
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRldHdrcWhxZWthaXl1YWppeGhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MTI4ODIsImV4cCI6MjEwMDM4ODg4Mn0.OUE2KsTclMTqbPZ97_MXXVG4Nqq1ZOIIujdVJWCEx88"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlobmV6d3ZkdXdpbXBycWFzY3NmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2ODk0MTYsImV4cCI6MjEwNjI2NTQxNn0.1SY0f4b61Pa09TU8c8OpPekEHJoJFpRI6T2IMf9YVYY"
 # Base URL of the TBWC portal (dev = local vite server) — used to build the
 # 90-day re-verification link mailed to locked-out reps. See reverification.ts.
 PORTAL_URL = "http://localhost:5174/"
@@ -39,12 +39,12 @@ PORTAL_URL = "http://localhost:5174/"
 # Unset => attended: the connector uses whatever file is already open, and a run
 # with QuickBooks closed fails with "Could not start QuickBooks".
 
-# Hyperdrive → tbwc-site Supabase Postgres. For `wrangler dev`, localConnectionString
-# is used directly; `id` matters only for a deployed Worker (replace before deploy).
+# Hyperdrive → tbwc-portal Supabase Postgres (us-west-1). For `wrangler dev`,
+# localConnectionString is used directly; `id` matters only for a deployed Worker.
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "00000000000000000000000000000000"
-localConnectionString = "postgresql://postgres.detwkqhqekaiyuajixhs:%23cxQEPx3%2B%40dL%3F2u@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+localConnectionString = "postgresql://postgres.ihnezwvduwimprqascsf:h6kJwcfbGAiR8B2jjXwyLTud@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
 
 [observability]
 [observability.logs]
@@ -82,8 +82,8 @@ FRONTEND_URL = "https://tbwctechnology.com,https://www.tbwctechnology.com,https:
 # Information window), preferably the UNC form (\\server\share\...), and re-grant
 # "allow this application to log in automatically" in QB Integrated Applications.
 #QBWC_COMPANY_FILE = 'Q:\Alll Quickbooks files\tbwc, inc..qbw'
-SUPABASE_URL = "https://detwkqhqekaiyuajixhs.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRldHdrcWhxZWthaXl1YWppeGhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MTI4ODIsImV4cCI6MjEwMDM4ODg4Mn0.OUE2KsTclMTqbPZ97_MXXVG4Nqq1ZOIIujdVJWCEx88"
+SUPABASE_URL = "https://ihnezwvduwimprqascsf.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlobmV6d3ZkdXdpbXBycWFzY3NmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2ODk0MTYsImV4cCI6MjEwNjI2NTQxNn0.1SY0f4b61Pa09TU8c8OpPekEHJoJFpRI6T2IMf9YVYY"
 # Full portal URL incl. subpath (see [vars] comment above for what this is for).
 PORTAL_URL = "https://tbwctechnology.com/portal/"
 

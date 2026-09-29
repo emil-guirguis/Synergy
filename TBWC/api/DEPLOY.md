@@ -21,11 +21,12 @@ npm run build:framework
 
 ## 2. Create Hyperdrive → the TBWC Supabase pooler
 Prod DB goes through Hyperdrive (db.ts uses HYPERDRIVE.connectionString when no
-DATABASE_URL). TBWC uses its OWN Supabase project (detwkqhqekaiyuajixhs), so it
-needs its OWN Hyperdrive (not MIP's).
+DATABASE_URL). TBWC uses its OWN Supabase project (ihnezwvduwimprqascsf, us-west-1 —
+migrated 2026-09-29 from ca-central-1/detwkqhqekaiyuajixhs for latency to the
+Vegas/Ontario-CA offices), so it needs its OWN Hyperdrive (not MIP's).
 ```
 npx wrangler hyperdrive create tbwc-prod \
-  --connection-string="postgresql://postgres.detwkqhqekaiyuajixhs:%23cxQEPx3%2B%40dL%3F2u@aws-0-ca-central-1.pooler.supabase.com:5432/postgres"
+  --connection-string="postgresql://postgres.ihnezwvduwimprqascsf:h6kJwcfbGAiR8B2jjXwyLTud@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
 ```
 Copy the returned `id` → paste into `wrangler.toml` under `[[env.production.hyperdrive]]`
 (replace `<<PROD_HYPERDRIVE_ID>>`).
