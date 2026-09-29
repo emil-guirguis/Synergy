@@ -65,12 +65,20 @@ import {
   TextField,
   Tooltip,
   Typography,
+  Divider,
+  ListItemIcon,
+  ListItemText,
+  Menu,
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CloseIcon from '@mui/icons-material/Close';
+import ShareIcon from '@mui/icons-material/Share';
+import IosShareIcon from '@mui/icons-material/IosShare';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import EmailIcon from '@mui/icons-material/Email';
 import {
   DEFAULT_DOC_TYPE,
   DOC_TYPES,
@@ -361,6 +369,9 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [confirmRow, setConfirmRow] = useState<DocumentRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
+  const [shareRow, setShareRow] = useState<DocumentRecord | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
   // Folder add: the picked-but-not-yet-confirmed batch, then its live progress.
   const [pendingFolder, setPendingFolder] = useState<FolderJob | null>(null);
   const [folderProgress, setFolderProgress] = useState<{ done: number; total: number } | null>(null);
@@ -802,6 +813,50 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     }
   };
 
+  const onShare = async (row: DocumentRecord, anchor: HTMLElement) => {
+    setShareRow(row);
+    setShareAnchor(anchor);
+    setShareUrl(null);
+    if (!row.storage_path) return;
+    try {
+      const url = await storage.viewUrl(row.storage_path);
+      setShareUrl(url);
+    } catch (e: any) {
+      setError(e?.message || 'Could not create share link');
+      setShareAnchor(null);
+    }
+  };
+
+  const closeShare = () => {
+    setShareAnchor(null);
+    setShareRow(null);
+    setShareUrl(null);
+  };
+
+  const onCopyShareLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+    } catch (e: any) {
+      setError(e?.message || 'Could not copy link');
+    }
+    closeShare();
+  };
+
+  const onOpenShareInBrowser = () => {
+    if (!shareUrl) return;
+    window.open(shareUrl, '_blank', 'noopener');
+    closeShare();
+  };
+
+  const onShareByEmail = () => {
+    if (!shareUrl) return;
+    const subject = encodeURIComponent(shareRow?.file_name || '');
+    const body = encodeURIComponent(shareUrl);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    closeShare();
+  };
+
   const confirmDelete = async () => {
     if (!confirmRow) return;
     setDeleting(true);
@@ -969,6 +1024,17 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
                           </IconButton>
                         </span>
                       </Tooltip>
+                      <Tooltip title="Share">
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => void onShare(row, e.currentTarget)}
+                            disabled={!row.storage_path}
+                          >
+                            <ShareIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       <Typography
                         variant="body2"
                         sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -1126,6 +1192,28 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Menu anchorEl={shareAnchor} open={!!shareAnchor} onClose={closeShare}>
+        <MenuItem onClick={onOpenShareInBrowser} disabled={!shareUrl}>
+          <ListItemIcon>
+            <IosShareIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Browser</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={onShareByEmail} disabled={!shareUrl}>
+          <ListItemIcon>
+            <EmailIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Email</ListItemText>
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={() => void onCopyShareLink()} disabled={!shareUrl}>
+          <ListItemIcon>
+            <ContentCopyIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Copy link</ListItemText>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 };
