@@ -24,6 +24,7 @@ import OpenAI from 'openai';
 import { Env, execQuery } from '../db';
 import { authenticateToken, requirePermission, AuthVariables } from '../middleware';
 import { runAiChatLoop, AiChatMessage, describeAiChatError } from '@meterit/framework-backend/api/base/aiChat';
+import { searchDocumentsMetadata } from '@meterit/framework-backend/api/base/aiSearch';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -125,6 +126,24 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
         properties: {
           text: { type: 'string', description: 'Text to match (substring, case-insensitive) against part number/name or description' },
           limit: { type: 'number', description: 'Maximum number of items to return (default 20)' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_documents',
+      description:
+        'Search uploaded documents (attachments on orders, invoices, inventory items, etc.) by file name, ' +
+        'document type, or mime type — use this when the user asks for a document, file, PDF, photo, or attachment. ' +
+        'Does NOT search inside file contents, only file name/type metadata.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text to match (substring, case-insensitive) against file name, doc type, or mime type' },
+          limit: { type: 'number', description: 'Maximum number of documents to return (default 20)' },
         },
         required: ['text'],
       },
@@ -247,6 +266,14 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
         return JSON.stringify(result.rows);
       }
 
+      case 'search_documents': {
+        const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        if (!text) return JSON.stringify({ error: 'text is required' });
+        const limit = Math.min(toolInput.limit ?? 20, 100);
+        const { matches } = await searchDocumentsMetadata(execQuery, env, text);
+        return JSON.stringify(matches.slice(0, limit));
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${toolName}` });
     }
@@ -288,6 +315,7 @@ Guidelines:
 - When a search tool finds results, the app already shows them below your message as clickable cards (ref number, customer, matching detail). Don't repeat that data back as a list or table — just give a one-sentence summary (e.g. "Found 3 invoices matching that serial number — see below.").
 - A tracking number, serial number, or part number is line item text, not a header field — go to search_order_lines / search_invoice_lines for these directly. If you search the header tool (search_orders / search_invoices) for one of these and get nothing, ALWAYS try the matching line-item search before telling the user there's no match — do not report "not found" after only a header search.
 - Pricing/product questions ("how much is X", "what does X cost", "do we carry X") are about the product catalog, not an order or invoice — use search_inventory directly. Only fall back to order/invoice line search if search_inventory finds nothing and the user seems to be asking about something on a specific past order/invoice.
+- A request for a document, file, photo, or attachment uses search_documents (file name/type only, not contents) — don't say you have no access to documents.
 - Only write out details in prose when there's no search result to back it up, or when the user asks a follow-up question about one specific result.
 - If nothing matches, say so plainly rather than inventing results.
 - Today's date: ${new Date().toISOString().split('T')[0]}`;
