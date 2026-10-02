@@ -20,6 +20,7 @@ interface ExtendedFieldDefinition extends FieldDefinition {
   readOnly?: boolean;
   showOn?: string[];
   enumValues?: string[];
+  enumLabels?: Record<string, string>;
   description?: string;
   placeholder?: string;
   filterable?: boolean;
@@ -112,6 +113,14 @@ export function generateColumnsFromSchema<T extends Record<string, any>>(
         column.render = (_value: any, row: T) => {
           const val = row[fieldName as keyof T];
           return val ? String(val) : '';
+        };
+        break;
+
+      case 'select':
+        column.render = (_value: any, row: T) => {
+          const val = row[fieldName as keyof T];
+          if (val === null || val === undefined || val === '') return '';
+          return fieldDef.enumLabels?.[String(val)] ?? String(val);
         };
         break;
 

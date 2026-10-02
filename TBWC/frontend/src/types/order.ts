@@ -95,8 +95,8 @@ export interface OrderImportIndexRow {
 }
 
 /** One invoice QB has linked to an order (GET /api/orders/:id/invoices).
- *  A zero-total row is a packing slip, which this company records in QB as a
- *  zero-total invoice — see OrderInvoicesPanel.tsx. */
+ *  is_packing_slip (migration 066) flags a packing slip, keyed off QB's own
+ *  invoice template rather than a zero total — see OrderInvoicesPanel.tsx. */
 export interface LinkedInvoice {
   qb_invoice_id: number;
   ref_number: string | null;
@@ -105,6 +105,7 @@ export interface LinkedInvoice {
   total: number | null;
   balance_remaining: number | null;
   is_paid: boolean | null;
+  is_packing_slip: boolean;
   /** How this invoice was tied to the order: 'link' = QB's own LinkedTxn;
    *  'po' = inferred from customer + PO number; 'ambiguous' = that same
    *  customer+PO is on more than one order, so the match may be the wrong one. */

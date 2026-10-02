@@ -44,6 +44,19 @@ export interface BackendFieldDefinition {
     sectionOrder: number;
     fieldOrder: number;
   };
+  /** Editable only while the record is new (no id yet) — see SchemaDefinition.js's field(). */
+  createOnly?: boolean;
+  /** Declares this field as an async search-as-you-type picker instead of a static dropdown. */
+  referenceSearch?: { endpoint: string; valueField?: string; labelField?: string };
+  /** Declares this field as an addable/removable line-item grid with an async item picker per row. */
+  lineItemPicker?: {
+    itemSearch: { endpoint: string; valueField?: string; labelField?: string };
+    descField: string;
+    quantityField: string;
+    rateField: string;
+  };
+  /** For an array-of-objects field rendered as its own grid, that grid's columns — see SchemaDefinition.js's field(). */
+  gridColumns?: { key: string; label: string }[];
 }
 
 export interface BackendSchema {
@@ -281,6 +294,13 @@ function convertFieldDefinition(backendField: BackendFieldDefinition & { validat
     ...(backendField.rows != null && { rows: backendField.rows }),
     // Preserve formGrouping for tab/section organization
     ...(backendField.formGrouping && { formGrouping: backendField.formGrouping }),
+    // Preserve createOnly/referenceSearch/lineItemPicker — schema-declared
+    // options a form reads off fieldDef in renderCustomField (see
+    // SchemaDefinition.js's field() and TBWC's estimateSchema.ts/EstimateForm).
+    ...(backendField.createOnly != null && { createOnly: backendField.createOnly }),
+    ...(backendField.referenceSearch && { referenceSearch: backendField.referenceSearch }),
+    ...(backendField.lineItemPicker && { lineItemPicker: backendField.lineItemPicker }),
+    ...(backendField.gridColumns && { gridColumns: backendField.gridColumns }),
   };
 }
 

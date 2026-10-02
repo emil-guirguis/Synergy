@@ -9,10 +9,12 @@
 import React, { useState } from 'react';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { JSONBPermissionsRenderer } from '@meterit/framework-frontend/components/jsonbfield';
+import { ImpersonateButton } from '@meterit/framework-frontend/components/auth';
 import { useUsersEnhanced } from './usersStore';
 import type { User } from '../../types/auth';
 import { ChangePasswordModal } from '../../components/auth/ChangePasswordModal';
 import authService from '../../services/authService';
+import { useAuth } from '../../hooks/useAuth';
 import './UserForm.css';
 
 interface UserFormProps {
@@ -29,6 +31,7 @@ export const UserForm: React.FC<UserFormProps> = ({
   loading = false,
 }) => {
   const users = useUsersEnhanced();
+  const { user: currentUser } = useAuth();
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
   const [resetPasswordError, setResetPasswordError] = useState<string>('');
@@ -130,6 +133,22 @@ export const UserForm: React.FC<UserFormProps> = ({
             • <strong>Reset Password:</strong> Send a password reset link to the user
           </div>
         </div>
+      );
+    }
+
+    if (fieldName === 'impersonate_actions' && user?.users_id) {
+      return (
+        <ImpersonateButton
+          currentUserEmail={currentUser?.email}
+          allowedEmail={import.meta.env.VITE_IMPERSONATOR_EMAIL}
+          targetUserId={user.users_id}
+          currentUserId={currentUser?.users_id}
+          targetLabel={user.name?.split(' ')[0] || user.email}
+          onActivate={async () => {
+            await authService.impersonate(user.users_id, user.email || 'this user');
+            window.location.reload();
+          }}
+        />
       );
     }
 

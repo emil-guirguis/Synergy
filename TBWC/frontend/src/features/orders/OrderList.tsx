@@ -160,6 +160,15 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // see everyone's orders) actually widens the rep dropdown + list, not just the
   // backend query.
   const canSeeAll = auth.scopeOf?.('order:read') === 'all';
+  // A rep who manages other reps (public.user_manager) still has order:read
+  // scope 'own', but the server's IN-list for "own" already covers every
+  // managed rep too (orders.ts visibleRepListIds) — so this list can show
+  // several different reps' orders even though canSeeAll is false. Without
+  // this, the rep field order hides the Sales Rep column and the filter
+  // effect below force-locks the dropdown to just the caller's own rep,
+  // hiding their managed reps' orders from view.
+  const managedRepListIds: string[] = auth.user?.managed_sales_rep_list_ids ?? [];
+  const isManagingReps = managedRepListIds.length > 0;
 
   // Rep list view is a deliberately trimmed-down field set (per rep request) —
   // distinct from the admin view, which keeps the fuller QB-derived columns.
@@ -169,7 +178,12 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // rate/amount columns and the totals footer for the same reason.
   // No shipped_date here: QB's own ship-by date is an internal scheduling date,
   // so reps see only actual_ship_date (the date it really shipped).
-  const REP_FIELD_ORDER = ['customer_name', 'job_name', 'ref_number', 'txn_date', 'actual_ship_date', 'po_number', 'expedite'];
+  // A managing rep sees orders across several reps, so they need the Sales
+  // Rep column to tell them apart — a plain rep (list always 1 rep: themselves)
+  // doesn't.
+  const REP_FIELD_ORDER = isManagingReps
+    ? ['customer_name', 'job_name', 'sales_rep', 'ref_number', 'txn_date', 'actual_ship_date', 'po_number', 'expedite']
+    : ['customer_name', 'job_name', 'ref_number', 'txn_date', 'actual_ship_date', 'po_number', 'expedite'];
   const REP_LABEL_OVERRIDES: Partial<Record<keyof Order, string>> = {
     ref_number: 'TBWC #',
     txn_date: 'Received',
@@ -212,7 +226,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     }
     return visible;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, canSeeAll]);
+  }, [schema, canSeeAll, isManagingReps]);
   const ownRepListId = auth.user?.sales_rep_list_id ?? null;
   const ownRepLabel = [auth.user?.sales_rep_initial, auth.user?.sales_rep_name].filter(Boolean).join(' - ')
     || auth.user?.sales_rep_name || '';
@@ -224,13 +238,29 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     // instead — drop the schema-generated one and filter on sales_rep_list_id
     // (a real column) via a proper rep dropdown instead.
     const schemaFilters = generateFiltersFromSchema(schema.formFields).filter((f) => f.key !== 'sales_rep');
+    const repField = schema.entityFields?.sales_rep_list_id;
 
     if (!canSeeAll) {
       // Reps only get filters for the columns they can actually see — otherwise
       // hidden fields (build notes, invoice #) come back as filter boxes.
       const repFilters = schemaFilters.filter((f) => REP_FIELD_ORDER.includes(f.key as string));
-      // Rep view: no picker, just a locked display of who this data belongs to.
-      if (ownRepListId) {
+      if (isManagingReps) {
+        // Managing rep: a real dropdown, scoped to the reps they actually
+        // manage (+ themselves) rather than the full admin rep list — the
+        // server's own IN-list (orders.ts) only ever returns orders for
+        // that same set, so a wider picker would just offer options that
+        // always come back empty.
+        const labels = repField?.enumLabels || {};
+        const ids = [...new Set([ownRepListId, ...managedRepListIds].filter(Boolean) as string[])];
+        repFilters.push({
+          key: 'sales_rep_list_id',
+          label: 'Sales Rep',
+          type: 'select',
+          options: ids.map((id) => ({ label: labels[id] || (id === ownRepListId ? ownRepLabel : id) || id, value: id })),
+          placeholder: 'All My Reps',
+        });
+      } else if (ownRepListId) {
+        // Plain rep view: no picker, just a locked display of who this data belongs to.
         repFilters.push({
           key: 'sales_rep_list_id',
           label: 'Sales Rep',
@@ -242,7 +272,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       return repFilters;
     }
 
-    const repField = schema.entityFields?.sales_rep_list_id;
     if (repField?.enumValues?.length) {
       const labels = repField.enumLabels || {};
       schemaFilters.push({
@@ -257,7 +286,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       });
     }
     return schemaFilters;
-  }, [schema, canSeeAll, ownRepListId, ownRepLabel]);
+  }, [schema, canSeeAll, isManagingReps, managedRepListIds, ownRepListId, ownRepLabel]);
 
   const baseList = useBaseList<Order, any>({
     entityName: 'order',
@@ -278,12 +307,11 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     },
     permissions: {
       create: Permission.ORDER_CREATE,
-      // AuthContext.checkPermission grants every permission to admins only, so
-      // requiring ORDER_UPDATE here left canUpdate false for reps — useBaseList
-      // then withheld onEdit entirely and a rep's row click did nothing. Reps
-      // open the record read-only (see OrderForm), so gate the row on nothing
-      // and let the form + the API decide what they may change.
-      update: canSeeAll ? Permission.ORDER_UPDATE : undefined,
+      // checkPermission resolves this against the real order:write grant
+      // (admin + employee, 'all' — migrations 039/040; rep/customer have
+      // none). canUpdate below decides the row affordance, not whether the
+      // row opens at all — a rep still opens it, read-only (see OrderForm).
+      update: Permission.ORDER_UPDATE,
       delete: Permission.ORDER_DELETE,
     },
     columns,
@@ -338,13 +366,15 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   }, [searchParams]);
 
   // Keep the locked rep filter pinned even if something clears filters —
-  // the select is disabled, but "Clear Filters" isn't.
+  // the select is disabled, but "Clear Filters" isn't. A managing rep's
+  // filter is a real enabled dropdown (see filters above), so it's exempt:
+  // locking it to their own rep would hide their managed reps' orders.
   useEffect(() => {
-    if (!canSeeAll && ownRepListId && baseList.filters.sales_rep_list_id !== ownRepListId) {
+    if (!canSeeAll && !isManagingReps && ownRepListId && baseList.filters.sales_rep_list_id !== ownRepListId) {
       baseList.setFilter('sales_rep_list_id', ownRepListId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canSeeAll, ownRepListId, baseList.filters.sales_rep_list_id]);
+  }, [canSeeAll, isManagingReps, ownRepListId, baseList.filters.sales_rep_list_id]);
 
   return (
     <div className="order-list">
@@ -369,10 +399,11 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
         error={baseList.error}
         emptyMessage="No orders found."
         // Same handler either way (it opens the modal); the prop chosen decides
-        // the row affordance — a pencil titled "Edit" for admins, an eye titled
-        // "View" for reps, whose form is read-only.
-        onEdit={canSeeAll && baseList.canUpdate ? baseList.handleEdit : undefined}
-        onView={!canSeeAll ? baseList.handleEdit : undefined}
+        // the row affordance — a pencil titled "Edit" for whoever holds
+        // order:write, an eye titled "View" for everyone else, whose form is
+        // read-only (OrderForm itself still enforces that; this is just the icon).
+        onEdit={baseList.canUpdate ? baseList.handleEdit : undefined}
+        onView={!baseList.canUpdate ? baseList.handleView : undefined}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}

@@ -24,7 +24,7 @@ export const UserList: React.FC<UserListProps> = ({ onUserEdit, onUserCreate, au
   const columns = useMemo(() => {
     if (!schema) return [];
     return generateColumnsFromSchema<User>(schema.formFields, {
-      fieldOrder: ['first_name', 'last_name', 'email', 'agency_name', 'role_id', 'approved', 'is_admin'],
+      fieldOrder: ['first_name', 'last_name', 'email', 'agency_name', 'role_id'],
       responsive: 'hide-mobile',
     });
   }, [schema]);
@@ -73,10 +73,12 @@ export const UserList: React.FC<UserListProps> = ({ onUserEdit, onUserCreate, au
         error={baseList.error}
         emptyMessage="No users found."
         onEdit={baseList.handleEdit}
+        onDelete={baseList.canDelete ? baseList.handleDelete : undefined}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}
       />
+      {baseList.renderDeleteConfirmation()}
     </div>
   );
 };

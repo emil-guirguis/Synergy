@@ -103,9 +103,18 @@ export interface DocumentsGridProps {
   readOnly?: boolean;
   /** Client-side guard; the API enforces its own limit too. Default 25MB. */
   maxFileSize?: number;
+  /** Overrides the default oversize-file error text (still gated by maxFileSize). */
+  oversizeMessage?: (file: File, maxFileSize: number) => string;
   emptyMessage?: string;
   /** Auto-set doc_type for dropped/folder files. Falls back to DEFAULT_DOC_TYPE when omitted. */
   classifyDocType?: (file: File) => DocType;
+  /** Restrict both the visible rows and the Type dropdown to this subset — a
+   *  project can show a cut-down set of types to a less-privileged viewer (e.g.
+   *  TBWC hides the TBWC-only packing slip from reps). Omit to show/allow every
+   *  DOC_TYPES value. A file that auto-classifies outside this set falls back
+   *  to the first allowed type rather than being rejected client-side (the API
+   *  is still the real enforcement boundary). */
+  visibleDocTypes?: DocType[];
 }
 
 interface DraftRow {
@@ -345,12 +354,12 @@ function formatDate(value: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
 }
 
-function newDraft(): DraftRow {
+function newDraft(defaultDocType: DocType = DEFAULT_DOC_TYPE): DraftRow {
   const key =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return { key, description: '', docType: DEFAULT_DOC_TYPE };
+  return { key, description: '', docType: defaultDocType };
 }
 
 export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
@@ -360,8 +369,10 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   storage,
   readOnly = false,
   maxFileSize = DEFAULT_MAX_FILE_SIZE,
+  oversizeMessage,
   emptyMessage = 'No documents',
   classifyDocType,
+  visibleDocTypes,
 }) => {
   const [rows, setRows] = useState<DocumentRecord[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
@@ -405,6 +416,16 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   const recordId = entityId != null && entityId !== '' ? String(entityId) : null;
   const disabled = readOnly || !recordId;
   const folderBusy = folderProgress !== null;
+
+  /** Keep an auto-classified/manually-picked type inside visibleDocTypes when set. */
+  const clampDocType = useCallback(
+    (t: DocType): DocType => (!visibleDocTypes || visibleDocTypes.includes(t) ? t : visibleDocTypes[0] ?? DEFAULT_DOC_TYPE),
+    [visibleDocTypes]
+  );
+  const sizeErrorFor = (file: File) =>
+    oversizeMessage
+      ? oversizeMessage(file, maxFileSize)
+      : `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(maxFileSize)}.`;
 
   const load = useCallback(async () => {
     if (!recordId) {
@@ -466,14 +487,16 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     if (!file || !draft || !recordId) return;
 
     if (file.size > maxFileSize) {
-      setError(`"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(maxFileSize)}.`);
+      setError(sizeErrorFor(file));
       return;
     }
 
     const path = storagePathFor(entityType, recordId, file.name);
     // Auto-classify only if the type dropdown is still untouched - a manual
     // pick (including manually setting it back to "Other") always wins.
-    const docType = draft.docType === DEFAULT_DOC_TYPE && classifyDocType ? classifyDocType(file) : draft.docType;
+    const docType = clampDocType(
+      draft.docType === DEFAULT_DOC_TYPE && classifyDocType ? classifyDocType(file) : draft.docType
+    );
     setBusyKey(draft.key);
     setError(null);
     try {
@@ -752,7 +775,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
             storageBucket: storage.bucket,
             storagePath: path,
             description: relativeDirOf(file) || null,
-            docType: classifyDocType ? classifyDocType(file) : DEFAULT_DOC_TYPE,
+            docType: clampDocType(classifyDocType ? classifyDocType(file) : DEFAULT_DOC_TYPE),
             mimeType: file.type || null,
             fileSize: file.size,
           });
@@ -876,8 +899,12 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   };
 
   const typeOptions = useMemo(
-    () => DOC_TYPES.map((t) => <MenuItem key={t} value={t}>{DOC_TYPE_LABELS[t]}</MenuItem>),
-    []
+    () => (visibleDocTypes ?? DOC_TYPES).map((t) => <MenuItem key={t} value={t}>{DOC_TYPE_LABELS[t]}</MenuItem>),
+    [visibleDocTypes]
+  );
+  const visibleRows = useMemo(
+    () => (visibleDocTypes ? rows.filter((r) => visibleDocTypes.includes(r.doc_type)) : rows),
+    [rows, visibleDocTypes]
   );
 
   const colCount = readOnly ? 5 : 6;
@@ -941,7 +968,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
                     <Button
                       size="small"
                       startIcon={<AddIcon fontSize="small" />}
-                      onClick={() => setDrafts((ds) => [...ds, newDraft()])}
+                      onClick={() => setDrafts((ds) => [...ds, newDraft(visibleDocTypes?.[0])])}
                       disabled={disabled || folderBusy}
                     >
                       Add
@@ -964,7 +991,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading && rows.length === 0 && (
+            {loading && visibleRows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={colCount} align="center">
                   <CircularProgress size={20} />
@@ -972,7 +999,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
               </TableRow>
             )}
 
-            {!loading && rows.length === 0 && drafts.length === 0 && (
+            {!loading && visibleRows.length === 0 && drafts.length === 0 && (
               <TableRow>
                 <TableCell colSpan={colCount} align="center">
                   <Typography variant="body2" color="text.secondary">{emptyMessage}</Typography>
@@ -980,7 +1007,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
               </TableRow>
             )}
 
-            {rows.map((row) => {
+            {visibleRows.map((row) => {
               const busy = busyKey === String(row.document_id);
               return (
                 <TableRow key={row.document_id} hover>

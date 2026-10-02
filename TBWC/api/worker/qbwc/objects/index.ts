@@ -18,11 +18,12 @@ import invoice from './invoice';
 import payment from './payment';
 // Parked until proven. Re-add to `registry` to enable.
 // import vendor from './vendor';
+// Disabled for now — re-add import + registry entry to re-enable.
 // import estimate from './estimate';
 
 // Scope: Customer + SalesRep + Item + SalesOrder + Invoice + Payment (AR) per
-// current sync target. vendor/estimate are implemented but held out of the
-// queue so they can't error the session — re-add when ready.
+// current sync target. vendor is implemented but held out of the queue so it
+// can't error the session — re-add when ready. estimate disabled for now.
 // Order matters: lists before any transactions that reference them, Payment
 // after Invoice since it applies against invoices, and both deletion sweeps
 // last so a record deleted in the same session as it was modified ends up

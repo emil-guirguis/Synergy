@@ -19,7 +19,7 @@ import { AuthVariables, authenticateToken, requirePermission } from '../middlewa
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
-app.use('*', requirePermission('report:read'));
+app.use('*', requirePermission('repPerformance:read'));
 
 interface RepRow {
   list_id: string;

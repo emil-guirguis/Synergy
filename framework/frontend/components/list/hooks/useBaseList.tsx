@@ -343,12 +343,32 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     }
   }, [canUpdate, onEdit]);
 
+  // Opens the same record, but for a caller that already knows this isn't an
+  // edit — e.g. `onView={!canUpdate ? handleView : undefined}`, so a
+  // view-only role can still open the form (the form itself renders
+  // read-only; see OrderForm's isDisabled). handleEdit can't be reused here:
+  // its own canUpdate gate exists for the many lists that wire
+  // `onEdit={handleEdit}` unconditionally and rely on it as their only
+  // protection against opening the form at all without write access.
+  const handleView = useCallback((item: T) => {
+    if (!item || typeof item !== 'object') {
+      console.error('[useBaseList] Invalid item passed to handleView:', item);
+      return;
+    }
+    if (onEdit) {
+      onEdit(item);
+    } else {
+      console.warn('[useBaseList] No onEdit callback provided');
+    }
+  }, [onEdit]);
+
   const handleDelete = useCallback(async (item: T) => {
     // Temporarily bypass permission check for debugging
     // if (!canDelete) return;
 
     // Get item name for confirmation message
-    const itemName = (item as any).name || (item as any).title || (item as any).id || 'this item';
+    const fullName = [(item as any).first_name, (item as any).last_name].filter(Boolean).join(' ');
+    const itemName = (item as any).name || fullName || (item as any).title || (item as any).email || (item as any).id || 'this item';
     
     // Show confirmation modal
     setDeleteConfirmation({
@@ -1005,6 +1025,7 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
 
     // Handlers
     handleEdit,
+    handleView,
     handleDelete,
     handleCreate,
     handleExport,

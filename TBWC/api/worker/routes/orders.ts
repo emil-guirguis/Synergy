@@ -18,8 +18,8 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
-import { redactRow, redactRows } from '@meterit/framework-backend/api/base/permissions';
+import { AuthVariables, authenticateToken, requirePermission, visibleRepListIds } from '../middleware';
+import { redactRow, redactRows, stripNonEditable } from '@meterit/framework-backend/api/base/permissions';
 import { findAll, findById, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { orderSchema } from './orderSchema';
 import { queueFieldPush } from '../qbwc/pushQueue';
@@ -112,6 +112,10 @@ function ownOnly(c: any): boolean {
   return c.get('permissions')?.scopeOf('order:read') === 'own';
 }
 
+// visibleRepListIds (own rep + every managed user's rep) now lives in
+// middleware.ts — shared with estimates.ts/invoices.ts so "own scope" means
+// the same thing everywhere.
+
 app.get('/', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const q = c.req.query();
@@ -122,14 +126,12 @@ app.get('/', requirePermission('order:read'), async (c) => {
   // schema-generated filter, so ?is_fully_invoiced=false already flows through
   // whereFromQuery normally.
   const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped', 'excludeZeroTotal', 'chips'] });
-  // Field filters first, then the security scope — sales_rep_list_id always
-  // wins so a rep can't widen their own visibility via a crafted query param.
-  // A rep with no linked qb_sales_rep (sales_rep_list_id null) gets a value
-  // that can never match a real list_id, rather than falling through to an
-  // `IS NULL` scope that would hand them every order QB hasn't assigned a rep to.
+  // Field filters first, then the security scope below — sales_rep_list_id
+  // always wins so a rep can't widen their own visibility via a crafted query
+  // param. The scope itself is an IN-list (own rep + every managed user's rep),
+  // not a single exact match, so it goes through whereRaw rather than `where`.
   const where: Record<string, any> = {
     ...fieldWhere,
-    ...(ownOnly(c) ? { sales_rep_list_id: user.sales_rep_list_id ?? '__unlinked__' } : {}),
     // Deleted in QB (see qbwc/objects/salesOrderDeleted.ts) — row is kept for its
     // TBWC-owned columns/history but must never appear as a live order.
     qb_deleted_at: null,
@@ -145,9 +147,18 @@ app.get('/', requirePermission('order:read'), async (c) => {
     .split(',')
     .map((t) => t.trim())
     .filter((t) => CHIP_CONDITIONS[t]);
-  const whereRaw = selectedChips.length > 0
-    ? [{ sql: `(${selectedChips.map((t) => `(${CHIP_CONDITIONS[t]})`).join(' OR ')})` }]
-    : [];
+  const whereRaw: { sql: string; params?: any[] }[] = [];
+  if (selectedChips.length > 0) {
+    whereRaw.push({ sql: `(${selectedChips.map((t) => `(${CHIP_CONDITIONS[t]})`).join(' OR ')})` });
+  }
+  if (ownOnly(c)) {
+    const repIds = visibleRepListIds(user);
+    whereRaw.push(
+      repIds.length > 0
+        ? { sql: `sales_rep_list_id IN (${repIds.map(() => '?').join(', ')})`, params: repIds }
+        : { sql: '1 = 0' }
+    );
+  }
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
@@ -196,8 +207,9 @@ app.get('/import-index', requirePermission('order:write'), async (c) => {
     [],
     'orders.importIndex'
   );
+  const importRepIds = visibleRepListIds(user);
   const visible = ownOnly(c)
-    ? rows.filter((r: any) => user.sales_rep_list_id && r.sales_rep_list_id === user.sales_rep_list_id)
+    ? rows.filter((r: any) => r.sales_rep_list_id && importRepIds.includes(r.sales_rep_list_id))
     : rows;
   return c.json({ success: true, data: redactRows(c.get('permissions'), 'order:read', visible) });
 });
@@ -206,10 +218,11 @@ app.get('/:id', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const row = await findById(c.env, TABLE, PK, c.req.param('id'), undefined, SELECT_WITH_REP_NAME);
   if (!row || row.qb_deleted_at) return c.json({ success: false, message: 'Order not found' }, 404);
-  // Explicit null check, not `!==` — a rep with no linked qb_sales_rep and an
-  // order with no assigned rep are both null, and `null !== null` is false,
-  // which would otherwise let an unlinked rep see every unassigned order.
-  if (ownOnly(c) && (!user.sales_rep_list_id || row.sales_rep_list_id !== user.sales_rep_list_id)) {
+  // Explicit null check, not just includes() — a rep with no linked qb_sales_rep
+  // and an order with no assigned rep are both null, and an empty repIds list
+  // would otherwise let row.sales_rep_list_id (null) slip through if it were
+  // ever checked with `includes` alone against a list containing null.
+  if (ownOnly(c) && (!row.sales_rep_list_id || !visibleRepListIds(user).includes(row.sales_rep_list_id))) {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
   return c.json({ success: true, data: redactRow(c.get('permissions'), 'order:read', row) });
@@ -232,8 +245,9 @@ app.get('/lookup-po/:po', requirePermission('order:read'), async (c) => {
     [po],
     'orders.lookupPo'
   );
+  const lookupRepIds = visibleRepListIds(user);
   const visible = ownOnly(c)
-    ? rows.filter((r: any) => user.sales_rep_list_id && r.sales_rep_list_id === user.sales_rep_list_id)
+    ? rows.filter((r: any) => r.sales_rep_list_id && lookupRepIds.includes(r.sales_rep_list_id))
     : rows;
   return c.json({ success: true, data: redactRows(c.get('permissions'), 'order:read', visible) });
 });
@@ -272,7 +286,7 @@ app.get('/:id/invoices', requirePermission('order:read'), async (c) => {
   const { rows } = await execQuery(
     c.env,
     `SELECT i.qb_invoice_id, i.ref_number, i.txn_date, i.due_date, i.total,
-            i.balance_remaining, i.is_paid,
+            i.balance_remaining, i.is_paid, i.is_packing_slip,
             CASE
               WHEN i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', $1::text))
                 THEN 'link'
@@ -352,7 +366,10 @@ app.put('/:id', requirePermission('order:write'), async (c) => {
       return c.json({ success: false, message: 'Not found' }, 404);
     }
   }
-  const body = await c.req.json();
+  // Field-level security (role_permission.field_access, edit:false) on top of
+  // the WRITABLE allowlist below — that allowlist says what a PUT can ever
+  // touch at all; this says what THIS caller's role may touch within it.
+  const body = stripNonEditable(c.get('permissions'), 'order:write', await c.req.json());
   const data: Record<string, any> = {};
   const pushes: [string, any][] = [];
   for (const [k, v] of Object.entries(body)) {

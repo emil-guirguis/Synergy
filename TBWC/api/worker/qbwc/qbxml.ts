@@ -224,7 +224,10 @@ export function dataExtBlocks(scope: string): Array<{ name?: string; value?: str
   }));
 }
 
-/** Extract transaction line rows (e.g. InvoiceLineRet) as a plain array. */
+/** Extract transaction line rows (e.g. InvoiceLineRet) as a plain array.
+ *  txnLineId (TxnLineID) rides along on every row — unused by most callers,
+ *  but estimate.ts needs it to target an existing line in an EstimateLineMod
+ *  push (QB requires it to identify which line an edit applies to). */
 export function lineItems(scope: string, lineRetName: string): any[] {
   return blocks(scope, lineRetName).map((ln) => {
     const item = refField(ln, 'ItemRef');
@@ -234,6 +237,7 @@ export function lineItems(scope: string, lineRetName: string): any[] {
       quantity: num(tag(ln, 'Quantity')),
       rate: num(tag(ln, 'Rate')),
       amount: num(tag(ln, 'Amount')),
+      txnLineId: tag(ln, 'TxnLineID') ?? null,
     };
   });
 }

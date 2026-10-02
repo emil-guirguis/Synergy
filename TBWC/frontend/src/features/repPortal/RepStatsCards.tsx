@@ -12,11 +12,8 @@ import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import PaidIcon from '@mui/icons-material/Paid';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
-import { useQuotes } from '../quotes/quotesStore';
+import { useEstimates } from '../estimates/estimatesStore';
 import { useOrders } from '../orders/ordersStore';
-
-// Quotes still in play — not yet won or lost.
-const ACTIVE_QUOTE_STATUSES = new Set(['draft', 'sent']);
 
 const YEAR = '2026';
 const isIn2026 = (o: any) => !!o.txn_date && o.txn_date.startsWith(YEAR);
@@ -26,16 +23,16 @@ const currency = (n: number) =>
 
 export default function RepStatsCards() {
   const navigate = useNavigate();
-  const { items: quotes, loading: quotesLoading, fetchItems: fetchQuotes } = useQuotes();
+  const { items: estimates, loading: estimatesLoading, fetchItems: fetchEstimates } = useEstimates();
   const { items: orders, loading: ordersLoading, fetchItems: fetchOrders } = useOrders();
 
   useEffect(() => {
-    fetchQuotes({ limit: 500 });
+    fetchEstimates({ limit: 500 });
     fetchOrders({ limit: 500 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeQuoteCount = quotes.filter((q: any) => ACTIVE_QUOTE_STATUSES.has(q.status)).length;
+  const estimateCount = estimates.length;
   const orderCount = orders.length;
   const orderTotal = orders.filter(isIn2026).reduce((sum: number, o: any) => sum + (Number(o.total) || 0), 0);
   const openOrderCount = orders.filter((o: any) => !o.shipped_date).length;
@@ -43,16 +40,16 @@ export default function RepStatsCards() {
   return (
     <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 3 }}>
       <Card variant="outlined" sx={{ minWidth: 220 }}>
-        <CardActionArea onClick={() => navigate('/quotes')}>
+        <CardActionArea onClick={() => navigate('/estimates')}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <RequestQuoteIcon color="action" />
               <Typography variant="body2" color="text.secondary">
-                Active Quotes
+                Estimates
               </Typography>
             </Box>
             <Typography variant="h4" fontWeight={700}>
-              {quotesLoading ? '…' : activeQuoteCount}
+              {estimatesLoading ? '…' : estimateCount}
             </Typography>
           </CardContent>
         </CardActionArea>

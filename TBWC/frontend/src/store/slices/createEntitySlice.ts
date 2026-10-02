@@ -8,7 +8,7 @@ import {
   isCacheFresh,
   createCacheConfig,
 } from '../utils';
-import { loadSchema } from '@meterit/framework-frontend/components/form/utils/schemaLoader';
+import { loadSchema, clearSchemaCache } from '@meterit/framework-frontend/components/form/utils/schemaLoader';
 import { withAuthRetry } from '../../utils/authRetry';
 
 // Generic service interface
@@ -31,6 +31,9 @@ const entityStoreResetters: Array<() => void> = [];
 /** Clear every entity store's data + list state. Call on login and on logout. */
 export function resetAllEntityStores(): void {
   for (const reset of entityStoreResetters) reset();
+  // Schemas are caller-specific too (the user schema's Impersonate section is
+  // only served to the dev-allowed email), so don't carry them across sessions.
+  clearSchemaCache();
 }
 
 // Create entity store

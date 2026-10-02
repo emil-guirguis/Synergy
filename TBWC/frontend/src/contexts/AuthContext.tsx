@@ -10,6 +10,27 @@ import { tokenStorage } from '../utils/tokenStorage';
 import { resetAllEntityStores } from '../store/slices/createEntitySlice';
 import type { LoginCredentials, User } from '../types/auth';
 
+// checkPermission() takes the frontend's create/update/delete-shaped
+// Permission enum (types/auth.ts) — list components were written against
+// that shape — but user.permissions (and scopeOf) only ever carries the
+// backend's read/write/delete catalog (permissions.ts's PERMISSIONS). This
+// is the one-time translation between the two; a key absent here (anything
+// already backend-shaped, e.g. 'aichat:use', 'report:read') passes through
+// scopeOf unchanged.
+const BACKEND_PERMISSION: Record<string, string> = {
+  'user:create': 'user:write',
+  'user:update': 'user:write',
+  'user:delete': 'user:write',
+  'order:create': 'order:write',
+  'order:update': 'order:write',
+  'order:delete': 'order:delete',
+  'inventory:create': 'inventory:write',
+  'inventory:update': 'inventory:write',
+  'inventory:delete': 'inventory:write',
+  'estimate:create': 'estimate:write',
+  'estimate:update': 'estimate:write',
+};
+
 export interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
@@ -20,6 +41,11 @@ export interface AuthContextValue {
   checkPermission: (permission?: string) => boolean;
   /** The role-granted scope for a permission ('all' | 'own'), or null if not held. */
   scopeOf: (permission: string) => 'all' | 'own' | null;
+  /** Field-level security: false if the permission isn't held, the field is
+   *  in its hidden_fields, or its fieldAccess marks view:false. `field` is a
+   *  plain name or, one level into a jsonb array column, `column[].field`
+   *  (e.g. `lines[].rate`) — same addressing as the role's hidden_fields. */
+  isFieldVisible: (permission: string, field: string) => boolean;
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -78,14 +104,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  // Admins can perform any action; everyone authenticated can read.
+  // is_admin still exists on the row (legacy — role_id is authoritative,
+  // see middleware.ts's loadProfile), kept here only for UI copy that
+  // genuinely means "the Administrator role" (e.g. an impersonation banner),
+  // not for gating features — those read real grants via scopeOf below.
   const isAdmin = !!user?.is_admin;
-  const checkPermission = useCallback(
-    (_permission?: string) => isAdmin,
-    [isAdmin]
-  );
   const scopeOf = useCallback(
     (permission: string) => user?.permissions?.find((g) => g.permission === permission)?.scope ?? null,
+    [user]
+  );
+  // No permission given means "nothing specific required" — true, same as
+  // before. Otherwise: translate the frontend's create/update/delete-shaped
+  // Permission enum to the backend key if needed, then check the caller
+  // actually holds it (either scope — 'own' still means "show the create/
+  // edit control," row-level narrowing is the API's job, not the UI's).
+  const checkPermission = useCallback(
+    (permission?: string) => !permission || scopeOf(BACKEND_PERMISSION[permission] ?? permission) !== null,
+    [scopeOf]
+  );
+  const isFieldVisible = useCallback(
+    (permission: string, field: string) => {
+      const grant = user?.permissions?.find((g) => g.permission === permission);
+      if (!grant) return false;
+      if (grant.hiddenFields.includes(field)) return false;
+      return grant.fieldAccess?.[field]?.view !== false;
+    },
     [user]
   );
 
@@ -98,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     logout,
     checkPermission,
     scopeOf,
+    isFieldVisible,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

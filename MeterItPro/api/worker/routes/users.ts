@@ -4,7 +4,9 @@
 
 import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
+import { sign } from 'hono/jwt';
 import { Env, execQuery } from '../db';
+import { canImpersonate } from '@meterit/framework-backend/api/base/auth';
 
 import { authenticateToken, requirePermission, clearUserCache, AuthVariables } from '../middleware';
 import { findAll, findById, create, update, remove, checkDeleteRestrictions, whereFromQuery, likeFieldsFromSchema, fieldMapFromSchema } from '../crud';
@@ -403,6 +405,49 @@ app.delete('/:id', requirePermission('user:delete'), async (c) => {
     logError('Error deleting user:', error);
     return c.json({ success: false, message: 'Failed to delete user' }, 500);
   }
+});
+
+// Dev-only "log in as this user" — mints a real JWT for the target (no
+// password needed, straight sign() like the superadmin tenant-impersonation
+// route in adminRoutes.ts). Unscoped by tenant deliberately: this is gated by
+// canImpersonate's single-email check, not the normal tenant-role model, and
+// the whole point is being able to test any user's account. Never reachable
+// in prod since ENABLE_IMPERSONATION only ever lives in .dev.vars.
+app.post('/:id/impersonate', requirePermission('user:read'), async (c) => {
+  const caller = c.get('user');
+  if (!canImpersonate(c.env, caller?.email)) {
+    return c.json({ success: false, message: 'Not available' }, 403);
+  }
+  const targetId = parseInt(c.req.param('id'), 10);
+  if (isNaN(targetId)) return c.json({ success: false, message: 'Invalid user id' }, 400);
+
+  const result = await execQuery(c.env, 'SELECT users_id, email, tenant_id, name FROM users WHERE users_id = $1', [targetId]);
+  const target = result.rows[0];
+  if (!target) return c.json({ success: false, message: 'User not found' }, 404);
+
+  const expiresIn = 3600;
+  const token = await sign(
+    { userId: target.users_id, tenant_id: target.tenant_id, exp: Math.floor(Date.now() / 1000) + expiresIn },
+    c.env.JWT_SECRET
+  );
+
+  // Audit log, same table/style as the superadmin tenant-impersonation route.
+  try {
+    const ipAddress = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || null;
+    await execQuery(
+      c.env,
+      `INSERT INTO auth_logs (user_id, event_type, status, ip_address, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [caller.users_id, 'dev_impersonate_user', 'success', ipAddress, JSON.stringify({ target_user_id: target.users_id, target_email: target.email })]
+    );
+  } catch (logErr) {
+    logError('Failed to write impersonation audit log', logErr);
+  }
+
+  return c.json({
+    success: true,
+    data: { token, refreshToken: '', expiresIn, user: { users_id: target.users_id, email: target.email, name: target.name } },
+  });
 });
 
 export default app;

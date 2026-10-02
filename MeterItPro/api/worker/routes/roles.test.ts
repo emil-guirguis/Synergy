@@ -91,7 +91,7 @@ describe('Roles Routes', () => {
       const body: any = await res.json();
       expect(body.data.items).toEqual([{
         role_id: 1, tenant_id: null, code: 'admin', name: 'Administrator', is_system: true,
-        user_count: 4, grants: [{ permission: 'meter:read', scope: 'all', hidden_fields: [] }],
+        user_count: 4, grants: [{ permission: 'meter:read', scope: 'all', hidden_fields: [], field_access: {} }],
       }]);
 
       // Calls: [0]=user lookup, [1]=grant lookup (auth), [2]=roles.list, [3]=roles.grants, [4]=roles.userCounts

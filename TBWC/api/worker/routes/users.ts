@@ -7,6 +7,8 @@ import { Env } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, create, update, remove, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { usersSchema } from './usersSchema';
+import { canImpersonate } from '@meterit/framework-backend/api/base/auth';
+import { mintSessionForEmail } from '../supabaseAdmin';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -68,6 +70,45 @@ app.delete('/:id', requirePermission('user:write'), async (c) => {
   const row = await remove(c.env, TABLE, PK, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'User not found' }, 404);
   return c.json({ success: true, data: row });
+});
+
+// Dev-only "log in as this user" — mints a real Supabase session for the
+// target via the admin API (see supabaseAdmin.ts). Gated by canImpersonate's
+// single-email check, independent of the admin role check requirePermission
+// already did; never reachable in prod since ENABLE_IMPERSONATION only ever
+// lives in .dev.vars.
+app.post('/:id/impersonate', requirePermission('user:read'), async (c) => {
+  const caller = c.get('user');
+  if (!canImpersonate(c.env, caller?.email)) {
+    return c.json({ success: false, message: 'Not available' }, 403);
+  }
+  const target = await findById(c.env, TABLE, PK, c.req.param('id'));
+  if (!target) return c.json({ success: false, message: 'User not found' }, 404);
+  if (!target.email) return c.json({ success: false, message: 'Target user has no email' }, 400);
+
+  let session;
+  try {
+    session = await mintSessionForEmail(c.env, target.email);
+  } catch (e) {
+    return c.json(
+      { success: false, message: e instanceof Error ? e.message : 'Failed to mint impersonation session' },
+      502
+    );
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      token: session.access_token,
+      refreshToken: session.refresh_token,
+      expiresIn: session.expires_in,
+      user: {
+        id: target.id,
+        email: target.email,
+        name: [target.first_name, target.last_name].filter(Boolean).join(' ') || target.email,
+      },
+    },
+  });
 });
 
 export default app;

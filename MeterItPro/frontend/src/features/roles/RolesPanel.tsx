@@ -4,6 +4,20 @@ import {
   getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
 } from '../../services/rolesService';
 
+// Mirrors the sidebar's nav order (components/layout/AppLayoutWrapper.tsx),
+// top to bottom, so the permission tree reads the same as the nav. Reports
+// has no dedicated permission module in the catalog, so it's skipped here.
+// `email`/`template`/`role` aren't in the nav — they fall through to
+// RolesForm's catalog-order fallback.
+const ROLE_ORDER = [
+  'dashboard',
+  'meter',
+  'contact',
+  { label: 'Management', modules: ['device', 'location', 'user'] },
+  { label: 'Utilities', modules: ['notification'] },
+  'settings',
+];
+
 /**
  * Settings > Roles. Owns its own data the way SyncServersPanel does, so the
  * Settings page just drops it into its sections array.
@@ -51,6 +65,7 @@ const RolesPanel: React.FC = () => {
     <RolesForm
       roles={roles}
       catalog={catalog}
+      order={ROLE_ORDER}
       loading={loading}
       error={error}
       onCreate={(input) => run(() => createRole(input))}

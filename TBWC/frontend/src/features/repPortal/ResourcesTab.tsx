@@ -67,7 +67,15 @@ function typeOf(docTypes: Record<string, DocType>, path: string): DocType {
   return docTypes[path] ?? 'all';
 }
 
-/** Drop files that don't match `typeSel` ('all' = no filtering); prune emptied folders. */
+/** Keep only files passing `keep`, recursively; prune folders left with nothing under them. */
+function filterCategory(cat: DocCategory, keep: (f: DocFile) => boolean): DocCategory | null {
+  const files = cat.files.filter(keep);
+  const subs = cat.subs.map((s) => filterCategory(s, keep)).filter((s): s is DocCategory => s !== null);
+  if (files.length === 0 && subs.length === 0) return null;
+  return { ...cat, files, subs };
+}
+
+/** Drop files that don't match `typeSel` ('all' = no filtering); prune emptied folders, any depth. */
 function filterTree(tree: DocTree, docTypes: Record<string, DocType>, typeSel: DocType): DocTree {
   if (typeSel === 'all') return tree;
   const keep = (f: DocFile) => {
@@ -76,12 +84,8 @@ function filterTree(tree: DocTree, docTypes: Record<string, DocType>, typeSel: D
   };
   const rootFiles = tree.rootFiles.filter(keep);
   const categories = tree.categories
-    .map((c) => {
-      const files = c.files.filter(keep);
-      const subs = c.subs.map((s) => ({ ...s, files: s.files.filter(keep) })).filter((s) => s.files.length > 0);
-      return { ...c, files, subs };
-    })
-    .filter((c) => c.files.length > 0 || c.subs.length > 0);
+    .map((c) => filterCategory(c, keep))
+    .filter((c): c is DocCategory => c !== null);
   return { rootFiles, categories };
 }
 
@@ -99,6 +103,52 @@ function fmtSize(bytes?: number): string {
 
 const DRAG_MIME = 'application/x-doc-paths';
 
+interface DroppedFile {
+  file: File;
+  /** Path relative to the dragged root(s), "/"-joined — preserves nested folders. */
+  relPath: string;
+}
+
+function readEntryFile(entry: FileSystemFileEntry): Promise<File> {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+function readDirEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+}
+
+/** Recurse into an OS drag-drop entry (file or folder), any depth, collecting every file found. */
+async function walkEntry(entry: FileSystemEntry, out: DroppedFile[]): Promise<void> {
+  if (entry.isFile) {
+    const file = await readEntryFile(entry as FileSystemFileEntry);
+    out.push({ file, relPath: entry.fullPath.replace(/^\/+/, '') });
+    return;
+  }
+  if (entry.isDirectory) {
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    // readEntries() returns at most a batch at a time — keep calling until it's empty.
+    let batch: FileSystemEntry[];
+    do {
+      batch = await readDirEntries(reader);
+      for (const e of batch) await walkEntry(e, out);
+    } while (batch.length > 0);
+  }
+}
+
+/** Expand an OS drag-drop (loose files and/or whole folders) into a flat list, folders walked recursively. */
+async function readDroppedTree(dt: DataTransfer): Promise<DroppedFile[]> {
+  // webkitGetAsEntry() must be called synchronously while the drop event is live — do it
+  // before any `await` so `dt.items` is still valid.
+  const entries: FileSystemEntry[] = [];
+  for (let i = 0; i < dt.items.length; i++) {
+    const entry = dt.items[i].webkitGetAsEntry?.();
+    if (entry) entries.push(entry);
+  }
+  const out: DroppedFile[] = [];
+  for (const entry of entries) await walkEntry(entry, out);
+  return out;
+}
+
 /** Paths dropped from a FileRow drag — one or many (multi-select). */
 function readDragPaths(dt: DataTransfer): string[] {
   const raw = dt.getData(DRAG_MIME) || dt.getData('text/plain');
@@ -112,14 +162,23 @@ function readDragPaths(dt: DataTransfer): string[] {
   return [raw];
 }
 
-/** Files currently listed directly under `dir` ("" = bucket root). */
+/** Find the folder node at `dir` (any depth, "/"-joined path), or null if it doesn't exist. */
+function folderAt(tree: DocTree, dir: string): DocCategory | null {
+  const segs = dir.split('/');
+  let cats = tree.categories;
+  let found: DocCategory | null = null;
+  for (const seg of segs) {
+    found = cats.find((c) => c.name === seg) ?? null;
+    if (!found) return null;
+    cats = found.subs;
+  }
+  return found;
+}
+
+/** Files currently listed directly under `dir` ("" = bucket root, else any depth). */
 function filesAt(tree: DocTree, dir: string): DocFile[] {
   if (!dir) return tree.rootFiles;
-  const [catName, subName] = dir.split('/');
-  const cat = tree.categories.find((c) => c.name === catName);
-  if (!cat) return [];
-  if (!subName) return cat.files;
-  return cat.subs.find((s) => s.name === subName)?.files ?? [];
+  return folderAt(tree, dir)?.files ?? [];
 }
 
 /** Insert " (2)", " (3)", … before the extension until `taken` no longer has it. */
@@ -200,12 +259,8 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
       const keep = (f: DocFile) => typeOf(docTypes, f.path) !== 'employee';
       const rootFiles = tree.rootFiles.filter(keep);
       const categories = tree.categories
-        .map((c) => {
-          const files = c.files.filter(keep);
-          const subs = c.subs.map((s) => ({ ...s, files: s.files.filter(keep) })).filter((s) => s.files.length > 0);
-          return { ...c, files, subs };
-        })
-        .filter((c) => c.files.length > 0 || c.subs.length > 0);
+        .map((c) => filterCategory(c, keep))
+        .filter((c): c is DocCategory => c !== null);
       return { rootFiles, categories };
     }
     return filterTree(tree, docTypes, typeSel);
@@ -407,6 +462,31 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     await load();
   }
 
+  /** OS drag-drop of files/folders onto the tree — uploads each, preserving nested folder structure under `targetDir`. */
+  async function onUploadDropped(dropped: DroppedFile[], targetDir: string) {
+    if (!dropped.length) return;
+    setMsg({ text: `Uploading ${dropped.length} file(s)…`, severity: 'success' });
+    let uploaded = 0;
+    let failed = 0;
+    let lastError = '';
+    for (const { file, relPath } of dropped) {
+      const path = targetDir ? `${targetDir}/${relPath}` : relPath;
+      try {
+        await uploadDoc(path, file);
+        uploaded++;
+      } catch (e) {
+        failed++;
+        lastError = (e as Error).message || String(e);
+      }
+    }
+    if (failed === 0) {
+      setMsg({ text: `Uploaded ${uploaded} file(s) to ${targetDir || '(root)'}`, severity: 'success' });
+    } else {
+      setMsg({ text: `Uploaded ${uploaded} file(s), ${failed} failed: ${lastError}`, severity: 'error' });
+    }
+    await load();
+  }
+
   /** What to drag: the whole selection if this file is part of it, else just this file. */
   function dragPathsFor(path: string): string[] {
     return selected.has(path) ? Array.from(selected) : [path];
@@ -570,6 +650,10 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
             ? undefined
             : (e) => {
                 e.preventDefault();
+                if (e.dataTransfer.types.includes('Files')) {
+                  void readDroppedTree(e.dataTransfer).then((dropped) => onUploadDropped(dropped, ''));
+                  return;
+                }
                 const paths = readDragPaths(e.dataTransfer);
                 if (paths.length) void onMoveFiles(paths, '');
               }
@@ -606,9 +690,10 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
               />
             ))}
             {filteredTree.categories.map((c) => (
-              <CategoryRow
-                key={c.name}
+              <FolderRow
+                key={c.path}
                 cat={c}
+                depth={0}
                 open={open}
                 toggle={toggle}
                 readOnly={readOnly}
@@ -678,7 +763,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
 }
 
 function countFiles(cat: DocCategory): number {
-  return cat.files.length + cat.subs.reduce((n, s) => n + s.files.length, 0);
+  return cat.files.length + cat.subs.reduce((n, s) => n + countFiles(s), 0);
 }
 
 function FolderHeader({
@@ -689,18 +774,20 @@ function FolderHeader({
   depth,
   targetDir,
   onMoveFiles,
+  onUploadDropped,
 }: {
   name: string;
   count: number;
   isOpen: boolean;
   onClick: () => void;
   depth: number;
-  /** Full category (or category/sub) path this folder represents — drop target for moves. */
+  /** Full folder path (any depth) this folder represents — drop target for moves/uploads. */
   targetDir?: string;
   onMoveFiles?: (paths: string[], targetDir: string) => void;
+  onUploadDropped?: (dropped: DroppedFile[], targetDir: string) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
-  const canDrop = !!onMoveFiles && targetDir != null;
+  const canDrop = (!!onMoveFiles || !!onUploadDropped) && targetDir != null;
   return (
     <Box
       onClick={onClick}
@@ -718,8 +805,14 @@ function FolderHeader({
           ? (e) => {
               e.preventDefault();
               setDragOver(false);
+              if (e.dataTransfer.types.includes('Files')) {
+                if (onUploadDropped) {
+                  void readDroppedTree(e.dataTransfer).then((dropped) => onUploadDropped(dropped, targetDir!));
+                }
+                return;
+              }
               const paths = readDragPaths(e.dataTransfer);
-              if (paths.length) onMoveFiles!(paths, targetDir!);
+              if (paths.length) onMoveFiles?.(paths, targetDir!);
             }
           : undefined
       }
@@ -751,8 +844,10 @@ function FolderHeader({
   );
 }
 
-function CategoryRow({
+/** One folder node, rendered recursively — depth is unbounded (OS drag-drop can nest folders arbitrarily deep). */
+function FolderRow({
   cat,
+  depth,
   open,
   toggle,
   readOnly,
@@ -764,11 +859,13 @@ function CategoryRow({
   onDelete,
   onRename,
   onMoveFiles,
+  onUploadDropped,
   selected,
   toggleSelect,
   dragPathsFor,
 }: {
   cat: DocCategory;
+  depth: number;
   open: Record<string, boolean>;
   toggle: (key: string) => void;
   readOnly: boolean;
@@ -780,11 +877,12 @@ function CategoryRow({
   onDelete: (path: string) => void;
   onRename: (path: string) => void;
   onMoveFiles: (paths: string[], targetDir: string) => void;
+  onUploadDropped: (dropped: DroppedFile[], targetDir: string) => void;
   selected: Set<string>;
   toggleSelect: (path: string) => void;
   dragPathsFor: (path: string) => string[];
 }) {
-  const key = cat.name;
+  const key = cat.path;
   const isOpen = !!open[key];
   return (
     <Box>
@@ -793,16 +891,17 @@ function CategoryRow({
         count={countFiles(cat)}
         isOpen={isOpen}
         onClick={() => toggle(key)}
-        depth={0}
-        targetDir={readOnly ? undefined : cat.name}
+        depth={depth}
+        targetDir={readOnly ? undefined : cat.path}
         onMoveFiles={readOnly ? undefined : onMoveFiles}
+        onUploadDropped={readOnly ? undefined : onUploadDropped}
       />
       <Collapse in={isOpen} unmountOnExit>
         {cat.files.map((f) => (
           <FileRow
             key={f.path}
             file={f}
-            depth={1}
+            depth={depth + 1}
             readOnly={readOnly}
             type={typeOf(docTypes, f.path)}
             onTypeChange={onTypeChange}
@@ -816,43 +915,27 @@ function CategoryRow({
             dragPathsFor={dragPathsFor}
           />
         ))}
-        {cat.subs.map((s) => {
-          const subKey = `${cat.name}/${s.name}`;
-          const subOpen = !!open[subKey];
-          return (
-            <Box key={subKey}>
-              <FolderHeader
-                name={s.name}
-                count={s.files.length}
-                isOpen={subOpen}
-                onClick={() => toggle(subKey)}
-                depth={1}
-                targetDir={readOnly ? undefined : subKey}
-                onMoveFiles={readOnly ? undefined : onMoveFiles}
-              />
-              <Collapse in={subOpen} unmountOnExit>
-                {s.files.map((f) => (
-                  <FileRow
-                    key={f.path}
-                    file={f}
-                    depth={2}
-                    readOnly={readOnly}
-                    type={typeOf(docTypes, f.path)}
-                    onTypeChange={onTypeChange}
-                    onOpen={onOpen}
-                    onDownload={onDownload}
-                    onShare={onShare}
-                    onDelete={onDelete}
-                    onRename={onRename}
-                    selected={selected.has(f.path)}
-                    onToggleSelect={toggleSelect}
-                    dragPathsFor={dragPathsFor}
-                  />
-                ))}
-              </Collapse>
-            </Box>
-          );
-        })}
+        {cat.subs.map((s) => (
+          <FolderRow
+            key={s.path}
+            cat={s}
+            depth={depth + 1}
+            open={open}
+            toggle={toggle}
+            readOnly={readOnly}
+            docTypes={docTypes}
+            onTypeChange={onTypeChange}
+            onOpen={onOpen}
+            onDownload={onDownload}
+            onShare={onShare}
+            onDelete={onDelete}
+            onRename={onRename}
+            onMoveFiles={onMoveFiles}
+            selected={selected}
+            toggleSelect={toggleSelect}
+            dragPathsFor={dragPathsFor}
+          />
+        ))}
       </Collapse>
     </Box>
   );

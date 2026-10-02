@@ -12,9 +12,11 @@
  * filtered to that same range (see invoices.ts's whereRange wiring) — the
  * report never invents a date range the caller can't also see and drill into.
  *
- * Every query excludes total=0 invoices (QB credit/adjustment placeholders) —
- * they'd otherwise inflate invoice counts without moving the dollar total,
- * and drown out genuine activity in a low-volume window like a single week.
+ * Every query excludes packing slips (qb_invoice.is_packing_slip — migration
+ * 066, QB TemplateRef rather than total=0, since a real invoice can
+ * legitimately be zero-total too) — they'd otherwise inflate invoice counts
+ * without moving the dollar total, and drown out genuine activity in a
+ * low-volume window like a single week.
  *
  * Single aggregate endpoint, not a CRUD module — same shape as
  * repPerformance.ts and invoices.ts's receivables-summary.
@@ -25,7 +27,7 @@ import { AuthVariables, authenticateToken, requirePermission } from '../middlewa
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
-app.use('*', requirePermission('report:read'));
+app.use('*', requirePermission('invoiceTotals:read'));
 
 export type Granularity = 'day' | 'week' | 'month' | 'quarter' | 'year' | 'custom';
 type FixedGranularity = Exclude<Granularity, 'custom'>;
@@ -153,7 +155,7 @@ app.get('/summary', async (c) => {
          COUNT(*) FILTER (WHERE txn_date::date BETWEEN $5::date AND $6::date)::int AS prior_year_count
          FROM public.qb_invoice
         WHERE qb_deleted_at IS NULL
-          AND total <> 0
+          AND NOT is_packing_slip
           AND ($7::text IS NULL OR sales_rep_list_id = $7)`,
       [
         windows.currentStart, windows.currentEnd,
@@ -214,7 +216,7 @@ app.get('/timeseries', async (c) => {
                 COUNT(*)::int AS count
            FROM public.qb_invoice
           WHERE qb_deleted_at IS NULL
-            AND total <> 0
+            AND NOT is_packing_slip
             AND txn_date::date BETWEEN $1::date AND $2::date
             AND ($3::text IS NULL OR sales_rep_list_id = $3)
           GROUP BY bucket_start
@@ -263,7 +265,7 @@ app.get('/timeseries', async (c) => {
          FROM public.qb_invoice
         WHERE qb_deleted_at IS NULL
           AND txn_date IS NOT NULL
-          AND total <> 0
+          AND NOT is_packing_slip
           AND ($1::text IS NULL OR sales_rep_list_id = $1)
         GROUP BY bucket_start
         ORDER BY bucket_start DESC

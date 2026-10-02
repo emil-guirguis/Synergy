@@ -20,14 +20,14 @@ function isDocType(v: unknown): v is DocType {
 
 // { "Category/file.pdf": "rep", ... } for every file that has a type set.
 // Files with no row default to 'all' on the client.
-app.get('/', requirePermission('document:read'), async (c) => {
+app.get('/', requirePermission('resource:read'), async (c) => {
   const result = await execQuery(c.env, 'SELECT doc_path, doc_type FROM public.rep_doc_type');
   const data: Record<string, DocType> = {};
   for (const row of result.rows) data[row.doc_path] = row.doc_type;
   return c.json({ success: true, data });
 });
 
-app.put('/', requirePermission('document:write'), async (c) => {
+app.put('/', requirePermission('resource:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { path, type } = body as { path?: string; type?: string };
   if (!path) return c.json({ success: false, message: 'path is required' }, 400);
@@ -44,7 +44,7 @@ app.put('/', requirePermission('document:write'), async (c) => {
   return c.json({ success: true });
 });
 
-app.patch('/', requirePermission('document:write'), async (c) => {
+app.patch('/', requirePermission('resource:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { fromPath, toPath } = body as { fromPath?: string; toPath?: string };
   if (!fromPath || !toPath) return c.json({ success: false, message: 'fromPath and toPath are required' }, 400);
@@ -58,7 +58,7 @@ app.patch('/', requirePermission('document:write'), async (c) => {
   return c.json({ success: true });
 });
 
-app.delete('/', requirePermission('document:write'), async (c) => {
+app.delete('/', requirePermission('resource:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { path } = body as { path?: string };
   if (!path) return c.json({ success: false, message: 'path is required' }, 400);

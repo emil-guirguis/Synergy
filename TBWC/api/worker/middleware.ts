@@ -40,7 +40,7 @@ export async function loadProfile(env: Env, userId: string): Promise<any | null>
       // depending on every creation path remembering to set it.
       `SELECT u.id, u.email, u.first_name, u.last_name, u.agency_name, u.url, u.title, u.work_phone, u.ext, u.mobile,
               u.addr1, u.addr2, u.city, u.state, u.postal, u.about, u.approved, u.is_admin, u.type,
-              u.can_approve_rep_leads, u.created_at, u.locked_at, u.last_verified_at,
+              u.created_at, u.locked_at, u.last_verified_at,
               u.permission_overrides,
               COALESCE(u.role_id, (
                 SELECT r.role_id FROM public.role r
@@ -49,7 +49,18 @@ export async function loadProfile(env: Env, userId: string): Promise<any | null>
                                      WHEN u.type IN ('employee', 'rep', 'customer') THEN u.type
                                      ELSE 'rep' END
               )) AS role_id,
-              u.qb_sales_rep_id, sr.list_id AS sales_rep_list_id, sr.initial AS sales_rep_initial, sr.name AS sales_rep_name
+              u.qb_sales_rep_id, sr.list_id AS sales_rep_list_id, sr.initial AS sales_rep_initial, sr.name AS sales_rep_name,
+              -- Flat "manages" relation (public.user_manager) — the QB rep
+              -- list_ids of every user this one manages, for orders.ts's
+              -- ownOnly scoping to union against. Empty array, not null, when
+              -- unset so callers can spread it without a guard.
+              COALESCE((
+                SELECT array_agg(msr.list_id) FROM public.user_manager um
+                JOIN public.qb_sales_rep msr ON msr.qb_sales_rep_id = (
+                  SELECT mu.qb_sales_rep_id FROM public.users mu WHERE mu.id = um.managed_user_id
+                )
+                WHERE um.manager_id = u.id
+              ), ARRAY[]::text[]) AS managed_sales_rep_list_ids
        FROM public.users u
        LEFT JOIN public.qb_sales_rep sr ON sr.qb_sales_rep_id = u.qb_sales_rep_id
        WHERE u.id = $1`,
@@ -96,6 +107,20 @@ export async function authenticateToken(
 /** Guard that requires the caller to be an admin (is_admin). */
 export const requireAdmin = requireCheck((user) => !!user?.is_admin, 'Admin access required');
 
+/**
+ * Every QB sales-rep list_id this caller may see rows for under an "own"
+ * scope: their own linked rep, plus every user they manage (flat, one level —
+ * public.user_manager, baked into managed_sales_rep_list_ids above). Shared
+ * by orders.ts/estimates.ts/invoices.ts so a manager's own-scope visibility
+ * means the same thing everywhere rather than three hand-copied versions
+ * drifting apart. Empty when unlinked and managing nobody, so the caller
+ * matches zero rows rather than falling through to "every unassigned row"
+ * the way an `IS NULL` scope would.
+ */
+export function visibleRepListIds(user: any): string[] {
+  return [user.sales_rep_list_id, ...(user.managed_sales_rep_list_ids ?? [])].filter(Boolean);
+}
+
 // TBWC is single-tenant, so every role here is a system role (tenant_id NULL)
 // and the profile carries no tenant_id — the framework's tenant guard then
 // admits exactly the system roles, which is what we want.
@@ -103,6 +128,14 @@ const permissions = createPermissions(execQuery);
 
 export function clearPermissionCache(): void {
   permissions.clearCache();
+}
+
+// userManagers.ts calls this after add/remove — a manager's managed-reps list
+// (sales_rep_list_id set, used by orders.ts ownOnly scoping) is baked into the
+// profile at loadProfile() time, so a stale cached profile would hide the
+// change for up to PROFILE_TTL_MS.
+export function clearProfileCache(): void {
+  profileCache.clear();
 }
 
 /** Resolve the caller's permissions. Cached per role inside the framework. */

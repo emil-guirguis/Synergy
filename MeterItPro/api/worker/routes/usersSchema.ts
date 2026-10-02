@@ -70,6 +70,18 @@ export const userSchema = defineSchema({
             field({ name: 'password_reset_expires_at', order: 3, type: FieldTypes.DATETIME, default: null, required: false, label: 'Token Expires', dbField: '', readOnly: true, showOn: ['form'], placeholder: 'No expiration', description: 'When the reset token expires' }),
           ],
         }),
+        section({
+          name: 'Impersonate',
+          order: 3,
+          maxWidth: '200px',
+          fields: [
+            // UI-only — rendered by UserForm.tsx's renderCustomField as
+            // ImpersonateButton (framework/frontend/components/auth), not a
+            // real column. Dev-only, single-email gated; invisible to anyone
+            // else even though the field is served to every caller.
+            field({ name: 'impersonate_actions', order: 1, type: FieldTypes.STRING, default: '', required: false, label: '', dbField: '', readOnly: true, showOn: ['form'], description: 'Dev-only: log in as this user to test their account.' }),
+          ],
+        }),
       ],
     }),
   ],

@@ -17,7 +17,7 @@ export interface Env {
   HYPERDRIVE: any;
   RESEND_API_KEY?: string;
   RESEND_FROM?: string;
-  GROQ_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_API_TOKEN?: string;
   GITHUB_TOKEN?: string;
@@ -29,6 +29,11 @@ export interface Env {
   REMOTE_DB_USER?: string;
   REMOTE_DB_PASSWORD?: string;
   TURNSTILE_SECRET?: string;
+  // Dev-only "log in as this user" gate (see routes/users.ts + framework's
+  // canImpersonate). Set in .dev.vars only — never `wrangler secret put` these,
+  // or the impersonation route opens up in production too.
+  ENABLE_IMPERSONATION?: string;
+  IMPERSONATE_ALLOWED_EMAIL?: string;
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {

@@ -73,7 +73,7 @@ describe('GET /', () => {
         items: [{
           role_id: 1, code: 'admin', name: 'Administrator', is_system: true,
           user_count: 3,
-          grants: [{ permission: 'order:read', scope: 'all', hidden_fields: [] }],
+          grants: [{ permission: 'order:read', scope: 'all', hidden_fields: [], field_access: {} }],
         }],
       },
     });
@@ -137,7 +137,7 @@ describe('POST /', () => {
     expect(mockExecQuery).toHaveBeenCalledWith(
       ENV,
       expect.stringContaining('INSERT INTO public.role_permission'),
-      [9, 'order:read', 'own', ['commission']],
+      [9, 'order:read', 'own', ['commission'], '{}'],
       'roles.create.grant'
     );
     expect(clearPermissionCache).toHaveBeenCalledTimes(1);
@@ -158,7 +158,10 @@ describe('PUT /:id', () => {
   });
 
   it('renames and returns the updated row', async () => {
-    queue([{ role_id: 1, code: 'admin', name: 'New Name', is_system: true }]);
+    queue(
+      [{ role_id: 1, code: 'admin', name: 'Administrator', is_system: true, tenant_id: null }], // ownRole
+      [{ role_id: 1, code: 'admin', name: 'New Name', is_system: true }], // update
+    );
     const res = await req('/1', json('PUT', { name: 'New Name' }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -203,7 +206,7 @@ describe('PUT /:id/grants', () => {
     }));
     expect(res.status).toBe(200);
     expect(mockExecQuery).toHaveBeenCalledWith(
-      ENV, expect.stringContaining('DELETE FROM public.role_permission'), ['2'], 'roles.grants.clear'
+      ENV, expect.stringContaining('DELETE FROM public.role_permission'), [2], 'roles.grants.clear'
     );
   });
 });
@@ -225,7 +228,10 @@ describe('DELETE /:id', () => {
   });
 
   it('409s when users still hold the role', async () => {
-    queue([{ role_id: 9, code: 'auditor', is_system: false, user_count: 2 }]);
+    queue(
+      [{ role_id: 9, code: 'auditor', is_system: false }], // ownRole
+      [{ n: 2 }], // inUse
+    );
     const res = await req('/9', { method: 'DELETE' });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual(expect.objectContaining({
@@ -234,7 +240,10 @@ describe('DELETE /:id', () => {
   });
 
   it('deletes an unassigned custom role and clears the permission cache', async () => {
-    queue([{ role_id: 9, code: 'auditor', is_system: false, user_count: 0 }]);
+    queue(
+      [{ role_id: 9, code: 'auditor', is_system: false }], // ownRole
+      [{ n: 0 }], // inUse
+    );
     mockExecQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // delete
     const res = await req('/9', { method: 'DELETE' });
     expect(res.status).toBe(200);

@@ -1,9 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import DashboardPage from '../pages/DashboardPage';
 import ResourcesPage from '../pages/ResourcesPage';
+import NotificationsPage from '../pages/NotificationsPage';
 import { OrderManagementPage } from '../features/orders/OrderManagementPage';
 import { InventoryManagementPage } from '../features/inventory/InventoryManagementPage';
-import { QuoteManagementPage } from '../features/quotes/QuoteManagementPage';
+import { EstimateManagementPage } from '../features/estimates/EstimateManagementPage';
 import { CustomerManagementPage } from '../features/customers/CustomerManagementPage';
 import { InvoiceManagementPage } from '../features/invoices/InvoiceManagementPage';
 import { PaymentManagementPage } from '../features/payments/PaymentManagementPage';
@@ -18,58 +19,63 @@ import { AiChatPage } from '../features/ai/AiChatPage';
 import { useAuth } from '../hooks/useAuth';
 
 export default function AppRoutes() {
-  const { isAdmin } = useAuth();
+  const { checkPermission } = useAuth();
   return (
     <Routes>
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/orders" element={<OrderManagementPage />} />
-      <Route path="/quotes" element={<QuoteManagementPage />} />
-      <Route path="/resources" element={<ResourcesPage />} />
+      {/* Read-only for reps; the API scopes them to their own (see estimates.ts). */}
+      <Route path="/estimates" element={<EstimateManagementPage />} />
+      <Route
+        path="/resources"
+        element={checkPermission('resource:read') ? <ResourcesPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route path="/notifications" element={<NotificationsPage />} />
       <Route
         path="/ai-chat"
-        element={isAdmin ? <AiChatPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('aichat:use') ? <AiChatPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/inventory"
-        element={isAdmin ? <InventoryManagementPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('inventory:read') ? <InventoryManagementPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/customers"
-        element={isAdmin ? <CustomerManagementPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('customer:read') ? <CustomerManagementPage /> : <Navigate to="/dashboard" replace />}
       />
       {/* Read-only for everyone; the API scopes a rep to their own invoices. */}
       <Route path="/invoices" element={<InvoiceManagementPage />} />
       <Route
         path="/payments"
-        element={isAdmin ? <PaymentManagementPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('payment:read') ? <PaymentManagementPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/reports/rep-performance"
-        element={isAdmin ? <RepPerformancePage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('repPerformance:read') ? <RepPerformancePage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/reports/order-to-cash"
-        element={isAdmin ? <OrderToCashPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('orderToCash:read') ? <OrderToCashPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/reports/invoice-totals"
-        element={isAdmin ? <InvoiceTotalsPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('invoiceTotals:read') ? <InvoiceTotalsPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/qb-sync"
-        element={isAdmin ? <QbSyncDashboardPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('qbsync:read') ? <QbSyncDashboardPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/users"
-        element={isAdmin ? <UserManagementPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('user:read') ? <UserManagementPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/rep-portal"
-        element={isAdmin ? <RepPortalPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('repApproval:write') ? <RepPortalPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/settings"
-        element={isAdmin ? <SettingsPage /> : <Navigate to="/dashboard" replace />}
+        element={checkPermission('setting:read') ? <SettingsPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

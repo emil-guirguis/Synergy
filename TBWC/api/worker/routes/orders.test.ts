@@ -7,20 +7,24 @@ import { PERMISSIONS } from '../permissions';
 let currentUser: any = { id: 'admin', sales_rep_list_id: null };
 let currentPermSet = fullAccess(PERMISSIONS);
 
-vi.mock('../middleware', () => ({
-  authenticateToken: (c: any, next: any) => {
-    c.set('user', currentUser);
-    c.set('userId', currentUser.id);
-    return next();
-  },
-  requirePermission: (permission: string) => (c: any, next: any) => {
-    if (!currentPermSet.has(permission)) {
-      return c.json({ success: false, message: 'Insufficient permissions' }, 403);
-    }
-    c.set('permissions', currentPermSet);
-    return next();
-  },
-}));
+vi.mock('../middleware', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../middleware')>();
+  return {
+    ...actual,
+    authenticateToken: (c: any, next: any) => {
+      c.set('user', currentUser);
+      c.set('userId', currentUser.id);
+      return next();
+    },
+    requirePermission: (permission: string) => (c: any, next: any) => {
+      if (!currentPermSet.has(permission)) {
+        return c.json({ success: false, message: 'Insufficient permissions' }, 403);
+      }
+      c.set('permissions', currentPermSet);
+      return next();
+    },
+  };
+});
 
 const mockFindAll = vi.fn();
 const mockFindById = vi.fn();
@@ -97,16 +101,28 @@ describe('GET / scoping', () => {
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/');
     const opts = mockFindAll.mock.calls[0][1];
-    expect(opts.where).toEqual({ sales_rep_list_id: 'REP-123', qb_deleted_at: null });
+    expect(opts.where).toEqual({ qb_deleted_at: null });
+    expect(opts.whereRaw).toEqual([{ sql: 'sales_rep_list_id IN (?)', params: ['REP-123'] }]);
   });
 
-  it('an unlinked rep (no sales_rep_list_id) gets a filter that can never match a real order', async () => {
+  it('a rep who manages others is scoped to their own rep plus every managed rep', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123', managed_sales_rep_list_ids: ['REP-456', 'REP-789'] };
+    currentPermSet = repPermSet();
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.whereRaw).toEqual([
+      { sql: 'sales_rep_list_id IN (?, ?, ?)', params: ['REP-123', 'REP-456', 'REP-789'] },
+    ]);
+  });
+
+  it('an unlinked rep (no sales_rep_list_id, manages nobody) gets a filter that can never match a real order', async () => {
     currentUser = { id: 'rep1', sales_rep_list_id: null };
     currentPermSet = repPermSet();
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/');
     const opts = mockFindAll.mock.calls[0][1];
-    expect(opts.where.sales_rep_list_id).toBe('__unlinked__');
+    expect(opts.whereRaw).toEqual([{ sql: '1 = 0' }]);
   });
 
   it('strips hidden money fields from every row for a scoped rep', async () => {
@@ -127,7 +143,9 @@ describe('GET / scoping', () => {
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/?sales_rep_list_id=SOMEONE-ELSE');
     const opts = mockFindAll.mock.calls[0][1];
-    expect(opts.where.sales_rep_list_id).toBe('REP-123');
+    // whereFromQuery still parses the (ignored) field filter into `where`,
+    // but the real scope lives in whereRaw and always wins.
+    expect(opts.whereRaw).toEqual([{ sql: 'sales_rep_list_id IN (?)', params: ['REP-123'] }]);
   });
 });
 

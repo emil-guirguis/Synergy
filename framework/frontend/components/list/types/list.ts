@@ -319,6 +319,10 @@ export interface BaseListReturn<T> {
   // Handlers
   /** Handle edit action */
   handleEdit: (item: T) => void;
+  /** Open the record without the canUpdate gate handleEdit has — for a
+   *  caller that already knows this is a view, not an edit (e.g.
+   *  `onView={!canUpdate ? handleView : undefined}`). */
+  handleView: (item: T) => void;
   /** Handle delete action */
   handleDelete: (item: T) => void;
   /** Handle create action */

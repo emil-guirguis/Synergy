@@ -20,7 +20,7 @@ import { AuthVariables, authenticateToken, requirePermission } from '../middlewa
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
-app.use('*', requirePermission('report:read'));
+app.use('*', requirePermission('orderToCash:read'));
 
 // Booked but not (or only partly) billed — the two statuses that mean the
 // order still owes an invoice. 'Closed' is excluded on purpose: a manually

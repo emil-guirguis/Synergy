@@ -1,11 +1,11 @@
 /**
  * Right-hand panel on the order form:
- *   - Packing Slips — linked invoices with total = 0; this company records a
- *                     packing slip in QB as a zero-total invoice, so both
- *                     arrive as invoices and are told apart by amount, not by
- *                     any QB type flag. Ahead of Invoices because it is what
+ *   - Packing Slips — linked invoices with is_packing_slip true (migration
+ *                     066: QB's own invoice TemplateRef, "TBWC Only Packing
+ *                     Slip" — not a zero total, since real invoices can be
+ *                     zero-total too). Ahead of Invoices because it is what
  *                     gets looked up mid-build, before anything is billed.
- *   - Invoices      — linked invoices with total > 0, with invoiced/open money
+ *   - Invoices      — linked invoices with is_packing_slip false, with invoiced/open money
  *                     summed under the rows it sums. Each invoice row lists
  *                     the QB ReceivePayment(s) applied to IT specifically
  *                     (GET /api/orders/:id/payments, one row per payment x
@@ -286,10 +286,9 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
     return () => { active = false; };
   }, [orderId]);
 
-  // total > 0 is an invoice; a zero-total linked invoice is a packing slip
-  // (see the file header).
-  const invoices = items.filter((i) => (Number(i.total) || 0) > 0);
-  const packingSlips = items.filter((i) => (Number(i.total) || 0) <= 0);
+  // is_packing_slip (see the file header) splits the two lists.
+  const invoices = items.filter((i) => !i.is_packing_slip);
+  const packingSlips = items.filter((i) => i.is_packing_slip);
   const invoiced = invoices.reduce((sum, i) => sum + (Number(i.total) || 0), 0);
   // Outstanding comes from QB's own balance_remaining on each invoice — the
   // authoritative figure QB already nets against every payment/credit/discount

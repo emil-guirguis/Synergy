@@ -5,6 +5,9 @@ import AppLayoutWrapper from './components/layout/AppLayoutWrapper';
 import AdminApp from './admin/AdminApp';
 import SupportApp from './support/SupportApp';
 import AdminBanner from './components/AdminBanner';
+import { ImpersonationBanner } from '@meterit/framework-frontend/components/auth';
+import { isImpersonating as isUserImpersonating, impersonationTargetLabel } from '@meterit/framework-frontend/auth/impersonation';
+import authService from './services/authService';
 import { prefetchAppSchemas, prefetchAppRoutes } from './utils/schemaPrefetch';
 import { invalidateExpiredCache } from '@meterit/framework-frontend/components/form/utils/schemaLoader';
 import { useAuth } from './hooks/useAuth';
@@ -74,6 +77,15 @@ function App() {
         ) : (
           <>
             {isImpersonating && <AdminBanner />}
+            {isUserImpersonating() && (
+              <ImpersonationBanner
+                label={impersonationTargetLabel() || 'another user'}
+                onExit={() => {
+                  authService.exitImpersonation();
+                  window.location.reload();
+                }}
+              />
+            )}
             {isAuthenticated && !isLoading ? (
               <AppLayoutWrapper>
                 <AppRoutes />

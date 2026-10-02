@@ -216,8 +216,8 @@ export const Header: React.FC<HeaderProps> = ({
             <input
               type="search"
               className="search-input"
-              placeholder="Ask SI — press Enter"
-              aria-label="Ask SI"
+              placeholder="Ask AI — press Enter"
+              aria-label="Ask AI"
               value={searchQuery}
               onChange={handleSearchInputChange}
               onKeyDown={handleSearchKeyDown}

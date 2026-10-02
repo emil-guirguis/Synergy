@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { AxiosResponse } from 'axios';
 import type { LoginCredentials, AuthResponse, User } from '../types/auth';
 import type { Location } from '../types/entities';
+import { beginImpersonation, endImpersonation } from '@meterit/framework-frontend/auth/impersonation';
 import { tokenStorage } from '../utils/tokenStorage';
 
 // API base URL - this would typically come from environment variables
@@ -265,6 +266,18 @@ class AuthService {
 
   clearStoredToken(): void {
     tokenStorage.clearTokens();
+  }
+
+  /** Dev-only "log in as this user" — see worker/routes/users.ts /:id/impersonate. */
+  async impersonate(targetUserId: string | number, targetLabel: string): Promise<void> {
+    const response = await this.apiClient.post(`/users/${targetUserId}/impersonate`);
+    const { token, refreshToken, expiresIn } = response.data.data;
+    beginImpersonation(tokenStorage, { token, refreshToken: refreshToken || '', expiresIn }, targetLabel);
+  }
+
+  /** Restore the admin session stashed before impersonate(). */
+  exitImpersonation(): boolean {
+    return endImpersonation(tokenStorage);
   }
 
   // Set logout flag to prevent auto-login

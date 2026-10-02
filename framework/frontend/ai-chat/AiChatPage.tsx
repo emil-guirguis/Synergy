@@ -1,5 +1,5 @@
 /**
- * Shared "ask SI" chat page. Renders the conversation UI and drives the
+ * Shared "ask AI" chat page. Renders the conversation UI and drives the
  * assistant/tool-call turn-taking; each consuming app supplies its own
  * `sendMessage` (their HTTP client + auth convention differ — MIP uses an
  * axios instance, TBWC plain `fetch` + Supabase token) and its own copy
@@ -94,7 +94,7 @@ const ResultCard: React.FC<{ link: AiChatResultLink }> = ({ link }) => {
 
 export const AiChatPage: React.FC<AiChatPageConfig> = ({
   sendMessage,
-  title = 'SI Assistant',
+  title = 'AI Assistant',
   subtitle = 'Ask a question to get started.',
   placeholder = 'Ask a question...',
   emptyStateText = 'Ask anything.',

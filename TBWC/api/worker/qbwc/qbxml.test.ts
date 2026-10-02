@@ -138,9 +138,13 @@ describe('qbxml.lineItems', () => {
       '<InvoiceLineRet><ItemRef><ListID>6</ListID></ItemRef><Amount>5</Amount></InvoiceLineRet>';
     const lines = lineItems(scope, 'InvoiceLineRet');
     expect(lines).toEqual([
-      { item: 'Widget', desc: 'A widget', quantity: 2, rate: 9.99, amount: 19.98 },
-      { item: '6', desc: null, quantity: null, rate: null, amount: 5 },
+      { item: 'Widget', desc: 'A widget', quantity: 2, rate: 9.99, amount: 19.98, txnLineId: null },
+      { item: '6', desc: null, quantity: null, rate: null, amount: 5, txnLineId: null },
     ]);
+  });
+  it('captures TxnLineID when present', () => {
+    const scope = '<InvoiceLineRet><TxnLineID>12</TxnLineID><ItemRef><FullName>Widget</FullName></ItemRef><Amount>5</Amount></InvoiceLineRet>';
+    expect(lineItems(scope, 'InvoiceLineRet')[0].txnLineId).toBe('12');
   });
   it('returns empty array with no line elements', () => {
     expect(lineItems('<InvoiceRet/>', 'InvoiceLineRet')).toEqual([]);

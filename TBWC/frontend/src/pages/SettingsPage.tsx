@@ -22,9 +22,28 @@ import {
 } from '../services/rolesService';
 import DocumentImportPanel from '../features/documentImport/DocumentImportPanel';
 import CommissionImportPanel from '../features/commissionImport/CommissionImportPanel';
+import { NAV, roleOrderFromNav } from '../components/layout/navConfig';
 
 const ROLES_TAB_ENABLED = true;
 const COMMISSION_IMPORT_TAB_ENABLED = true;
+
+// Derived from the sidebar's own nav (components/layout/navConfig.ts), so a
+// new nav item with a requiredPermission just shows up here too — no second
+// place to hand-edit. `estimate` and `role` aren't gated by any nav item
+// (estimates is feature-flagged off; roles are managed from inside this same
+// Settings page) — both fall through to RolesForm's own catalog-order
+// fallback, appended after everything below.
+//
+// QuickBooks is the one group NAV can't express this way: its sidebar
+// visibility collapses to a single permission (inventory:read, see
+// navConfig.ts) shared by three unrelated catalog modules, plus qbSync
+// (a separate top-level nav item) that belongs in this group in the roles
+// tree but not in the sidebar dropdown. Kept as a manual override.
+const ROLE_ORDER = roleOrderFromNav(NAV).map((node) =>
+  typeof node !== 'string' && node.label === 'QuickBooks'
+    ? { label: 'QuickBooks', modules: ['customer', 'inventory', 'payment', 'qbsync'] }
+    : node
+);
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
@@ -197,6 +216,7 @@ export default function SettingsPage() {
             <RolesForm
               roles={roles}
               catalog={catalog}
+              order={ROLE_ORDER}
               loading={loading}
               error={rolesError}
               onCreate={(input) => withRoleRefresh(() => createRole(input), `Role "${input.name}" created`)}

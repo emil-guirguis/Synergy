@@ -1,9 +1,6 @@
 /**
- * NotificationList Component
- *
- * Renders a list of notifications with details and clear actions
+ * Renders a list of notifications with ack/clear actions.
  */
-
 import React from 'react';
 import {
   List,
@@ -14,60 +11,61 @@ import {
   Chip,
   Box,
   Typography,
-  Divider
+  Divider,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import type { Notification, NotificationSeverity, NotificationType } from '../../types/notifications';
-import { formatDistanceToNow } from 'date-fns';
+import type { NotificationRecord, NotificationSeverity } from './types';
 
 interface NotificationListProps {
-  notifications: Notification[];
+  notifications: NotificationRecord[];
   onClear: (notificationId: string) => void;
   onAcknowledge?: (notificationId: string) => void;
-  onClearAll?: () => void;
 }
 
-const getSeverityColor = (severity: NotificationSeverity): 'error' | 'warning' | 'info' => {
+function getSeverityColor(severity: NotificationSeverity): 'error' | 'warning' | 'info' {
   if (severity === 'error') return 'error';
   if (severity === 'warning') return 'warning';
   return 'info';
-};
+}
 
-const getTypeLabel = (type: NotificationType): string => {
-  if (type === 'stale' || type === 'meter_no_reading') return 'No Readings';
-  if (type === 'all_zero' || type === 'meter_zero_reading') return 'Zero Readings';
-  if (type === 'demand_threshold') return 'Demand';
-  return 'Error';
-};
+/** 'demand_threshold' -> 'Demand Threshold' */
+function getTypeLabel(type: string): string {
+  return type
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+function formatTimestamp(timestamp: string): string {
+  const then = new Date(timestamp).getTime();
+  if (Number.isNaN(then)) return timestamp;
+  const diffMs = Date.now() - then;
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
 
 export const NotificationList: React.FC<NotificationListProps> = ({
   notifications,
   onClear,
-  onAcknowledge
+  onAcknowledge,
 }) => {
-  const formatTimestamp = (timestamp: string): string => {
-    try {
-      return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
-    } catch {
-      return timestamp;
-    }
-  };
-
   return (
     <List sx={{ width: '100%', maxHeight: 400, overflow: 'auto' }}>
       {notifications.map((notification, index) => (
         <React.Fragment key={notification.id}>
           <ListItem
             data-testid={`notification-item-${notification.id}`}
-            sx={{
-              py: 1.5,
-              '&:hover': { backgroundColor: 'action.hover' }
-            }}
+            sx={{ py: 1.5, '&:hover': { backgroundColor: 'action.hover' } }}
           >
             <ListItemText
               primary={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                     {notification.title}
                   </Typography>
@@ -95,13 +93,6 @@ export const NotificationList: React.FC<NotificationListProps> = ({
                       {notification.description}
                     </Typography>
                   )}
-                  {(notification.meter_id || notification.meter_element_id) && (
-                    <Typography variant="caption" display="block" color="textSecondary">
-                      {notification.meter_id && `Meter: ${notification.meter_id}`}
-                      {notification.meter_id && notification.meter_element_id && ' · '}
-                      {notification.meter_element_id && `Element: ${notification.meter_element_id}`}
-                    </Typography>
-                  )}
                   <Typography variant="caption" display="block" color="textSecondary">
                     {formatTimestamp(notification.created_at)}
                   </Typography>
@@ -113,7 +104,7 @@ export const NotificationList: React.FC<NotificationListProps> = ({
                 <IconButton
                   edge="end"
                   aria-label="acknowledge"
-                  title="Acknowledge — stop repeat emails"
+                  title="Acknowledge"
                   onClick={() => onAcknowledge(notification.id)}
                   size="small"
                   data-testid={`ack-notification-${notification.id}`}

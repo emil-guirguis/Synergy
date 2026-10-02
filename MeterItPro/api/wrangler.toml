@@ -16,7 +16,7 @@ FRONTEND_URL = "https://meteritpro.com,http://localhost:5173,http://localhost:30
 # npx wrangler secret put JWT_SECRET
 # npx wrangler secret put RESEND_API_KEY      — from resend.com (free tier, required for reports)
 # npx wrangler secret put RESEND_FROM         — e.g. "MeterItPro <noreply@meteritpro.com>"
-# npx wrangler secret put GROQ_API_KEY         — from console.groq.com (free, required for AI chat)
+# npx wrangler secret put ANTHROPIC_API_KEY    — from console.anthropic.com (paid, required for AI chat)
 
 [triggers]
 crons = ["*/15 * * * *"]   # Run every 15 min: fire when rule cron matches, always clear stale notifications

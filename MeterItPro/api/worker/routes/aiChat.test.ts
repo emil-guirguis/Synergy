@@ -17,7 +17,7 @@ vi.mock('../errorHandler', () => ({
   logError: vi.fn(),
 }));
 
-vi.mock('openai', () => ({
+vi.mock('@anthropic-ai/sdk', () => ({
   default: vi.fn(),
 }));
 
@@ -26,20 +26,20 @@ import { query } from '../db';
 import { clearUserCache } from '../middleware';
 import aiChatApp from './aiChat';
 import type { Env } from '../db';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { authQuery } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
 const mockQuery = vi.mocked(query);
-const MockOpenAI = vi.mocked(OpenAI);
+const MockAnthropic = vi.mocked(Anthropic);
 
-const TEST_ENV: Env & { GROQ_API_KEY: string } = {
+const TEST_ENV: Env & { ANTHROPIC_API_KEY: string } = {
   JWT_SECRET: 'test-secret',
   HYPERDRIVE: { connectionString: 'postgresql://test:test@localhost/test' },
-  GROQ_API_KEY: 'test-groq-key',
+  ANTHROPIC_API_KEY: 'test-anthropic-key',
 } as any;
 
-const TEST_ENV_NO_GROQ: Env = {
+const TEST_ENV_NO_KEY: Env = {
   JWT_SECRET: 'test-secret',
   HYPERDRIVE: { connectionString: 'postgresql://test:test@localhost/test' },
 } as any;
@@ -60,15 +60,15 @@ describe('AI Chat Routes', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockCreate = vi.fn();
-    MockOpenAI.mockImplementation(class {
-      chat = { completions: { create: mockCreate } };
+    MockAnthropic.mockImplementation(class {
+      messages = { create: mockCreate };
     } as any);
     clearUserCache();
     setupAuth();
   });
 
   describe('POST /', () => {
-    it('returns 503 when GROQ_API_KEY is not configured', async () => {
+    it('returns 503 when ANTHROPIC_API_KEY is not configured', async () => {
       const res = await aiChatApp.request('/', {
         method: 'POST',
         headers: {
@@ -76,12 +76,12 @@ describe('AI Chat Routes', () => {
           'content-type': 'application/json',
         },
         body: JSON.stringify({ message: 'How many meters?' }),
-      }, TEST_ENV_NO_GROQ);
+      }, TEST_ENV_NO_KEY);
 
       expect(res.status).toBe(503);
       const body = await res.json();
       expect(body.success).toBe(false);
-      expect(body.message).toContain('GROQ_API_KEY');
+      expect(body.message).toContain('ANTHROPIC_API_KEY');
     });
 
     it('returns 400 when message is missing', async () => {
@@ -127,13 +127,7 @@ describe('AI Chat Routes', () => {
 
     it('returns AI response when model replies without tool calls', async () => {
       mockCreate.mockResolvedValueOnce({
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: 'You have 5 active meters.',
-            tool_calls: null,
-          },
-        }],
+        content: [{ type: 'text', text: 'You have 5 active meters.' }],
       });
 
       const res = await aiChatApp.request('/', {
@@ -156,27 +150,13 @@ describe('AI Chat Routes', () => {
       // First call: model requests a tool
       mockCreate
         .mockResolvedValueOnce({
-          choices: [{
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [{
-                id: 'call_1',
-                type: 'function',
-                function: { name: 'list_meters', arguments: '{}' },
-              }],
-            },
-          }],
+          content: [
+            { type: 'tool_use', id: 'call_1', name: 'list_meters', input: {} },
+          ],
         })
         // Second call: model gives final answer after tool result
         .mockResolvedValueOnce({
-          choices: [{
-            message: {
-              role: 'assistant',
-              content: 'You have 3 meters.',
-              tool_calls: null,
-            },
-          }],
+          content: [{ type: 'text', text: 'You have 3 meters.' }],
         });
 
       // Tool executes a DB query
@@ -207,13 +187,7 @@ describe('AI Chat Routes', () => {
 
     it('includes message history in the request', async () => {
       mockCreate.mockResolvedValueOnce({
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: 'As I mentioned before...',
-            tool_calls: null,
-          },
-        }],
+        content: [{ type: 'text', text: 'As I mentioned before...' }],
       });
 
       const history = [
@@ -239,9 +213,7 @@ describe('AI Chat Routes', () => {
 
     it('filters out invalid roles from history', async () => {
       mockCreate.mockResolvedValueOnce({
-        choices: [{
-          message: { role: 'assistant', content: 'OK', tool_calls: null },
-        }],
+        content: [{ type: 'text', text: 'OK' }],
       });
 
       const history = [

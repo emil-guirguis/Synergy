@@ -5,20 +5,24 @@ import { PERMISSIONS } from '../permissions';
 let currentUser: any = { id: 'admin', sales_rep_list_id: null };
 let currentPermSet = fullAccess(PERMISSIONS);
 
-vi.mock('../middleware', () => ({
-  authenticateToken: (c: any, next: any) => {
-    c.set('user', currentUser);
-    c.set('userId', currentUser.id);
-    return next();
-  },
-  requirePermission: (permission: string) => (c: any, next: any) => {
-    if (!currentPermSet.has(permission)) {
-      return c.json({ success: false, message: 'Insufficient permissions' }, 403);
-    }
-    c.set('permissions', currentPermSet);
-    return next();
-  },
-}));
+vi.mock('../middleware', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../middleware')>();
+  return {
+    ...actual,
+    authenticateToken: (c: any, next: any) => {
+      c.set('user', currentUser);
+      c.set('userId', currentUser.id);
+      return next();
+    },
+    requirePermission: (permission: string) => (c: any, next: any) => {
+      if (!currentPermSet.has(permission)) {
+        return c.json({ success: false, message: 'Insufficient permissions' }, 403);
+      }
+      c.set('permissions', currentPermSet);
+      return next();
+    },
+  };
+});
 
 const mockFindAll = vi.fn();
 const mockFindById = vi.fn();
@@ -30,6 +34,11 @@ vi.mock('../crud', async (importOriginal) => {
     findById: (...a: any[]) => mockFindById(...a),
   };
 });
+
+const mockExecQuery = vi.fn();
+vi.mock('../db', () => ({
+  execQuery: (...a: any[]) => mockExecQuery(...a),
+}));
 
 import invoicesApp from './invoices';
 
@@ -62,10 +71,10 @@ describe('GET / scoping', () => {
     expect(mockFindAll.mock.calls[0][1].where).toEqual({ qb_deleted_at: null });
   });
 
-  it('always excludes total=0 invoices (packing slips)', async () => {
+  it('always excludes packing slips', async () => {
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/');
-    expect(mockFindAll.mock.calls[0][1].whereNot).toEqual({ total: 0 });
+    expect(mockFindAll.mock.calls[0][1].whereNot).toEqual({ is_packing_slip: true });
   });
 
   it('joins qb_sales_rep so the list carries a sales_rep name', async () => {
@@ -81,15 +90,27 @@ describe('GET / scoping', () => {
     currentPermSet = repPermSet();
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/');
-    expect(mockFindAll.mock.calls[0][1].where).toEqual({ sales_rep_list_id: 'REP-123', qb_deleted_at: null });
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.where).toEqual({ qb_deleted_at: null });
+    expect(opts.whereRaw).toEqual([{ sql: 'sales_rep_list_id IN (?)', params: ['REP-123'] }]);
   });
 
-  it('an unlinked rep gets a filter that can never match a real invoice', async () => {
+  it('a rep who manages others is scoped to their own rep plus every managed rep', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123', managed_sales_rep_list_ids: ['REP-456'] };
+    currentPermSet = repPermSet();
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/');
+    expect(mockFindAll.mock.calls[0][1].whereRaw).toEqual([
+      { sql: 'sales_rep_list_id IN (?, ?)', params: ['REP-123', 'REP-456'] },
+    ]);
+  });
+
+  it('an unlinked rep (manages nobody) gets a filter that can never match a real invoice', async () => {
     currentUser = { id: 'rep1', sales_rep_list_id: null };
     currentPermSet = repPermSet();
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/');
-    expect(mockFindAll.mock.calls[0][1].where.sales_rep_list_id).toBe('__unlinked__');
+    expect(mockFindAll.mock.calls[0][1].whereRaw).toEqual([{ sql: '1 = 0' }]);
   });
 
   it('a crafted sales_rep_list_id query param cannot widen a rep\'s scope', async () => {
@@ -97,7 +118,7 @@ describe('GET / scoping', () => {
     currentPermSet = repPermSet();
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/?sales_rep_list_id=SOMEONE-ELSE');
-    expect(mockFindAll.mock.calls[0][1].where.sales_rep_list_id).toBe('REP-123');
+    expect(mockFindAll.mock.calls[0][1].whereRaw).toEqual([{ sql: 'sales_rep_list_id IN (?)', params: ['REP-123'] }]);
   });
 
   it('passes txn_date_from/txn_date_to as a whereRange, not an exact-match field', async () => {
@@ -125,6 +146,31 @@ describe('GET / scoping', () => {
     expect((await res.json()).data.items).toEqual([
       { qb_invoice_id: 1, total: 500, balance_remaining: 500, is_paid: false },
     ]);
+  });
+});
+
+describe('GET /receivables-summary scoping', () => {
+  it('admin (all scope) passes a null rep filter', async () => {
+    mockExecQuery.mockResolvedValue({ rows: [{}] });
+    await req('/receivables-summary?year=2026');
+    expect(mockExecQuery.mock.calls[0][2]).toEqual([null, 2026]);
+    expect(mockExecQuery.mock.calls[1][2]).toEqual([null]);
+  });
+
+  it('a rep who manages others is scoped to their own rep plus every managed rep', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123', managed_sales_rep_list_ids: ['REP-456'] };
+    currentPermSet = repPermSet();
+    mockExecQuery.mockResolvedValue({ rows: [{}] });
+    await req('/receivables-summary?year=2026');
+    expect(mockExecQuery.mock.calls[0][2]).toEqual([['REP-123', 'REP-456'], 2026]);
+  });
+
+  it('an unlinked rep (manages nobody) gets an empty rep list, not an unscoped null', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: null };
+    currentPermSet = repPermSet();
+    mockExecQuery.mockResolvedValue({ rows: [{}] });
+    await req('/receivables-summary?year=2026');
+    expect(mockExecQuery.mock.calls[0][2]).toEqual([[], 2026]);
   });
 });
 

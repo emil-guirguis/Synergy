@@ -24,8 +24,8 @@ export const usersSchema = defineSchema({
       name: 'Profile',
       order: 1,
       // Two visual columns: Identity fills the left half (spanning every row);
-      // the right half stacks Agency (full width) over Details | QuickBooks.
-      // The trailing 1fr row absorbs Identity's extra height so Details/QB sit
+      // the right half stacks Agency (full width) over Details.
+      // The trailing 1fr row absorbs Identity's extra height so Details sits
       // directly under Agency instead of being pushed down.
       columns: '2fr 1fr 1fr',
       rows: 'auto auto 1fr',
@@ -40,6 +40,12 @@ export const usersSchema = defineSchema({
             field({ name: 'last_name', order: 2, type: FieldTypes.STRING, default: '', required: true, label: 'Last Name', dbField: 'last_name', maxLength: 100, placeholder: 'Doe', showOn: ['list', 'form'] }),
             field({ name: 'email', order: 3, type: FieldTypes.EMAIL, default: '', required: true, label: 'Email', dbField: 'email', maxLength: 254, placeholder: 'jane@agency.com', showOn: ['list', 'form'] }),
             field({ name: 'title', order: 4, type: FieldTypes.STRING, default: '', required: false, label: 'Title', dbField: 'title', maxLength: 100, placeholder: 'Sales Rep', showOn: ['form'] }),
+            // enumValues/enumLabels are injected at serve time from public.role
+            // (see schema route).
+            field({ name: 'role_id', order: 5, type: FieldTypes.SELECT, default: null, required: true, label: 'Role', dbField: 'role_id', enumValues: [], showOn: ['list', 'form'] }),
+            // enumValues/enumLabels are injected at serve time from public.qb_sales_rep
+            // (see schema route). Stores the qb_sales_rep_id FK; blank = not linked.
+            field({ name: 'qb_sales_rep_id', order: 6, type: FieldTypes.SELECT, default: null, required: false, label: 'QB Sales Rep', dbField: 'qb_sales_rep_id', enumValues: [], placeholder: '— Not linked —', showOn: ['form'] }),
           ],
         }),
         section({
@@ -55,25 +61,11 @@ export const usersSchema = defineSchema({
         section({
           name: 'Details',
           order: 3,
-          gridColumn: '2',
+          gridColumn: '2 / 4',
           gridRow: '2',
           fields: [
-            // enumValues/enumLabels are injected at serve time from public.role
-            // (see schema route).
-            field({ name: 'role_id', order: 1, type: FieldTypes.SELECT, default: null, required: true, label: 'Role', dbField: 'role_id', enumValues: [], showOn: ['list', 'form'] }),
-            field({ name: 'is_admin', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Admin', dbField: 'is_admin', showOn: ['list', 'form'] }),
+            field({ name: 'is_admin', order: 1, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Admin', dbField: 'is_admin', showOn: ['form'] }),
          ],
-        }),
-        section({
-          name: 'QuickBooks',
-          order: 4,
-          gridColumn: '3',
-          gridRow: '2',
-          fields: [
-            // enumValues/enumLabels are injected at serve time from public.qb_sales_rep
-            // (see schema route). Stores the qb_sales_rep_id FK; blank = not linked.
-            field({ name: 'qb_sales_rep_id', order: 1, type: FieldTypes.SELECT, default: null, required: false, label: 'QB Sales Rep', dbField: 'qb_sales_rep_id', enumValues: [], placeholder: '— Not linked —', showOn: ['form'] }),
-          ],
         }),
       ],
     }),
@@ -111,8 +103,7 @@ export const usersSchema = defineSchema({
           name: 'Role & Approval',
           order: 1,
           fields: [
-            field({ name: 'approved', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Approved', dbField: 'approved', showOn: ['list', 'form'] }),
-            field({ name: 'can_approve_rep_leads', order: 5, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Approve Rep Leads', dbField: 'can_approve_rep_leads', showOn: ['form'] }),
+            field({ name: 'approved', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Approved', dbField: 'approved', showOn: [ 'form'] }),
           ],
         }),
         section({
@@ -126,12 +117,45 @@ export const usersSchema = defineSchema({
             field({ name: 'last_verified_at', order: 2, type: FieldTypes.DATETIME, default: null, readOnly: true, label: 'Last Verified', dbField: 'last_verified_at', showOn: ['form'] }),
           ],
         }),
+        section({
+          name: 'Impersonate',
+          order: 3,
+          fields: [
+            // UI-only — rendered by UserForm.tsx's renderCustomField as
+            // ImpersonateButton (framework/frontend/components/auth), not a
+            // real column. Dev-only, single-email gated; invisible to anyone
+            // else even though the field is served to every caller.
+            field({ name: 'impersonate_actions', order: 1, type: FieldTypes.STRING, default: '', required: false, label: '', dbField: '', readOnly: true, showOn: ['form'], description: 'Dev-only: log in as this user to test their account.' }),
+          ],
+        }),
 
       ],
     }),
     tab({
-      name: 'Notes',
+      name: 'Manages',
       order: 4,
+      // Admin-only (the Users module is admin-only end to end — see users.ts),
+      // which is exactly what we want: this is the only place the flat
+      // public.user_manager relation gets configured. Orders.ts's ownOnly
+      // scoping then unions the picked users' QB rep identity into the
+      // logged-in manager's own order visibility.
+      sections: [
+        section({
+          name: 'Manages',
+          order: 1,
+          fields: [
+            // UI-only — rendered by UserForm.tsx's renderCustomField as
+            // ManagedUsersGrid, not a real column (see 'documents'/'lines' on
+            // other forms for the same pattern). Saves itself row-by-row via
+            // /api/user-managers, independent of this form's Save button.
+            field({ name: 'managed_users', order: 1, type: FieldTypes.OBJECT, default: null, showOn: ['form'] }),
+          ],
+        }),
+      ],
+    }),
+    tab({
+      name: 'Notes',
+      order: 5,
       sections: [
         section({
           name: 'Notes',

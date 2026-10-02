@@ -4,23 +4,29 @@
  * POST /api/ai/chat
  * Body: { message: string, history?: { role: 'user' | 'assistant', content: string }[] }
  *
- * Uses Groq (llama-3.3-70b) with tool use to answer questions about the tenant's meter data.
+ * Uses Claude (claude-sonnet-5) with tool use to answer questions about the tenant's meter data.
  * The agentic loop runs entirely inside the Worker � no external processes needed.
  */
 
 import { Hono } from 'hono';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { Env, execQuery } from '../db';
 import { authenticateToken, AuthVariables } from '../middleware';
 import { logError } from '../errorHandler';
-import { runAiChatLoop, AiChatMessage, describeAiChatError } from '@meterit/framework-backend/api/base/aiChat';
+import {
+  runAiChatLoop,
+  AiChatTool,
+  describeAiChatError,
+  AI_CHAT_SCOPE_GUARDRAIL,
+} from '@meterit/framework-backend/api/base/aiChat';
+import { toClaudeTools, toClaudeMessages, fromClaudeMessage } from '../claudeChatAdapter';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
 
 // --- Tool definitions ---------------------------------------------------------
 
-const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
+const TOOLS: AiChatTool[] = [
   {
     type: 'function',
     function: {
@@ -250,9 +256,9 @@ async function executeTool(
 app.post('/', async (c) => {
   const tenantId = c.get('tenantId');
 
-  if (!c.env.GROQ_API_KEY) {
+  if (!c.env.ANTHROPIC_API_KEY) {
     return c.json(
-      { success: false, message: 'AI chat is not configured (GROQ_API_KEY missing)' },
+      { success: false, message: 'AI chat is not configured (ANTHROPIC_API_KEY missing)' },
       503
     );
   }
@@ -269,10 +275,8 @@ app.post('/', async (c) => {
     return c.json({ success: false, message: 'message is required' }, 400);
   }
 
-  const client = new OpenAI({
-    apiKey: c.env.GROQ_API_KEY,
-    baseURL: 'https://api.groq.com/openai/v1',
-  });
+  const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+  const claudeTools = toClaudeTools(TOOLS);
 
   const systemPrompt = `You are an AI assistant (Zenith) for MeterItPro, a facility energy management platform.
 You help facility managers understand their meter data, identify issues, and make sense of their energy consumption.
@@ -285,25 +289,36 @@ Guidelines:
 - Format numbers clearly (e.g., "123.4 kWh" not "123.4234234234 kWh").
 - When you spot a problem (stale meter, missed readings, high demand), mention it proactively.
 - If a meter has not reported in over 48 hours, flag it as potentially offline.
-- Today's date: ${new Date().toISOString().split('T')[0]}`;
+- Today's date: ${new Date().toISOString().split('T')[0]}
+
+${AI_CHAT_SCOPE_GUARDRAIL}`;
 
   try {
-    const { response, toolsUsed } = await runAiChatLoop(message, history as any, {
+    const { response, toolsUsed, outOfScope } = await runAiChatLoop(message, history as any, {
       systemPrompt,
-      tools: TOOLS as any,
+      tools: TOOLS,
       complete: async (messages) => {
-        // Groq retired llama-3.3-70b-versatile (404s as of 2026-09-09, confirmed
-        // via GET /v1/models) — gpt-oss-120b is the current tool-calling model.
-        const res = await client.chat.completions.create({
-          model: 'openai/gpt-oss-120b',
-          messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
-          tools: TOOLS,
-          tool_choice: 'auto',
+        const { system, messages: claudeMessages } = toClaudeMessages(messages);
+        const res = await client.messages.create({
+          model: 'claude-sonnet-5',
+          max_tokens: 4096,
+          system,
+          thinking: { type: 'adaptive' },
+          output_config: { effort: 'medium' },
+          tools: claudeTools,
+          messages: claudeMessages,
         });
-        return res.choices[0].message as unknown as AiChatMessage;
+        return fromClaudeMessage(res);
       },
       executeTool: (toolName, toolInput) => executeTool(c.env, tenantId, toolName, toolInput),
     });
+
+    if (outOfScope) {
+      return c.json(
+        { success: false, message: 'I can only help with questions about your meters, readings, alerts, and energy usage — try rephrasing your question around those.' },
+        400
+      );
+    }
 
     return c.json({ success: true, response, tools_used: toolsUsed });
   } catch (err) {

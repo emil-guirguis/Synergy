@@ -11,10 +11,11 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken } from '../middleware';
+import { AuthVariables, authenticateToken, permissionsFor, requirePermission } from '../middleware';
 import {
   createDocument,
   deleteDocument,
+  getDocument,
   listDocuments,
   updateDocument,
   DocumentValidationError,
@@ -25,11 +26,19 @@ app.use('*', authenticateToken);
 
 // Modules allowed to own documents. A new module adds its key here (and a
 // Documents tab in its schema) — no migration needed.
-const ENTITY_TYPES = ['order', 'invoice', 'inventory'] as const;
+const ENTITY_TYPES = ['order', 'estimate', 'invoice', 'inventory'] as const;
 
 function isEntityType(v: unknown): v is (typeof ENTITY_TYPES)[number] {
   return typeof v === 'string' && (ENTITY_TYPES as readonly string[]).includes(v);
 }
+
+// A rep's order Documents tab shows only these. Enforced here, not just
+// hidden in the UI, since the UI alone can't stop a direct API call. Mirrors
+// REP_VISIBLE_DOC_TYPES in TBWC/frontend/src/features/orders/OrderForm.tsx.
+const REP_VISIBLE_ORDER_DOC_TYPES = ['packing_slip', 'invoice', 'proof_of_delivery', 'load_schedule'] as const;
+// Mirrors REP_MAX_FILE_SIZE in OrderForm.tsx — the client already blocks a
+// bigger pick, this is the server-side backstop against a direct API call.
+const REP_ORDER_MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 /** Map the framework's input errors to 400s; anything else bubbles to the 500 handler. */
 function fail(c: any, e: unknown) {
@@ -39,14 +48,77 @@ function fail(c: any, e: unknown) {
   throw e;
 }
 
-app.get('/', async (c) => {
+function forbidden(c: any) {
+  return c.json({ success: false, message: 'Insufficient permissions' }, 403);
+}
+
+// document:read/document:write (checked above by requirePermission, or by
+// resolveWriteAccess below for the mutating routes) is one flat grant
+// covering every module's attachments — it says nothing about whether the
+// caller can see or edit the *estimate* a given row is attached to. An
+// employee has document:write 'all' but no estimate:write at all (migrations
+// 040/042), so without this, they could add/delete documents on any estimate
+// despite having no access to estimates themselves. Gated by permission
+// only, not by which estimate — matching how every other permission check in
+// this file works (document:read/write themselves carry no row-level scope
+// either).
+function canAccessEstimateDocs(c: any, action: 'estimate:read' | 'estimate:write'): boolean {
+  return !!c.get('permissions')?.has(action);
+}
+
+/**
+ * Write access for one mutation, parking the resolved PermissionSet on the
+ * context (same side effect requirePermission's own guard has) so
+ * canAccessEstimateDocs above keeps working regardless of which branch below
+ * grants access.
+ *
+ * A plain rep has no document:write grant at all (migrations/042-role-admin-
+ * grants.sql) — but a "managing rep" (manages >=1 other user via the Users
+ * form's Manages tab / public.user_manager, surfaced here as
+ * managed_sales_rep_list_ids — see middleware.ts's loadProfile) may still
+ * add/edit their own orders' documents, matching the elevated access that
+ * relation already grants them over those users' orders (orders.ts's ownOnly
+ * scoping). Scoped to entityType === 'order' only — it says nothing about
+ * invoice/inventory/estimate documents, which stay gated by document:write.
+ *
+ * restrictedOrderDocs says whether THIS caller's order-document access is the
+ * limited kind (REP_VISIBLE_ORDER_DOC_TYPES/REP_ORDER_MAX_FILE_SIZE below) —
+ * true exactly when they got in via the managing-rep carve-out rather than an
+ * actual document:write grant. Driven by the grant itself, not is_admin: an
+ * employee holds document:write 'all' (migration 040) same as admin, so
+ * either one is unrestricted; is_admin would wrongly restrict the employee.
+ */
+async function resolveWriteAccess(c: any, entityType: string): Promise<{ allowed: boolean; restrictedOrderDocs: boolean }> {
+  const user = c.get('user');
+  let permissions = c.get('permissions');
+  if (!permissions) {
+    permissions = await permissionsFor(c.env, user);
+    c.set('permissions', permissions);
+  }
+  const hasDocumentWrite = !!permissions.has('document:write');
+  const isManagingRepOrder = entityType === 'order' && (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
+  return {
+    allowed: hasDocumentWrite || isManagingRepOrder,
+    restrictedOrderDocs: entityType === 'order' && !hasDocumentWrite,
+  };
+}
+
+app.get('/', requirePermission('document:read'), async (c) => {
   const entityType = c.req.query('entity_type');
   const entityId = c.req.query('entity_id');
   if (!isEntityType(entityType)) return c.json({ success: false, message: 'Unknown entity_type' }, 400);
   if (!entityId) return c.json({ success: false, message: 'entity_id is required' }, 400);
+  if (entityType === 'estimate' && !canAccessEstimateDocs(c, 'estimate:read')) return forbidden(c);
 
   try {
-    const rows = await listDocuments(execQuery, c.env, entityType, entityId);
+    let rows = await listDocuments(execQuery, c.env, entityType, entityId);
+    // Same restriction as the write side below, keyed off the same grant:
+    // document:write covers admin and employee alike, so only someone
+    // lacking it (plain rep, or a managing rep who only got order-doc access
+    // via that carve-out) has the internal doc types filtered out of reads.
+    if (entityType === 'order' && !c.get('permissions')?.has('document:write')) {
+      rows = rows.filter((r) => (REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(r.doc_type));
+    }
     return c.json({ success: true, data: rows });
   } catch (e) {
     return fail(c, e);
@@ -59,13 +131,24 @@ app.post('/', async (c) => {
   if (body.storageBucket !== 'record-docs') {
     return c.json({ success: false, message: 'Unknown storage bucket' }, 400);
   }
+  const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType);
+  if (!allowed) return forbidden(c);
+  if (body.entityType === 'estimate' && !canAccessEstimateDocs(c, 'estimate:write')) return forbidden(c);
+  if (restrictedOrderDocs && !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)) {
+    return c.json({ success: false, message: `doc_type must be one of: ${REP_VISIBLE_ORDER_DOC_TYPES.join(', ')}` }, 400);
+  }
 
   try {
-    const row = await createDocument(execQuery, c.env, {
-      ...body,
-      // Ownership comes from the verified token, never the request body.
-      createdBy: c.get('userId'),
-    });
+    const row = await createDocument(
+      execQuery,
+      c.env,
+      {
+        ...body,
+        // Ownership comes from the verified token, never the request body.
+        createdBy: c.get('userId'),
+      },
+      restrictedOrderDocs ? { maxFileSize: REP_ORDER_MAX_FILE_SIZE } : undefined
+    );
     return c.json({ success: true, data: row }, 201);
   } catch (e) {
     return fail(c, e);
@@ -75,6 +158,20 @@ app.post('/', async (c) => {
 app.put('/:id', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   try {
+    // Needed either way now (the write-access/estimate gates below apply
+    // regardless of which fields changed), so fetched unconditionally rather
+    // than only when docType is set.
+    const existing = await getDocument(execQuery, c.env, c.req.param('id'));
+    const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '');
+    if (!allowed) return forbidden(c);
+    if (existing?.entity_type === 'estimate' && !canAccessEstimateDocs(c, 'estimate:write')) return forbidden(c);
+    if (
+      body.docType !== undefined &&
+      restrictedOrderDocs &&
+      !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)
+    ) {
+      return c.json({ success: false, message: `doc_type must be one of: ${REP_VISIBLE_ORDER_DOC_TYPES.join(', ')}` }, 400);
+    }
     const row = await updateDocument(execQuery, c.env, c.req.param('id'), {
       description: body.description,
       docType: body.docType,
@@ -89,6 +186,14 @@ app.put('/:id', async (c) => {
 // Deletes the row and hands it back; the client then drops the object from the
 // bucket with its own token (see framework DocumentsGrid.confirmDelete).
 app.delete('/:id', async (c) => {
+  // Fetched first, before deleting, so the write-access/estimate gates can
+  // run on its entity_type — deleteDocument's returned row would be too late
+  // to check.
+  const existing = await getDocument(execQuery, c.env, c.req.param('id'));
+  if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
+  const { allowed } = await resolveWriteAccess(c, existing.entity_type);
+  if (!allowed) return forbidden(c);
+  if (existing.entity_type === 'estimate' && !canAccessEstimateDocs(c, 'estimate:write')) return forbidden(c);
   const row = await deleteDocument(execQuery, c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Document not found' }, 404);
   return c.json({ success: true, data: row });

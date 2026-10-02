@@ -29,7 +29,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { getSummary, getRuns, requestReload, type SyncRun, type SyncSummary } from '../../services/qbSyncService';
 
 /** Tiles shown on dashboard; Vendor excluded per request. Payment (AR) re-added. */
-const OBJECTS = ['Customer', 'SalesRep', 'Item', 'SalesOrder', 'Invoice', 'Payment'];
+const OBJECTS = ['Customer', 'SalesRep', 'Item', 'SalesOrder', 'Estimate', 'Invoice', 'Payment'];
 
 const RUNS_PAGE_SIZE = 100;
 
@@ -106,14 +106,14 @@ function ObjectTile({
   const reloadQueued = summary.reloads?.[object] ?? null;
 
   return (
-    <Card variant="outlined" data-testid={`qb-sync-tile-${object}`} sx={{ minWidth: 210, flex: '1 1 210px' }}>
-      <CardContent sx={{ pb: '12px !important' }}>
+    <Card variant="outlined" data-testid={`qb-sync-tile-${object}`} sx={{ minWidth: 140, flex: '1 1 140px' }}>
+      <CardContent sx={{ p: '10px !important' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Typography variant="overline" color="text.secondary">{LABELS[object] ?? object}</Typography>
-          <Stack direction="row" alignItems="center" spacing={0.5}>
+          <Typography variant="caption" color="text.secondary" noWrap>{LABELS[object] ?? object}</Typography>
+          <Stack direction="row" alignItems="center" spacing={0.25}>
             {failing && (
               <Tooltip title={lastErr!.error ?? 'sync error'}>
-                <ErrorOutlineIcon color="error" fontSize="small" />
+                <ErrorOutlineIcon color="error" sx={{ fontSize: 16 }} />
               </Tooltip>
             )}
             <Tooltip title={reloadQueued
@@ -124,31 +124,32 @@ function ObjectTile({
                 onClick={() => onReload(object)}
                 data-testid={`qb-sync-reload-${object}`}
                 aria-label={`Reload ${LABELS[object] ?? object} from QuickBooks`}
+                sx={{ p: 0.25 }}
               >
-                {reloadQueued ? <HourglassTopIcon fontSize="small" color="warning" /> : <CloudSyncIcon fontSize="small" />}
+                {reloadQueued ? <HourglassTopIcon color="warning" sx={{ fontSize: 16 }} /> : <CloudSyncIcon sx={{ fontSize: 16 }} />}
               </IconButton>
             </Tooltip>
           </Stack>
         </Stack>
-        <Typography variant="h4" component="div">
+        <Typography variant="h6" component="div">
           {total == null ? '—' : total.toLocaleString()}
         </Typography>
-        <Typography variant="caption" color="text.secondary" component="div">
+        <Typography variant="caption" color="text.secondary" component="div" sx={{ fontSize: '0.65rem' }}>
           rows staged
         </Typography>
         {lastPush && (
-          <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-            ↑ last push: {lastPush.rows_processed} @ {fmtTime(lastPush.created_at)}
+          <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5, fontSize: '0.65rem' }} noWrap>
+            ↑ push: {lastPush.rows_processed} @ {fmtTime(lastPush.created_at)}
           </Typography>
         )}
         {reloadQueued && (
           <Chip
             size="small"
-            icon={<HourglassTopIcon />}
-            label="full reload queued"
+            icon={<HourglassTopIcon sx={{ fontSize: 14 }} />}
+            label="reload queued"
             color="warning"
             variant="outlined"
-            sx={{ mt: 1 }}
+            sx={{ mt: 0.5, height: 20, fontSize: '0.65rem' }}
           />
         )}
       </CardContent>
@@ -242,7 +243,7 @@ export function QbSyncDashboardPage() {
       )}
 
       {summary && (
-        <Stack direction="row" flexWrap="wrap" gap={2} sx={{ mb: 3 }}>
+        <Stack direction="row" flexWrap="wrap" gap={1.5} sx={{ mb: 3 }}>
           {OBJECTS.map((o) => (
             <ObjectTile key={o} object={o} summary={summary} onReload={setConfirmReload} />
           ))}

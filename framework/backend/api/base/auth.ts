@@ -137,3 +137,25 @@ export function requireCheck(predicate: (user: any) => boolean, message = 'Insuf
     return next();
   };
 }
+
+// ===== Dev-only user impersonation gate =====
+export interface ImpersonationEnv {
+  ENABLE_IMPERSONATION?: string;
+  IMPERSONATE_ALLOWED_EMAIL?: string;
+}
+
+/**
+ * "Log in as this user" gate for local testing — not a role-based admin
+ * feature. Both env vars are meant to live only in `.dev.vars`; never
+ * `wrangler secret put` them to a deployed Worker, or this opens up in prod
+ * too. Each app's impersonate route calls this after resolving the caller's
+ * email (role/permission checks, if any, happen separately in that route).
+ */
+export function canImpersonate(env: ImpersonationEnv, callerEmail?: string | null): boolean {
+  return (
+    env.ENABLE_IMPERSONATION === 'true' &&
+    !!env.IMPERSONATE_ALLOWED_EMAIL &&
+    !!callerEmail &&
+    callerEmail.toLowerCase() === env.IMPERSONATE_ALLOWED_EMAIL.toLowerCase()
+  );
+}

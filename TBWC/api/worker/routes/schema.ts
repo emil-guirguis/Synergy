@@ -14,10 +14,11 @@
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken } from '../middleware';
+import { canImpersonate } from '@meterit/framework-backend/api/base/auth';
 import { usersSchema } from './usersSchema';
 import { orderSchema } from './orderSchema';
 import { inventorySchema } from './inventorySchema';
-import { quoteSchema } from './quoteSchema';
+import { estimateSchema } from './estimateSchema';
 import { customersSchema } from './customersSchema';
 import { invoicesSchema } from './invoicesSchema';
 import { paymentsSchema } from './paymentsSchema';
@@ -29,7 +30,7 @@ const schemas: Record<string, any> = {
   user: usersSchema,
   order: orderSchema,
   inventory: inventorySchema,
-  quote: quoteSchema,
+  estimate: estimateSchema,
   customer: customersSchema,
   invoice: invoicesSchema,
   payment: paymentsSchema,
@@ -109,6 +110,17 @@ function injectFieldOptions(json: any, fieldName: string, values: string[], labe
   }
 }
 
+/** Drop a form section (and its fields) from every tab. */
+function removeFormSection(json: any, sectionName: string, ...fieldNames: string[]): void {
+  for (const tab of json.formTabs ?? []) {
+    tab.sections = (tab.sections ?? []).filter((s: any) => s?.name !== sectionName);
+  }
+  for (const f of fieldNames) {
+    delete json.formFields?.[f];
+    delete json.entityFields?.[f];
+  }
+}
+
 app.get('/:entity', async (c) => {
   const entity = c.req.param('entity');
   const schema = schemas[entity];
@@ -121,9 +133,12 @@ app.get('/:entity', async (c) => {
     injectFieldOptions(json, 'qb_sales_rep_id', values, labels);
     const roles = await roleOptions(c.env);
     injectFieldOptions(json, 'role_id', roles.values, roles.labels);
+    // The Impersonate section exists only for the one dev-allowed caller; for
+    // everyone else (and always in prod) it isn't served at all.
+    if (!canImpersonate(c.env, c.get('user')?.email)) removeFormSection(json, 'Impersonate', 'impersonate_actions');
   }
 
-  if (entity === 'order') {
+  if (entity === 'order' || entity === 'estimate') {
     const { values, labels } = await salesRepListIdOptions(c.env);
     injectFieldOptions(json, 'sales_rep_list_id', values, labels);
   }

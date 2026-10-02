@@ -139,7 +139,21 @@ export const orderSchema = defineSchema({
           fields: [
             // No dbField write-back (QB-owned, sync-only) — rendered by
             // OrderForm's renderCustomField as a read-only EditableDataGrid.
-            field({ name: 'lines', order: 1, type: FieldTypes.OBJECT, default: null, dbField: 'lines', showOn: ['form'] }),
+            // gridColumns mirrors OrderLinesGrid.tsx's own COLUMNS — kept in
+            // sync by hand (the grid isn't schema-driven), purely so Settings
+            // > Roles can list Rate/Amount as their own field-security rows
+            // (addressed as lines[].rate / lines[].amount, same as the
+            // existing hidden_fields entries for reps — migration 040).
+            field({
+              name: 'lines', order: 1, type: FieldTypes.OBJECT, default: null, dbField: 'lines', showOn: ['form'],
+              gridColumns: [
+                { key: 'item', label: 'Item' },
+                { key: 'desc', label: 'Description' },
+                { key: 'quantity', label: 'Qty' },
+                { key: 'rate', label: 'Rate' },
+                { key: 'amount', label: 'Amount' },
+              ],
+            }),
           ],
         }),
       ],
@@ -220,7 +234,10 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Documents',
       order: 6,
-      visibleFor: ['admin'],
+      // Reps get a cut-down Documents tab: OrderForm passes them a readOnly
+      // (unless granted document:write) grid scoped to customer-visible types
+      // only (see DocumentsGrid's visibleDocTypes prop in OrderForm.tsx).
+      visibleFor: ['admin', 'rep'],
       sections: [
         section({
           name: 'Documents',

@@ -5,15 +5,23 @@ import {
   createRequirePermission,
   scopeClause,
   redactRow,
+  stripNonEditable,
   fullAccess,
   type Grant,
+  type FieldAccess,
 } from './permissions';
 
 const CATALOG = ['order:read', 'order:write', 'invoice:read'] as const;
-const grant = (permission: string, scope: 'all' | 'own' = 'all', hiddenFields: string[] = []): Grant => ({
+const grant = (
+  permission: string,
+  scope: 'all' | 'own' = 'all',
+  hiddenFields: string[] = [],
+  fieldAccess: Record<string, FieldAccess> = {}
+): Grant => ({
   permission,
   scope,
   hiddenFields,
+  fieldAccess,
 });
 
 describe('resolvePermissions', () => {
@@ -42,6 +50,26 @@ describe('resolvePermissions', () => {
   it('carries hidden fields through to the set', () => {
     const set = resolvePermissions([grant('order:read', 'own', ['commission'])], null, CATALOG);
     expect(set.hiddenFields('order:read')).toEqual(['commission']);
+  });
+
+  it('folds fieldAccess view:false into hiddenFields alongside the legacy list', () => {
+    const set = resolvePermissions(
+      [grant('order:read', 'own', ['commission'], { sold_for: { view: false }, po_number: { view: true } })],
+      null,
+      CATALOG
+    );
+    expect(set.hiddenFields('order:read').sort()).toEqual(['commission', 'sold_for']);
+  });
+
+  it('exposes fieldAccess edit:false as readOnlyFields, independent of view', () => {
+    const set = resolvePermissions(
+      [grant('order:write', 'all', [], { due_date: { view: true, edit: false } })],
+      null,
+      CATALOG
+    );
+    expect(set.readOnlyFields('order:write')).toEqual(['due_date']);
+    // view:true means it's still not in hiddenFields — only edit is blocked.
+    expect(set.hiddenFields('order:write')).toEqual([]);
   });
 });
 
@@ -142,6 +170,64 @@ describe('redactRow', () => {
     const set = resolvePermissions([grant('order:read')], null, CATALOG);
     const row = { order_id: 1, sold_for: 900 };
     expect(redactRow(set, 'order:read', row)).toEqual(row);
+  });
+
+  it('strips a field hidden via fieldAccess the same as one in the legacy list', () => {
+    const set = resolvePermissions(
+      [grant('order:read', 'own', [], { sold_for: { view: false } })],
+      null,
+      CATALOG
+    );
+    expect(redactRow(set, 'order:read', { order_id: 1, sold_for: 900 })).toEqual({ order_id: 1 });
+  });
+
+  it('strips a nested array field hidden via fieldAccess', () => {
+    const set = resolvePermissions(
+      [grant('order:read', 'own', [], { 'lines[].rate': { view: false } })],
+      null,
+      CATALOG
+    );
+    const row = { order_id: 1, lines: [{ item: 'W-100', rate: 50, amount: 100 }] };
+    expect(redactRow(set, 'order:read', row)).toEqual({ order_id: 1, lines: [{ item: 'W-100', amount: 100 }] });
+  });
+});
+
+describe('stripNonEditable', () => {
+  it('drops a field marked edit:false from the body', () => {
+    const set = resolvePermissions(
+      [grant('order:write', 'all', [], { due_date: { edit: false } })],
+      null,
+      CATALOG
+    );
+    const body = { po_number: 'PO-1', due_date: '2026-01-01' };
+    expect(stripNonEditable(set, 'order:write', body)).toEqual({ po_number: 'PO-1' });
+  });
+
+  it('also drops a field that is view:false, even without an explicit edit bit', () => {
+    const set = resolvePermissions(
+      [grant('order:write', 'all', [], { sold_for: { view: false } })],
+      null,
+      CATALOG
+    );
+    expect(stripNonEditable(set, 'order:write', { po_number: 'PO-1', sold_for: 900 })).toEqual({ po_number: 'PO-1' });
+  });
+
+  it('drops one field from every element of an array column', () => {
+    const set = resolvePermissions(
+      [grant('order:write', 'all', [], { 'lines[].rate': { edit: false } })],
+      null,
+      CATALOG
+    );
+    const body = { lines: [{ item: 'W-100', rate: 50 }, { item: 'W-200', rate: 75 }] };
+    expect(stripNonEditable(set, 'order:write', body)).toEqual({
+      lines: [{ item: 'W-100' }, { item: 'W-200' }],
+    });
+  });
+
+  it('leaves the body untouched when nothing is read-only', () => {
+    const set = resolvePermissions([grant('order:write')], null, CATALOG);
+    const body = { po_number: 'PO-1' };
+    expect(stripNonEditable(set, 'order:write', body)).toEqual(body);
   });
 });
 

@@ -24,7 +24,6 @@ export interface User {
   /** @deprecated superseded by role_id; still returned for legacy rows/fallback. */
   type: UserType;
   role_id: number | null;
-  can_approve_rep_leads: boolean;
   created_at: string;
   /** Convenience display name (first + last), populated client-side. */
   name?: string;
@@ -34,8 +33,22 @@ export interface User {
   sales_rep_list_id: string | null;
   sales_rep_initial: string | null;
   sales_rep_name: string | null;
-  /** This caller's resolved role grants, joined onto /auth/me. */
-  permissions?: { permission: string; scope: 'all' | 'own'; hidden_fields: string[] }[];
+  /** QB rep list_ids of every user this one manages (Users form's "Manages"
+   *  tab / public.user_manager), joined onto /auth/me by loadProfile(). Empty
+   *  array when this user manages no one. */
+  managed_sales_rep_list_ids: string[];
+  /** This caller's resolved role grants, joined onto /auth/me. Field names
+   *  are camelCase here — this is PermissionSet.list()'s Grant shape
+   *  (framework permissions.ts) serialized as-is, not the hidden_fields/
+   *  field_access column names those come from. */
+  permissions?: {
+    permission: string;
+    scope: 'all' | 'own';
+    hiddenFields: string[];
+    /** Per-field view/edit, keyed by field name or `column[].field` for a
+     *  grid column (e.g. `lines[].rate`). */
+    fieldAccess?: Record<string, { view?: boolean; edit?: boolean }>;
+  }[];
 }
 
 /** Permission keys referenced by the list/form feature components. */
@@ -49,9 +62,8 @@ export enum Permission {
   INVENTORY_CREATE = 'inventory:create',
   INVENTORY_UPDATE = 'inventory:update',
   INVENTORY_DELETE = 'inventory:delete',
-  QUOTE_CREATE = 'quote:create',
-  QUOTE_UPDATE = 'quote:update',
-  QUOTE_DELETE = 'quote:delete',
+  ESTIMATE_CREATE = 'estimate:create',
+  ESTIMATE_UPDATE = 'estimate:update',
 }
 
 export interface LoginCredentials {

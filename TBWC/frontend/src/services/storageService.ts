@@ -24,14 +24,13 @@ export interface DocFile {
   path: string;
   size?: number;
 }
-export interface DocSub {
-  name: string;
-  files: DocFile[];
-}
+/** A folder at any depth — nests arbitrarily (drag-dropped OS folders can go deeper than the 2 levels the upload form offers). */
 export interface DocCategory {
   name: string;
+  /** Full folder path, e.g. "Category/Sub/Sub2". */
+  path: string;
   files: DocFile[];
-  subs: DocSub[];
+  subs: DocCategory[];
 }
 export interface DocTree {
   rootFiles: DocFile[];
@@ -101,19 +100,17 @@ async function list(prefix: string): Promise<{ files: DocFile[]; folders: string
   return { files, folders };
 }
 
-/** Walk the bucket into a 2-level category / subcategory / files tree. */
+/** Walk `path` and all its descendants into folder nodes, however deep (OS drag-drop can nest arbitrarily). */
+async function listFolder(name: string, path: string): Promise<DocCategory> {
+  const { files, folders } = await list(path);
+  const subs = await Promise.all(folders.map((sub) => listFolder(sub, `${path}/${sub}`)));
+  return { name, path, files, subs };
+}
+
+/** Walk the whole bucket into an arbitrarily-deep folder tree. */
 export async function listDocsTree(): Promise<DocTree> {
   const root = await list('');
-  const categories: DocCategory[] = [];
-  for (const cat of root.folders) {
-    const lvl1 = await list(cat);
-    const subs: DocSub[] = [];
-    for (const sub of lvl1.folders) {
-      const lvl2 = await list(`${cat}/${sub}`);
-      subs.push({ name: sub, files: lvl2.files });
-    }
-    categories.push({ name: cat, files: lvl1.files, subs });
-  }
+  const categories = await Promise.all(root.folders.map((cat) => listFolder(cat, cat)));
   return { rootFiles: root.files, categories };
 }
 

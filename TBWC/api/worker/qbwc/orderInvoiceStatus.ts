@@ -10,12 +10,13 @@
  * Invoices deleted in QB (qb_deleted_at, see qbwc/objects/txnDeleted.ts) are
  * excluded, so a deleted invoice drops back off the order it was quoted on
  * instead of leaving a stale number behind — txnDeleted.ts re-runs this after
- * marking any invoice deleted. Zero-total invoices are excluded from the
- * invoice_number/invoice_status/freight pick too — this company records
- * packing slips in QB as zero-total invoices (see OrderInvoicesPanel.tsx), so
- * the "latest linked invoice" must skip those or a packing slip issued after
- * the real invoice would silently overwrite the real invoice number/status.
- * Their presence is tracked separately via has_packing_slip instead.
+ * marking any invoice deleted. Packing slips (qb_invoice.is_packing_slip —
+ * migration 066, keyed off QB's own TemplateRef rather than total=0, since
+ * real invoices can legitimately be zero-total too) are excluded from the
+ * invoice_number/invoice_status/freight pick too, so the "latest linked
+ * invoice" must skip those or a packing slip issued after the real invoice
+ * would silently overwrite the real invoice number/status. Their presence is
+ * tracked separately via has_packing_slip instead.
  *
  * Status precedence: Paid > Invoiced > Partially Invoiced > Closed > Not
  * Invoiced. QB's own is_fully_invoiced flag drives 'Invoiced' even when no
@@ -116,7 +117,7 @@ export async function refreshOrderInvoiceStatus(env: Env): Promise<void> {
          FROM public.qb_invoice i
          WHERE i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', so2.txn_id))
            AND i.qb_deleted_at IS NULL
-           AND COALESCE(i.total, 0) > 0
+           AND NOT i.is_packing_slip
          ORDER BY i.txn_date DESC NULLS LAST, i.qb_invoice_id DESC
          LIMIT 1
        ) inv ON true
@@ -125,7 +126,7 @@ export async function refreshOrderInvoiceStatus(env: Env): Promise<void> {
          FROM public.qb_invoice i
          WHERE i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', so2.txn_id))
            AND i.qb_deleted_at IS NULL
-           AND COALESCE(i.total, 0) = 0
+           AND i.is_packing_slip
          LIMIT 1
        ) pack ON true
      ) calc

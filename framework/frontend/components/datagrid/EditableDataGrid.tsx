@@ -109,13 +109,22 @@ export const EditableDataGrid: React.FC<EditableDataGridProps> = ({
 
   const handleCellClick = useCallback(
     (rowId: number, column: GridColumn) => {
-      if (column.editable !== false) {
-        const cellValue = data[rowId]?.[column.key] ?? '';
-        setEditingCell({ rowId, column: column.key });
-        setEditValue(String(cellValue).trim());
-        if (column.type === 'select') {
-          setSelectOpen(true);
-        }
+      if (column.editable === false) return;
+      if (column.type === 'select') {
+        // A `select` column may compute no options for a given row — e.g. a
+        // picker meant only for the in-progress unsaved row (see
+        // TenantEquipmentGrid/ManagedUsersGrid, which return null/[] for every
+        // other row "so the floating select never opens"). Entering edit mode
+        // anyway used to crash the render below (.map on a null options list)
+        // the first time someone clicked an already-saved row's select cell.
+        const opts = typeof column.options === 'function' ? column.options(rowId) : column.options;
+        if (!opts || opts.length === 0) return;
+      }
+      const cellValue = data[rowId]?.[column.key] ?? '';
+      setEditingCell({ rowId, column: column.key });
+      setEditValue(String(cellValue).trim());
+      if (column.type === 'select') {
+        setSelectOpen(true);
       }
     },
     [data]
@@ -365,7 +374,9 @@ export const EditableDataGrid: React.FC<EditableDataGridProps> = ({
                             className="editable-data-grid__select-input"
                           >
                             <MenuItem value=""><em>Select...</em></MenuItem>
-                            {(typeof column.options === 'function' ? column.options(rowIndex) : column.options).map((opt: string) => (
+                            {(
+                              (typeof column.options === 'function' ? column.options(rowIndex) : column.options) ?? []
+                            ).map((opt: string) => (
                               <MenuItem key={opt} value={opt}>{opt}</MenuItem>
                             ))}
                           </Select>

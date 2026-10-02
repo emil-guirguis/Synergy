@@ -1,5 +1,5 @@
 /**
- * Shared tool-use agentic loop for "ask SI" chat routes. Each consuming app's
+ * Shared tool-use agentic loop for "ask AI" chat routes. Each consuming app's
  * worker/routes/aiChat.ts keeps its own OpenAI-compatible client, tool
  * definitions, and executeTool() (queries differ per app/tenant model) and
  * hands this module a `complete` callback plus the tool set — this only owns
@@ -64,7 +64,27 @@ export interface AiChatLoopResult {
   response: string;
   toolsUsed: string[];
   toolResults: AiChatToolResult[];
+  /** True when the model declined the question as outside its allowed scope
+   *  (see AI_CHAT_OUT_OF_SCOPE_MARKER) — callers should surface this as an
+   *  error response rather than a normal chat reply. */
+  outOfScope: boolean;
 }
+
+/** Sentinel the model is instructed to answer with verbatim, and nothing else,
+ *  when a question can't be answered by the tools it's given — e.g. general
+ *  knowledge (weather, news, math) unrelated to the app's own data. Detected
+ *  in the loop below and reported via `outOfScope` instead of being shown to
+ *  the user as a normal assistant reply. */
+export const AI_CHAT_OUT_OF_SCOPE_MARKER = '__OUT_OF_SCOPE__';
+
+/** Append to an app's systemPrompt to lock the assistant to tool-answerable
+ *  (database search/analysis) questions only, for now. */
+export const AI_CHAT_SCOPE_GUARDRAIL =
+  'You may ONLY answer questions that can be answered using the tools provided — this app\'s own ' +
+  "database. Do not use general knowledge and do not answer questions unrelated to this app's data " +
+  '(weather, news, math, coding help, other companies/products, personal advice, etc.), even if you ' +
+  'know the answer. If the question cannot be answered with the tools available to you, respond with ' +
+  `EXACTLY this text and nothing else, no punctuation or commentary: ${AI_CHAT_OUT_OF_SCOPE_MARKER}`;
 
 export async function runAiChatLoop(
   message: string,
@@ -106,7 +126,13 @@ export async function runAiChatLoop(
     messages.push(assistantMsg);
 
     if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
-      return { response: assistantMsg.content ?? '', toolsUsed, toolResults };
+      const content = assistantMsg.content ?? '';
+      return {
+        response: content,
+        toolsUsed,
+        toolResults,
+        outOfScope: content.trim() === AI_CHAT_OUT_OF_SCOPE_MARKER,
+      };
     }
 
     const toolMessages = await Promise.all(
@@ -134,6 +160,7 @@ export async function runAiChatLoop(
       'I was unable to complete the analysis. Please try again.',
     toolsUsed,
     toolResults,
+    outOfScope: false,
   };
 }
 

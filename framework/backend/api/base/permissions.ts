@@ -21,11 +21,27 @@ import { createEntityCache } from './auth';
 
 export type Scope = 'all' | 'own';
 
+/** Per-field view/edit override. Omitted = both true (full access, the default). */
+export interface FieldAccess {
+  view?: boolean;
+  edit?: boolean;
+}
+
 export interface Grant {
   permission: string;
   scope: Scope;
-  /** Fields stripped from responses for this module. See redactRow(). */
+  /** Fields stripped from responses for this module. See redactRow(). Legacy —
+   *  new grants should prefer fieldAccess's view:false instead (same effect,
+   *  but a role_permission_id-addressed checkbox beats a hand-typed string).
+   *  hiddenFields() below merges both so redactRow doesn't care which one a
+   *  grant uses. */
   hiddenFields: string[];
+  /** Per-field view/edit, keyed by field name (`sold_for`) or, for one level
+   *  into a jsonb array column, `column[].field` (`lines[].rate`) — same
+   *  addressing as hiddenFields' array form. Optional — omitted/undefined
+   *  means "none configured" (every existing Grant literal in the codebase
+   *  predates this field), same as {}. */
+  fieldAccess?: Record<string, FieldAccess>;
 }
 
 /**
@@ -39,7 +55,12 @@ export interface PermissionSet {
   has(permission: string): boolean;
   /** The granted scope, or null when the permission isn't held at all. */
   scopeOf(permission: string): Scope | null;
+  /** Fields to strip from an outgoing row: the legacy hiddenFields list plus
+   *  any fieldAccess entry with view:false. redactRow()'s one call site. */
   hiddenFields(permission: string): string[];
+  /** Fields to strip from an incoming write: fieldAccess entries with
+   *  edit:false. See stripNonEditable(). */
+  readOnlyFields(permission: string): string[];
   /** Everything held, for shipping to the frontend via /auth/me. */
   list(): Grant[];
 }
@@ -48,6 +69,7 @@ const DENY_ALL: PermissionSet = {
   has: () => false,
   scopeOf: () => null,
   hiddenFields: () => [],
+  readOnlyFields: () => [],
   list: () => [],
 };
 
@@ -58,8 +80,16 @@ export function fullAccess(catalog: readonly string[]): PermissionSet {
     has: (p) => catalog.includes(p),
     scopeOf: (p) => (catalog.includes(p) ? 'all' : null),
     hiddenFields: () => [],
-    list: () => catalog.map((permission) => ({ permission, scope: 'all' as Scope, hiddenFields: [] })),
+    readOnlyFields: () => [],
+    list: () => catalog.map((permission) => ({ permission, scope: 'all' as Scope, hiddenFields: [], fieldAccess: {} })),
   };
+}
+
+/** Keys from a fieldAccess map whose named bit is explicitly false. */
+function fieldAccessKeys(fieldAccess: Record<string, FieldAccess>, bit: 'view' | 'edit'): string[] {
+  return Object.entries(fieldAccess)
+    .filter(([, access]) => access[bit] === false)
+    .map(([field]) => field);
 }
 
 export function resolvePermissions(
@@ -80,14 +110,26 @@ export function resolvePermissions(
     if (value === false) {
       held.delete(permission);
     } else if (value === 'all' || value === 'own') {
-      held.set(permission, { ...held.get(permission), permission, scope: value, hiddenFields: held.get(permission)?.hiddenFields ?? [] });
+      held.set(permission, {
+        ...held.get(permission),
+        permission,
+        scope: value,
+        hiddenFields: held.get(permission)?.hiddenFields ?? [],
+        fieldAccess: held.get(permission)?.fieldAccess ?? {},
+      });
     }
   }
 
   return {
     has: (p) => held.has(p),
     scopeOf: (p) => held.get(p)?.scope ?? null,
-    hiddenFields: (p) => held.get(p)?.hiddenFields ?? [],
+    hiddenFields: (p) => {
+      const g = held.get(p);
+      if (!g) return [];
+      const fromFieldAccess = fieldAccessKeys(g.fieldAccess ?? {}, 'view');
+      return fromFieldAccess.length ? [...new Set([...g.hiddenFields, ...fromFieldAccess])] : g.hiddenFields;
+    },
+    readOnlyFields: (p) => fieldAccessKeys(held.get(p)?.fieldAccess ?? {}, 'edit'),
     list: () => [...held.values()],
   };
 }
@@ -113,7 +155,8 @@ export function createPermissions(execQuery: ExecQueryFn, ttlMs = GRANT_TTL_MS) 
       (await grantCache.get(`${tenantId ?? 'system'}:${roleId}`, async () => {
         const r = await execQuery(
           env,
-          `SELECT rp.permission, rp.scope, COALESCE(rp.hidden_fields, '{}') AS hidden_fields
+          `SELECT rp.permission, rp.scope, COALESCE(rp.hidden_fields, '{}') AS hidden_fields,
+                  COALESCE(rp.field_access, '{}'::jsonb) AS field_access
              FROM public.role r
              JOIN public.role_permission rp ON rp.role_id = r.role_id
             WHERE r.role_id = $1
@@ -125,6 +168,7 @@ export function createPermissions(execQuery: ExecQueryFn, ttlMs = GRANT_TTL_MS) 
           permission: row.permission,
           scope: row.scope === 'own' ? 'own' : 'all',
           hiddenFields: Array.isArray(row.hidden_fields) ? row.hidden_fields : [],
+          fieldAccess: row.field_access && typeof row.field_access === 'object' ? row.field_access : {},
         }));
       })) ?? []
     );
@@ -238,4 +282,34 @@ export function redactRows<T extends Record<string, any>>(set: PermissionSet, pe
   const hidden = set.hiddenFields(permission);
   if (!hidden.length) return rows;
   return rows.map((r) => redactRow(set, permission, r));
+}
+
+/**
+ * Drop fields this caller's grant marks edit:false from an incoming write
+ * body — the input-side counterpart to redactRow(), same `column[].field`
+ * addressing. A field a caller can't view is implicitly not editable either:
+ * hiddenFields() (which already folds in view:false) counts as read-only too,
+ * so there's no way to grant view:false + edit:true.
+ */
+export function stripNonEditable<T extends Record<string, any>>(set: PermissionSet, permission: string, body: T): T {
+  const readOnly = [...new Set([...set.hiddenFields(permission), ...set.readOnlyFields(permission)])];
+  if (!readOnly.length || !body) return body;
+  const out: Record<string, any> = { ...body };
+  for (const f of readOnly) {
+    const nested = ARRAY_FIELD.exec(f);
+    if (!nested) {
+      delete out[f];
+      continue;
+    }
+    const [, column, field] = nested;
+    const value = out[column];
+    if (!Array.isArray(value)) continue;
+    out[column] = value.map((el) => {
+      if (!el || typeof el !== 'object') return el;
+      const copy = { ...el };
+      delete copy[field];
+      return copy;
+    });
+  }
+  return out as T;
 }

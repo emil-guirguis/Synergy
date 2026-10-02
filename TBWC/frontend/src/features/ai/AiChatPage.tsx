@@ -84,6 +84,26 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
         actions: [{ label: 'Open order', onClick: () => navigate(`/orders?openId=${row.qb_sales_order_id}`) }],
       };
     }
+    if (tool === 'search_estimates') {
+      if (!row.qb_estimate_id) return null;
+      const lines = [formatDate(row.txn_date), formatPrice(row.total)].filter(Boolean);
+      return {
+        label: `Estimate ${row.ref_number ?? row.qb_estimate_id} — ${row.customer_name ?? 'Unknown customer'}`,
+        sublabel: lines.length ? lines.join('\n') : undefined,
+        actions: [{ label: 'Open estimate', onClick: () => navigate(`/estimates?openId=${row.qb_estimate_id}`) }],
+      };
+    }
+    if (tool === 'get_estimate_documents') {
+      if (!row.qb_estimate_id) return null;
+      const lines = [formatDate(row.txn_date), row.doc_type ? String(row.doc_type).replace(/_/g, ' ') : null, row.file_name].filter(Boolean);
+      const actions = [{ label: 'Open estimate', onClick: () => navigate(`/estimates?openId=${row.qb_estimate_id}`) }];
+      if (row.storage_path) actions.push({ label: 'Open file', onClick: () => void openFile(row.storage_path) });
+      return {
+        label: `Estimate ${row.ref_number ?? row.qb_estimate_id} — ${row.customer_name ?? 'Unknown customer'}`,
+        sublabel: lines.length ? lines.join('\n') : undefined,
+        actions,
+      };
+    }
     if (tool === 'search_invoices' || tool === 'search_invoice_lines') {
       if (!row.qb_invoice_id) return null;
       const lines = [formatDate(row.txn_date), row.description].filter(Boolean);
@@ -105,11 +125,11 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
       };
     }
     if (tool === 'search_documents') {
-      const routeByEntity: Record<string, string> = { order: '/orders', invoice: '/invoices', inventory: '/inventory' };
+      const routeByEntity: Record<string, string> = { order: '/orders', estimate: '/estimates', invoice: '/invoices', inventory: '/inventory' };
       const route = row.entityType ? routeByEntity[row.entityType] : undefined;
       if (!route || !row.entityId) return null;
       const lines = [row.docType ? String(row.docType).replace(/_/g, ' ') : null, row.mimeType].filter(Boolean);
-      const entityLabel = row.entityType === 'order' ? 'order' : row.entityType === 'invoice' ? 'invoice' : 'record';
+      const entityLabel = row.entityType === 'order' ? 'order' : row.entityType === 'estimate' ? 'estimate' : row.entityType === 'invoice' ? 'invoice' : 'record';
       const actions = [{ label: `Open ${entityLabel}`, onClick: () => navigate(`${route}?openId=${row.entityId}`) }];
       if (row.storagePath) actions.push({ label: 'Open file', onClick: () => void openFile(row.storagePath) });
       return {
@@ -119,11 +139,11 @@ function useResultLink(): (tool: string, row: Record<string, any>) => AiChatResu
       };
     }
     if (tool === 'search_document_contents') {
-      const routeByEntity: Record<string, string> = { order: '/orders', invoice: '/invoices', inventory: '/inventory' };
+      const routeByEntity: Record<string, string> = { order: '/orders', estimate: '/estimates', invoice: '/invoices', inventory: '/inventory' };
       const route = row.entityType ? routeByEntity[row.entityType] : undefined;
       if (!route || !row.entityId) return null;
       const lines = [row.docType ? String(row.docType).replace(/_/g, ' ') : null, row.snippet ? `…${row.snippet}…` : null].filter(Boolean);
-      const entityLabel = row.entityType === 'order' ? 'order' : row.entityType === 'invoice' ? 'invoice' : 'record';
+      const entityLabel = row.entityType === 'order' ? 'order' : row.entityType === 'estimate' ? 'estimate' : row.entityType === 'invoice' ? 'invoice' : 'record';
       const actions = [{ label: `Open ${entityLabel}`, onClick: () => navigate(`${route}?openId=${row.entityId}`) }];
       if (row.storagePath) actions.push({ label: 'Open file', onClick: () => void openFile(row.storagePath) });
       return {
@@ -151,10 +171,10 @@ export const AiChatPage: React.FC = () => {
   return (
     <SharedAiChatPage
       sendMessage={sendMessage}
-      title="SI Assistant"
-      subtitle="Ask questions about orders, invoices, and inventory."
-      placeholder="Ask about orders, invoices, inventory..."
-      emptyStateText="Ask anything about your orders, invoices, and inventory."
+      title="AI Assistant"
+      subtitle="Ask questions about orders, estimates, invoices, and inventory."
+      placeholder="Ask about orders, estimates, invoices, inventory..."
+      emptyStateText="Ask anything about your orders, estimates, invoices, and inventory."
       suggestedQuestions={SUGGESTED_QUESTIONS}
       resultLink={resultLink}
     />

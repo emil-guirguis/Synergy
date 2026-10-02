@@ -4,7 +4,7 @@
  * POST /api/ai/chat
  * Body: { message: string, history?: { role: 'user' | 'assistant', content: string }[] }
  *
- * Uses Groq (llama-3.3-70b) with tool use, same shared agentic loop as
+ * Uses Claude (claude-sonnet-5) with tool use, same shared agentic loop as
  * MeterItPro's aiChat.ts (see @meterit/framework-backend/api/base/aiChat).
  * Tool set is TBWC-specific — order/invoice header search (customer, job
  * name, PO, notes, ref number) plus line-item search on both, which lets a
@@ -17,13 +17,19 @@
  * Admin-only. None of the tools below scope their queries to the caller's own
  * sales rep, so a rep asking a question would read every rep's orders plus the
  * whole invoice/customer set — the rest of the rep portal is scoped to their
- * own rep_id. The Ask SI nav item and /ai-chat route are admin-gated to match.
+ * own rep_id. The Ask AI nav item and /ai-chat route are admin-gated to match.
  */
 import { Hono } from 'hono';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { Env, execQuery } from '../db';
 import { authenticateToken, requirePermission, AuthVariables } from '../middleware';
-import { runAiChatLoop, AiChatMessage, describeAiChatError } from '@meterit/framework-backend/api/base/aiChat';
+import {
+  runAiChatLoop,
+  AiChatTool,
+  describeAiChatError,
+  AI_CHAT_SCOPE_GUARDRAIL,
+} from '@meterit/framework-backend/api/base/aiChat';
+import { toClaudeTools, toClaudeMessages, fromClaudeMessage } from '../claudeChatAdapter';
 import { searchDocumentsMetadata, searchDocumentsContent } from '@meterit/framework-backend/api/base/aiSearch';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -32,7 +38,7 @@ app.use('*', requirePermission('aichat:use'));
 
 // --- Tool definitions ---------------------------------------------------------
 
-const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
+const TOOLS: AiChatTool[] = [
   {
     type: 'function',
     function: {
@@ -137,7 +143,7 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
     function: {
       name: 'search_documents',
       description:
-        'Search uploaded documents (attachments on orders, invoices, inventory items, etc.) by file name, ' +
+        'Search uploaded documents (attachments on orders, estimates, invoices, inventory items, etc.) by file name, ' +
         'document type, or mime type — use this when the user asks for a document, file, PDF, photo, or attachment ' +
         "by its name/type. Only matches file name/type metadata, NOT what's written inside the file — if the user " +
         'wants text found inside a document\'s contents, use search_document_contents instead.',
@@ -194,6 +200,42 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
           limit: { type: 'number', description: 'Maximum number of orders to return (default 5)' },
         },
         required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_estimates',
+      description:
+        "Search QuickBooks estimates (quotes) by customer name, estimate ref number, or sales rep — use this to " +
+        "find an estimate when you don't know its exact number. An estimate is a pre-sale quote, distinct from an " +
+        'order or invoice — do not use search_orders/search_invoices for "quote"/"estimate" questions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text to match (substring, case-insensitive) against customer name, ref number, or sales rep' },
+          limit: { type: 'number', description: 'Maximum number of estimates to return (default 20)' },
+        },
+        required: ['text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_estimate_documents',
+      description:
+        'List the documents attached to ONE specific estimate, given its qb_estimate_id (from search_estimates). ' +
+        'Use this whenever the user asks for a document tied to a named customer/estimate — resolve the estimate ' +
+        "first with search_estimates, then call this with its id. Optionally narrow by doc type/file name text.",
+      parameters: {
+        type: 'object',
+        properties: {
+          estimateId: { type: 'number', description: "The estimate's qb_estimate_id, from a prior search_estimates result" },
+          text: { type: 'string', description: 'Optional: text to match against the document type or file name within this estimate' },
+        },
+        required: ['estimateId'],
       },
     },
   },
@@ -274,6 +316,49 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
            LIMIT $2`,
           [text, limit],
           'aiChat.search_order_lines'
+        );
+        return JSON.stringify(result.rows);
+      }
+
+      case 'search_estimates': {
+        const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        if (!text) return JSON.stringify({ error: 'text is required' });
+        const limit = Math.min(toolInput.limit ?? 20, 100);
+        const result = await execQuery(
+          env,
+          `SELECT qb_estimate_id, txn_id, ref_number, customer_name, sales_rep, total, txn_date, memo
+           FROM public.qb_estimate
+           WHERE customer_name ILIKE '%' || $1 || '%'
+              OR ref_number ILIKE '%' || $1 || '%'
+              OR sales_rep ILIKE '%' || $1 || '%'
+           ORDER BY txn_date DESC NULLS LAST
+           LIMIT $2`,
+          [text, limit],
+          'aiChat.search_estimates'
+        );
+        return JSON.stringify(result.rows);
+      }
+
+      case 'get_estimate_documents': {
+        const estimateId = Number(toolInput.estimateId);
+        if (!Number.isFinite(estimateId)) return JSON.stringify({ error: 'estimateId is required' });
+        const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        const result = await execQuery(
+          env,
+          `SELECT e.qb_estimate_id, e.ref_number, e.customer_name, e.txn_date,
+                  d.doc_type, d.file_name, d.document_id, d.storage_path
+             FROM public.qb_estimate e
+             JOIN public.document d ON d.entity_id = e.qb_estimate_id::text AND d.entity_type = 'estimate'
+            WHERE e.qb_estimate_id = $1
+              AND (
+                $2 = ''
+                OR $2 ILIKE '%' || replace(d.doc_type, '_', ' ') || '%'
+                OR replace(d.doc_type, '_', ' ') ILIKE '%' || $2 || '%'
+                OR d.file_name ILIKE '%' || $2 || '%'
+              )
+            ORDER BY d.document_id DESC`,
+          [estimateId, text],
+          'aiChat.get_estimate_documents'
         );
         return JSON.stringify(result.rows);
       }
@@ -422,8 +507,8 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
 // --- Route --------------------------------------------------------------------
 
 app.post('/', async (c) => {
-  if (!c.env.GROQ_API_KEY) {
-    return c.json({ success: false, message: 'AI chat is not configured (GROQ_API_KEY missing)' }, 503);
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ success: false, message: 'AI chat is not configured (ANTHROPIC_API_KEY missing)' }, 503);
   }
 
   let body: { message?: string; history?: { role: string; content: string }[] };
@@ -438,10 +523,8 @@ app.post('/', async (c) => {
     return c.json({ success: false, message: 'message is required' }, 400);
   }
 
-  const client = new OpenAI({
-    apiKey: c.env.GROQ_API_KEY,
-    baseURL: 'https://api.groq.com/openai/v1',
-  });
+  const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+  const claudeTools = toClaudeTools(TOOLS);
 
   const systemPrompt = `You are an AI assistant for the TBWC portal, a QuickBooks-backed sales/orders/inventory system for TBWC reps.
 You have access to tools that query the live database. Use them to answer questions accurately rather than guessing.
@@ -451,31 +534,43 @@ Guidelines:
 - When a search tool finds results, the app already shows them below your message as clickable cards (ref number, customer, matching detail). Don't repeat that data back as a list or table — just give a one-sentence summary (e.g. "Found 3 invoices matching that serial number — see below.").
 - A tracking number, serial number, or part number is line item text, not a header field — go to search_order_lines / search_invoice_lines for these directly. If you search the header tool (search_orders / search_invoices) for one of these and get nothing, ALWAYS try the matching line-item search before telling the user there's no match — do not report "not found" after only a header search.
 - Pricing/product questions ("how much is X", "what does X cost", "do we carry X") are about the product catalog, not an order or invoice — use search_inventory directly. Only fall back to order/invoice line search if search_inventory finds nothing and the user seems to be asking about something on a specific past order/invoice.
+- An estimate is a pre-sale QuickBooks quote, distinct from an order or invoice — a "quote" or "estimate" question uses search_estimates, never search_orders/search_invoices.
 - A request for a document, file, photo, or attachment uses search_documents (file name/type only, not contents) — don't say you have no access to documents.
 - If the user wants something found inside a file's actual contents (not just its name/type), use search_document_contents — you DO have access to read inside PDF/DOCX/XLSX/text files. Don't tell the user you can only search by name/type/MIME type; that's only true of search_documents, not the tool set as a whole.
 - "Which orders have a [X] document" / "latest orders with a [X] attached" is about orders, not documents — use search_orders_by_document, not search_documents. It already sorts most-recent-order-first and returns one row per order.
 - "The [document type] for [customer/job/order]" (a SPECIFIC customer or order was named) is a two-step lookup: resolve the order with search_orders first (customer name, job name, or address all work), then call get_order_documents with that order's qb_sales_order_id. NEVER use search_orders_by_document or search_documents for this — both search across every order regardless of customer, so their top result can easily belong to someone else. Only present a document as matching the customer/order the user asked about if you got it back from get_order_documents for that exact order's id, or you independently confirmed (e.g. via search_orders) that the order it came from is theirs — never assume a search_orders_by_document/search_documents hit is the right customer just because it matched a document type.
 - Only write out details in prose when there's no search result to back it up, or when the user asks a follow-up question about one specific result.
 - If nothing matches, say so plainly rather than inventing results.
-- Today's date: ${new Date().toISOString().split('T')[0]}`;
+- Today's date: ${new Date().toISOString().split('T')[0]}
+
+${AI_CHAT_SCOPE_GUARDRAIL}`;
 
   try {
-    const { response, toolsUsed, toolResults } = await runAiChatLoop(message, history as any, {
+    const { response, toolsUsed, toolResults, outOfScope } = await runAiChatLoop(message, history as any, {
       systemPrompt,
-      tools: TOOLS as any,
+      tools: TOOLS,
       complete: async (messages) => {
-        // Groq retired llama-3.3-70b-versatile (404s as of 2026-09-09, confirmed
-        // via GET /v1/models) — gpt-oss-120b is the current tool-calling model.
-        const res = await client.chat.completions.create({
-          model: 'openai/gpt-oss-120b',
-          messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
-          tools: TOOLS,
-          tool_choice: 'auto',
+        const { system, messages: claudeMessages } = toClaudeMessages(messages);
+        const res = await client.messages.create({
+          model: 'claude-sonnet-5',
+          max_tokens: 4096,
+          system,
+          thinking: { type: 'adaptive' },
+          output_config: { effort: 'medium' },
+          tools: claudeTools,
+          messages: claudeMessages,
         });
-        return res.choices[0].message as unknown as AiChatMessage;
+        return fromClaudeMessage(res);
       },
       executeTool: (toolName, toolInput) => executeTool(c.env, toolName, toolInput),
     });
+
+    if (outOfScope) {
+      return c.json(
+        { success: false, message: "I can only help with questions about orders, estimates, invoices, and inventory — try rephrasing your question around those." },
+        400
+      );
+    }
 
     // Forward each search tool's raw rows (not just the model's prose) so the
     // frontend can render a clickable link straight to the order/invoice it

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-let currentPermSet = new Set(['report:read']);
+let currentPermSet = new Set(['invoiceTotals:read']);
 
 vi.mock('../middleware', () => ({
   authenticateToken: (c: any, next: any) => {
@@ -28,12 +28,12 @@ const req = (path: string) => invoiceTotalsApp.request(path, undefined, ENV);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  currentPermSet = new Set(['report:read']);
+  currentPermSet = new Set(['invoiceTotals:read']);
   mockExecQuery.mockResolvedValue({ rows: [] });
 });
 
 describe('permission gate', () => {
-  it('403s without report:read', async () => {
+  it('403s without invoiceTotals:read', async () => {
     currentPermSet = new Set();
     const res = await req('/timeseries');
     expect(res.status).toBe(403);
@@ -187,10 +187,10 @@ describe('GET /summary', () => {
     expect(params[6]).toBe('REP-9');
   });
 
-  it('excludes total=0 invoices from every window', async () => {
+  it('excludes packing slips from every window', async () => {
     await req('/summary?period=week');
     const [, sql] = mockExecQuery.mock.calls[0];
-    expect(sql).toContain('AND total <> 0');
+    expect(sql).toContain('AND NOT is_packing_slip');
   });
 
   it('defaults to week for an unrecognized period', async () => {
@@ -249,14 +249,14 @@ describe('GET /timeseries', () => {
     const [, sql, params] = mockExecQuery.mock.calls[0];
     expect(sql).toContain('txn_date::date AS bucket_start');
     expect(sql).not.toContain('LIMIT');
-    expect(sql).toContain('AND total <> 0');
+    expect(sql).toContain('AND NOT is_packing_slip');
     expect(params).toEqual(['2026-09-01', '2026-09-10', 'REP-2']);
   });
 
-  it('excludes total=0 invoices for a fixed granularity too', async () => {
+  it('excludes packing slips for a fixed granularity too', async () => {
     await req('/timeseries?period=week');
     const [, sql] = mockExecQuery.mock.calls[0];
-    expect(sql).toContain('AND total <> 0');
+    expect(sql).toContain('AND NOT is_packing_slip');
   });
 
   it('shapes rows into bucketStart/total/count points', async () => {

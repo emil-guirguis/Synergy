@@ -76,6 +76,31 @@ const FieldTypes = {
  * @param {string} [definition.maxWidth] - CSS max-width for field container
  * @param {Array<string>} [definition.visibleFor] - Form variants for which this field is visible (e.g., ['physical'])
  * @param {number} [definition.rows] - Textarea row count override (default: 6 for note-like field names, 4 otherwise)
+ * @param {boolean} [definition.createOnly] - Field is only editable while the record is new (no id yet); once
+ *   saved, the frontend form disables it. For a field a sync (or other external system) later owns and would
+ *   otherwise clobber — e.g. a customer picked at create time on a record that's synced read-only afterward.
+ * @param {Object} [definition.referenceSearch] - Declares this field as an async, search-as-you-type picker
+ *   against another entity's list endpoint, instead of a static enumValues dropdown. Purely descriptive: the
+ *   frontend renders the picker and performs the actual search itself against `endpoint`.
+ * @param {string} [definition.referenceSearch.endpoint] - REST list endpoint to search, relative to the app's
+ *   API base (e.g. '/customers'); expected to support a `?search=` query param and return `{data: {items: [...]}}`.
+ * @param {string} [definition.referenceSearch.valueField] - Row field to use as the picked option's value.
+ * @param {string} [definition.referenceSearch.labelField] - Row field to display as the picked option's label.
+ * @param {Object} [definition.lineItemPicker] - Declares this field (expected OBJECT/array-shaped, e.g. an
+ *   order/estimate's `lines`) as an addable/removable line-item grid with an async item picker per row, instead
+ *   of a fixed-columns editable grid over already-synced rows. Only meaningful while creating a new record.
+ * @param {Object} [definition.lineItemPicker.itemSearch] - Same shape as referenceSearch, for picking each
+ *   line's item (e.g. { endpoint: '/inventory', valueField: 'full_name', labelField: 'full_name' }).
+ * @param {string} [definition.lineItemPicker.descField] - Line object key for the free-text description.
+ * @param {string} [definition.lineItemPicker.quantityField] - Line object key for quantity.
+ * @param {string} [definition.lineItemPicker.rateField] - Line object key for unit rate.
+ * @param {Array<Object>} [definition.gridColumns] - Purely descriptive: for a field whose value is an array of
+ *   objects rendered as its own grid (e.g. an order's `lines`), the grid's actual on-screen columns — so the
+ *   Settings > Roles field-security UI can list them (and address one via hiddenFields/fieldAccess's
+ *   `lines[].rate` form) without a second, hand-maintained copy of the grid's column list. Not consumed by the
+ *   grid component itself, which keeps its own column config.
+ * @param {string} definition.gridColumns[].key - Key inside each array element (e.g. 'rate').
+ * @param {string} definition.gridColumns[].label - Display label (e.g. 'Rate').
  * @returns {Object} Field definition
  */
 function field(definition) {
@@ -109,6 +134,10 @@ function field(definition) {
     maxWidth: definition.maxWidth || null,
     visibleFor: definition.visibleFor || null,
     rows: definition.rows !== undefined ? definition.rows : null,
+    createOnly: definition.createOnly || false,
+    referenceSearch: definition.referenceSearch || null,
+    lineItemPicker: definition.lineItemPicker || null,
+    gridColumns: definition.gridColumns || null,
   };
 }
 

@@ -36,6 +36,7 @@ const appIconMappings = {
   'location': 'location_on',
   'locations': 'location_on',
   'notifications': 'notifications',
+  'utilities': 'folder_shared',
   'favorites': 'star',
   'meter-readings': 'electric_bolt',
   'ai-chat': 'smart_toy',
@@ -129,24 +130,31 @@ const staticMenuItems: MenuItem[] = [
         requiredPermission: Permission.LOCATION_READ
       },
       {
-        id: 'notification-rules',
-        label: 'Notifications',
-        icon: 'notifications',
-        path: '/notification-rules',
-        requiredPermission: Permission.NOTIFICATION_RULE_READ
-      },
-      {
-        id: 'reports',
-        label: 'Reports',
-        icon: 'assessment',
-        path: '/reports'
-      },
-      {
         id: 'users',
         label: 'Users',
         icon: 'users',
         path: '/users',
         requiredPermission: Permission.USER_READ
+      },
+    ]
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: 'reports',
+    path: '/reports'
+  },
+  {
+    id: 'utilities',
+    label: 'Utilities',
+    icon: 'utilities',
+    children: [
+      {
+        id: 'notification-rules',
+        label: 'Notifications',
+        icon: 'notifications',
+        path: '/notification-rules',
+        requiredPermission: Permission.NOTIFICATION_RULE_READ
       },
     ]
   },

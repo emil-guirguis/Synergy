@@ -1,15 +1,23 @@
 import React from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
+import { useSchema } from '@meterit/framework-frontend/components/form/utils/schemaLoader';
 import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
 import OrderInvoicesPanel from './OrderInvoicesPanel';
 import { parseAllTracking, renderTrackingText } from './trackingLink';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import type { DocType } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useAuth } from '../../hooks/useAuth';
 import type { Order } from '../../types/order';
+
+// Reps may see these on an order's Documents tab. Admins see every type.
+const REP_VISIBLE_DOC_TYPES: DocType[] = ['packing_slip', 'invoice', 'proof_of_delivery', 'load_schedule'];
+const REP_MAX_FILE_SIZE = 20 * 1024 * 1024;
+const repOversizeMessage = (file: File) =>
+  `"${file.name}" is over the 20MB upload limit. Please contact info@tbwcinc.com for help sending this file.`;
 
 interface OrderFormProps {
   order?: Order;
@@ -32,16 +40,39 @@ interface OrderFormProps {
  */
 export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading = false }) => {
   const orders = useOrdersEnhanced();
-  const { user } = useAuth();
-  // Reps get a cut-down form: the general Order tab and the Line Items tab only.
-  // The other tabs carry visibleFor: ['admin'] in orderSchema.ts, and BaseForm's
-  // `variant` filter drops any tab whose visibleFor doesn't include the variant
-  // (tabs without visibleFor are always shown), so 'rep' leaves exactly those two.
+  const { user, isFieldVisible } = useAuth();
+  // Reps get a cut-down form: the general Order tab, Line Items, and (now)
+  // Documents tabs. The other tabs carry visibleFor: ['admin'] in
+  // orderSchema.ts, and BaseForm's `variant` filter drops any tab whose
+  // visibleFor doesn't include the variant (tabs without visibleFor are
+  // always shown).
   const isAdmin = !!user?.is_admin;
   const variant = isAdmin ? 'admin' : 'rep';
   // PUT /api/orders/:id is requireAdmin, so a rep's form is a viewer: every
   // field disabled, and OrderManagementPage hides the Save button to match.
   const readOnly = !isAdmin;
+  // Documents are a separate CRUD path (/api/documents, not the order PUT
+  // above). A plain rep's grid is view-only; a "managing rep" — one who
+  // manages at least one other user via the Users form's Manages tab
+  // (public.user_manager) — can add/edit, matching the elevated access that
+  // relation already grants them over those users' orders (orders.ts's
+  // ownOnly scoping). managed_sales_rep_list_ids is loadProfile()'s
+  // pre-joined view of that relation (see middleware.ts).
+  const canWriteDocuments = isAdmin || (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
+  // Settings > Roles' field-security grid (Order > Fields > Line Items) can
+  // hide Rate/Amount independently of the rep/admin split above — defaults
+  // to visible for everyone until a role's order:read grant says otherwise,
+  // so this is additive to readOnly, never narrower than it already was.
+  const hideLineAmounts =
+    readOnly || !isFieldVisible('order:read', 'lines[].rate') || !isFieldVisible('order:read', 'lines[].amount');
+  // Same field-security grid, one level up: Settings > Roles > Order > Fields
+  // has a checkbox per tab (addressed as tab:<Name>, see RolesForm.tsx) that
+  // feeds straight into BaseForm's own hiddenTabs prop — on top of, not
+  // instead of, the existing visibleFor:['admin'] tabs above.
+  const { schema: orderSchema } = useSchema('order');
+  const hiddenTabs = (orderSchema?.formTabs ?? [])
+    .filter((tab) => !isFieldVisible('order:read', `tab:${tab.name}`))
+    .map((tab) => tab.name);
   const [freshOrder, setFreshOrder] = React.useState<Order | undefined>(order?.id ? undefined : order);
   const [fetching, setFetching] = React.useState(!!order?.id);
 
@@ -84,9 +115,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           showTabs={true}
           variant={variant}
           isDisabled={readOnly}
+          hiddenTabs={hiddenTabs}
           fieldsToClean={['id', 'lines', 'documents']}
           renderCustomField={(fieldName, fieldDef, value) => {
-            if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} freight={freshOrder?.freight} hideAmounts={readOnly} />;
+            if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} freight={freshOrder?.freight} hideAmounts={hideLineAmounts} />;
             // shipping_tracking is free-typed shipping notes off the
             // invoice's FREIGHT line(s) (see orderInvoiceStatus.ts) — a memo,
             // not a single value: a multi-package shipment carries several
@@ -134,6 +166,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
                   api={documentsApi}
                   storage={documentsStorage}
                   classifyDocType={classifyDocTypeForFile}
+                  readOnly={!canWriteDocuments}
+                  visibleDocTypes={isAdmin ? undefined : REP_VISIBLE_DOC_TYPES}
+                  maxFileSize={isAdmin ? undefined : REP_MAX_FILE_SIZE}
+                  oversizeMessage={isAdmin ? undefined : repOversizeMessage}
                 />
           );
         }

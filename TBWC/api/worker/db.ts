@@ -37,10 +37,15 @@ export interface Env {
   // re-verification link mailed to locked-out reps. Distinct from
   // FRONTEND_URL, which is CORS-origin-only (no path).
   PORTAL_URL?: string;
-  // Groq API key for /api/ai/chat (tool-use assistant). Set via
-  // `wrangler secret put GROQ_API_KEY` in prod; local dev uses .dev.vars.
+  // Anthropic API key for /api/ai/chat (tool-use assistant). Set via
+  // `wrangler secret put ANTHROPIC_API_KEY` in prod; local dev uses .dev.vars.
   // Unset => the route returns 503 instead of calling out.
-  GROQ_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  // Dev-only "log in as this user" gate (see routes/users.ts + framework's
+  // canImpersonate). Set in .dev.vars only — never `wrangler secret put` these,
+  // or the impersonation route opens up in production too.
+  ENABLE_IMPERSONATION?: string;
+  IMPERSONATE_ALLOWED_EMAIL?: string;
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {

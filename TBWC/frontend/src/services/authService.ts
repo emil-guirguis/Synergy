@@ -10,6 +10,11 @@
  * (login, logout, refresh, loadCurrentUser, setLogoutFlag, clearStoredToken).
  */
 import { createSupabaseAuth } from '@meterit/framework-frontend/auth/supabaseAuth';
+import {
+  beginImpersonation,
+  endImpersonation,
+  impersonationBackup,
+} from '@meterit/framework-frontend/auth/impersonation';
 import { tokenStorage } from '../utils/tokenStorage';
 import {
   clearSharedSession,
@@ -181,6 +186,49 @@ class AuthService {
     // leaving its record behind would just have the next /portal/ load adopt it again.
     clearSharedSession();
     adoption = null;
+  }
+
+  /**
+   * Dev-only "log in as this user" — see supabaseAdmin.ts on the API side.
+   * Swaps this tab's token to a real session for the target and mirrors it
+   * into the shared-session slot too, so a reload's adoptSharedSession() path
+   * (which otherwise outranks anything this app stored) picks up the
+   * impersonated session instead of re-adopting the admin's.
+   */
+  async impersonate(targetUserId: string, targetLabel: string): Promise<void> {
+    const token = tokenStorage.getToken();
+    if (!token) throw new Error('Not authenticated');
+    const res = await fetch(`${API_BASE_URL}/users/${targetUserId}/impersonate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `Failed to log in as this user (${res.status})`);
+    }
+    const { data } = await res.json();
+    beginImpersonation(
+      tokenStorage,
+      { token: data.token, refreshToken: data.refreshToken, expiresIn: data.expiresIn },
+      targetLabel
+    );
+    writeSharedSession({
+      access_token: data.token,
+      refresh_token: data.refreshToken,
+      expires_in: data.expiresIn,
+      user: data.user,
+    });
+  }
+
+  /** Restore the admin session stashed before impersonate(). */
+  exitImpersonation(): boolean {
+    const backup = impersonationBackup();
+    const restored = endImpersonation(tokenStorage);
+    if (restored && backup) {
+      const expiresIn = Math.max(60, Math.round((backup.expiresAt - Date.now()) / 1000));
+      writeSharedSession({ access_token: backup.token, refresh_token: backup.refreshToken, expires_in: expiresIn });
+    }
+    return restored;
   }
 
   // --- helpers used by the store api middleware ---
