@@ -705,6 +705,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
                 onDelete={onDelete}
                 onRename={onRename}
                 onMoveFiles={onMoveFiles}
+                onUploadDropped={onUploadDropped}
                 selected={selected}
                 toggleSelect={toggleSelect}
                 dragPathsFor={dragPathsFor}
@@ -931,6 +932,7 @@ function FolderRow({
             onDelete={onDelete}
             onRename={onRename}
             onMoveFiles={onMoveFiles}
+            onUploadDropped={onUploadDropped}
             selected={selected}
             toggleSelect={toggleSelect}
             dragPathsFor={dragPathsFor}

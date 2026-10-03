@@ -27,7 +27,7 @@ import { notificationRuleSchema } from './notificationRuleSchema';
 import { syncServerSchema } from './syncServerSchema';
 import { adminSyncServerSchema } from './adminSyncServerSchema';
 import { costSchema } from './costSchema';
-import { supportTicketSchema } from './supportTicketSchema';
+import { supportTicketSchema } from '@meterit/framework-backend/api/base/supportTicketSchema';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 

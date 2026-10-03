@@ -53,6 +53,11 @@ export const PERMISSIONS = [
   'qbsync:run',
   'aichat:use',
   'dashboard:read',
+  // Support tickets. read's scope is 'own' (just the tickets you filed) or
+  // 'all' (every ticket, any filer) — see routes/support.ts. write gates the
+  // admin-only edits (status/priority/type/assignee).
+  'support:read',
+  'support:write',
   // Managing the roles themselves. Separate from setting:* even though the UI
   // lives in Settings: granting someone role:write lets them grant themselves
   // anything else, so it should be possible to hand out org settings without it.

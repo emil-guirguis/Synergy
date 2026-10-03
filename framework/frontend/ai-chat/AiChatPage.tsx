@@ -41,6 +41,14 @@ import type { AiChatPageConfig, AiChatResultLink } from './types';
 const SpeechRecognitionCtor: any =
   typeof window !== 'undefined' ? (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition : undefined;
 
+/** How long to wait after the user stops producing new speech results before
+ *  treating a voice-mode turn as finished. Chrome's own `continuous=false`
+ *  auto-stop fires on the first brief pause (often under a second) — far
+ *  shorter than a natural mid-sentence pause — which cut users off mid-
+ *  thought. Running `continuous=true` and finalizing on our own timer instead
+ *  fixes that. */
+const VOICE_SILENCE_MS = 1500;
+
 /** One tool-result row → its clickable card. A single action clicks straight
  *  through; two or more (e.g. a document-backed order result) pop a small
  *  menu to pick which one, instead of guessing which the user wants. */
@@ -112,6 +120,7 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
   const voiceModeRef = useRef(false);
   const speakingRef = useRef(false);
   const voiceTranscriptRef = useRef('');
+  const voiceSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRanRef = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -122,6 +131,7 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
 
   useEffect(() => {
     return () => {
+      if (voiceSilenceTimerRef.current) clearTimeout(voiceSilenceTimerRef.current);
       recognitionRef.current?.stop();
       window.speechSynthesis?.cancel();
     };
@@ -190,36 +200,58 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
       window.speechSynthesis.speak(utterance);
     });
 
-  /** One hands-free turn: listen for a single utterance, auto-send it once the
-   *  user stops talking. Started right after each assistant reply — while
-   *  voice mode is on — so the mic is already live both for barge-in (talking
-   *  over the reply) and for capturing whatever comes next once it finishes. */
+  /** One hands-free turn: listen until the user stops talking, auto-send once
+   *  they do. Only ever started while the assistant is NOT speaking (right
+   *  after each reply finishes, or on the very first turn) — the built-in
+   *  SpeechRecognition API has no echo-cancellation coordination with
+   *  speechSynthesis, so a mic that's live while the reply is playing just
+   *  transcribes the assistant's own TTS output and re-sends it as a new
+   *  question, producing an endless self-answering loop. Voice barge-in is
+   *  therefore not supported — use the button's tap-to-interrupt instead.
+   *
+   *  Runs `continuous=true` and finalizes on our own VOICE_SILENCE_MS timer
+   *  (reset on every new result) rather than relying on the recognizer's own
+   *  end-of-speech detection — `continuous=false` stops at the first brief
+   *  pause, which is shorter than a natural mid-sentence pause and was
+   *  cutting users off before they finished asking their question. */
   const startVoiceTurn = () => {
     if (!SpeechRecognitionCtor || !voiceModeRef.current) return;
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = 'en-US';
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     voiceTranscriptRef.current = '';
 
+    const clearSilenceTimer = () => {
+      if (voiceSilenceTimerRef.current) {
+        clearTimeout(voiceSilenceTimerRef.current);
+        voiceSilenceTimerRef.current = null;
+      }
+    };
+    const resetSilenceTimer = () => {
+      clearSilenceTimer();
+      voiceSilenceTimerRef.current = setTimeout(() => recognitionRef.current?.stop(), VOICE_SILENCE_MS);
+    };
+
     recognition.onresult = (event: any) => {
+      // Rebuild from every result each time (not just from event.resultIndex)
+      // — continuous mode keeps finalized segments at earlier indices as new
+      // ones are appended, so this is the full utterance so far, not a delta.
       let transcript = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         transcript += event.results[i][0].transcript;
       }
       voiceTranscriptRef.current = transcript;
       setInput(transcript);
-      // Barge-in: the user started talking while the assistant was still
-      // reading its reply out loud — cut it off so it doesn't talk over them.
-      // (Relies on the browser's own echo cancellation to avoid the mic
-      // re-triggering off the TTS audio itself; behavior varies by device.)
-      if (transcript.trim() && speakingRef.current) {
-        window.speechSynthesis?.cancel();
-      }
+      resetSilenceTimer();
     };
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = () => {
+      clearSilenceTimer();
+      setListening(false);
+    };
     recognition.onend = () => {
+      clearSilenceTimer();
       setListening(false);
       const said = voiceTranscriptRef.current.trim();
       if (said) {
@@ -245,6 +277,7 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
       }
       voiceModeRef.current = false;
       setVoiceMode(false);
+      if (voiceSilenceTimerRef.current) clearTimeout(voiceSilenceTimerRef.current);
       recognitionRef.current?.stop();
       window.speechSynthesis?.cancel();
     } else {
@@ -276,11 +309,13 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
           toolResults: data.tool_results,
         });
         if (voiceModeRef.current) {
-          // Start listening before speaking, not after — this is what makes
-          // barge-in possible, and it doubles as listening for the next reply
-          // once the assistant finishes talking.
-          startVoiceTurn();
+          // Speak first, THEN open the mic — SpeechRecognition has no echo
+          // cancellation against speechSynthesis, so listening while the
+          // reply plays just transcribes the assistant's own voice and
+          // re-sends it, looping forever. Tap-to-interrupt (the button) is
+          // the supported way to cut a reply short, not talking over it.
           await speak(data.response ?? '');
+          startVoiceTurn();
         }
       } else {
         setError(data.message ?? 'An error occurred.');

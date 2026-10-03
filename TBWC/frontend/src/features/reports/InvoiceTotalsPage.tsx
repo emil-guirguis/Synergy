@@ -59,7 +59,7 @@ const PERIOD_LABELS: Record<InvoiceTotalsGranularity, string> = {
 
 const CURRENT_LABELS: Record<InvoiceTotalsGranularity, string> = {
   day: 'Today',
-  week: 'This Week (Fri–Thu)',
+  week: 'This Week',
   month: 'This Month',
   quarter: 'This Quarter',
   year: 'This Year (YTD)',
@@ -70,7 +70,7 @@ const CURRENT_LABELS: Record<InvoiceTotalsGranularity, string> = {
 // and "same period last year" are the same window at yearly granularity.
 const PREVIOUS_LABELS: Record<InvoiceTotalsGranularity, string> = {
   day: 'Yesterday',
-  week: 'Last Week (Fri–Thu)',
+  week: 'Last Week',
   month: 'Last Month',
   quarter: 'Last Quarter',
   year: 'Last Year (YTD)',
@@ -129,6 +129,11 @@ function pctChange(current: number, prior: number): string {
   return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
 }
 
+// yyyy-mm-dd -> "Sep 26" (UTC, so the date doesn't shift with local tz).
+function shortDate(iso: string): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso));
+}
+
 // The open icon takes you to the Invoices list filtered to the exact date
 // range (and rep) that produced this card's total — invoices.ts's whereRange
 // reads txn_date_from/txn_date_to, InvoiceList.tsx picks them off the URL.
@@ -146,7 +151,9 @@ function TotalCard({ label, period, onOpen }: { label: string; period: InvoiceTo
             <OpenInNewIcon fontSize="small" />
           </IconButton>
         </MuiTooltip>
-        <Typography variant="body2" color="text.secondary">{label}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {label} ({shortDate(period.from)} – {shortDate(period.to)})
+        </Typography>
         <Typography variant="h4" fontWeight={700}>{currency(period.total)}</Typography>
         <Typography variant="body2" color="text.secondary">
           {period.count.toLocaleString()} {period.count === 1 ? 'invoice' : 'invoices'}

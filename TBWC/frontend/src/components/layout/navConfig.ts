@@ -31,6 +31,7 @@ registerIconMappings({
   qbSync: 'sync',
   settings: 'settings',
   quickbooks: 'sync_alt',
+  support: 'confirmation_number',
 });
 
 export const NAV: MenuItem[] = [
@@ -81,6 +82,7 @@ export const NAV: MenuItem[] = [
       { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'repApproval:write' },
       { id: 'resources', label: 'Resources', icon: 'resources', path: '/resources', requiredPermission: 'resource:read' },
       { id: 'notifications', label: 'Notifications', icon: 'notifications', path: '/notifications', requiredPermission: 'notification:read' },
+      { id: 'support', label: 'Support', icon: 'support', path: '/support', requiredPermission: 'support:read' },
     ],
   },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'user:read' },
@@ -93,6 +95,7 @@ export function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/resources')) return 'Resources';
   if (pathname.startsWith('/notifications')) return 'Notifications';
   if (pathname.startsWith('/ai-chat')) return 'Ask AI';
+  if (pathname.startsWith('/support')) return 'Support';
   if (pathname.startsWith('/inventory')) return 'Inventory';
   if (pathname.startsWith('/customers')) return 'Customers';
   if (pathname.startsWith('/invoices')) return 'Invoices';

@@ -31,6 +31,7 @@ import documentRoutes from './routes/documents';
 import notificationRoutes from './routes/notifications';
 import aiChatRoutes from './routes/aiChat';
 import aiSearchRoutes from './routes/aiSearch';
+import supportRoutes from './routes/support';
 import { lockStaleReps } from './reverification';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -83,6 +84,7 @@ app.route('/api/roles', roleRoutes);
 app.route('/api/doc-types', docTypeRoutes);
 app.route('/api/documents', documentRoutes);
 app.route('/api/notifications', notificationRoutes);
+app.route('/api/support', supportRoutes);
 app.route('/api/qb-sync', qbSyncRoutes);
 app.route('/api/ai/chat', aiChatRoutes);
 app.route('/api/ai/search', aiSearchRoutes);

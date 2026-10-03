@@ -12,7 +12,10 @@
  * on (qb_sales_order.lines / qb_invoice.lines are jsonb arrays; a serial
  * number lives free-text inside a line's `desc`, not its own column, so line
  * search is jsonb_array_elements + ILIKE, not an exact-match query) — plus
- * inventory/product-catalog search (public.qb_item, pricing questions).
+ * inventory/product-catalog search (public.qb_item, pricing questions) and a
+ * generic run_sql_query tool (read-only SELECT, keyword+semicolon blocklist,
+ * auto-wrapped with LIMIT 500) for ad-hoc analysis/aggregates across any
+ * public table that the fixed search tools can't answer.
  *
  * Admin-only. None of the tools below scope their queries to the caller's own
  * sales rep, so a rep asking a question would read every rep's orders plus the
@@ -236,6 +239,33 @@ const TOOLS: AiChatTool[] = [
           text: { type: 'string', description: 'Optional: text to match against the document type or file name within this estimate' },
         },
         required: ['estimateId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_sql_query',
+      description:
+        'Run a custom read-only SQL SELECT query directly against the database for analysis or data the other ' +
+        'tools can\'t answer — counts, aggregates, date-range filters, joins across tables, GROUP BY, anything ' +
+        'expressible as a single SELECT. Use this whenever the question needs computed/aggregated data across ' +
+        'many rows (e.g. "orders not invoiced in the last 2 days", "total sales by rep this month", "average ' +
+        'order value") rather than a text search for one record — the search_* tools above are for looking up ' +
+        "one order/invoice/etc. by name/number, not analysis. If you don't know a table's columns, first run " +
+        "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema='public' AND " +
+        "table_name = '<name>' (or query information_schema.tables to list tables) before writing the real " +
+        'query. Known tables include public.qb_sales_order (orders), public.qb_invoice (invoices), public.qb_item ' +
+        '(inventory/pricing), public.qb_estimate (quotes), public.qb_customer, public.document (attachments) — ' +
+        'most QB-synced tables soft-delete via qb_deleted_at (filter WHERE qb_deleted_at IS NULL) and have a ' +
+        'txn_date column. Only a single read-only SELECT statement is allowed — no semicolons, no ' +
+        'INSERT/UPDATE/DELETE/DDL/SET/CALL/etc. Results are automatically capped at 500 rows.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sql: { type: 'string', description: 'A single read-only SELECT statement (no trailing semicolon needed).' },
+        },
+        required: ['sql'],
       },
     },
   },
@@ -495,6 +525,27 @@ async function executeTool(env: Env, toolName: string, toolInput: Record<string,
         return JSON.stringify(result.rows);
       }
 
+      case 'run_sql_query': {
+        const raw = typeof toolInput.sql === 'string' ? toolInput.sql.trim() : '';
+        if (!raw) return JSON.stringify({ error: 'sql is required' });
+        const stmt = raw.replace(/;\s*$/, '');
+        if (stmt.includes(';')) {
+          return JSON.stringify({ error: 'Only a single statement is allowed — remove the semicolon(s).' });
+        }
+        if (!/^(select|with)\b/i.test(stmt)) {
+          return JSON.stringify({ error: 'Only SELECT (or WITH ... SELECT) queries are allowed.' });
+        }
+        const blocked =
+          /\b(insert|update|delete|drop|alter|truncate|grant|revoke|create|copy|call|merge|vacuum|reindex|cluster|listen|notify|refresh|lock|do|pg_sleep|dblink|pg_read_file|pg_read_binary_file|pg_write_file|lo_import|lo_export|set|reset|into)\b/i;
+        const blockedMatch = stmt.match(blocked);
+        if (blockedMatch) {
+          return JSON.stringify({ error: `Disallowed keyword "${blockedMatch[0]}" — only read-only SELECT queries are permitted.` });
+        }
+        const wrapped = `SELECT * FROM (\n${stmt}\n) AS _ai_query LIMIT 500`;
+        const result = await execQuery(env, wrapped, undefined, 'aiChat.run_sql_query');
+        return JSON.stringify({ rowCount: result.rows.length, rows: result.rows });
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${toolName}` });
     }
@@ -541,6 +592,7 @@ Guidelines:
 - "The [document type] for [customer/job/order]" (a SPECIFIC customer or order was named) is a two-step lookup: resolve the order with search_orders first (customer name, job name, or address all work), then call get_order_documents with that order's qb_sales_order_id. NEVER use search_orders_by_document or search_documents for this — both search across every order regardless of customer, so their top result can easily belong to someone else. Only present a document as matching the customer/order the user asked about if you got it back from get_order_documents for that exact order's id, or you independently confirmed (e.g. via search_orders) that the order it came from is theirs — never assume a search_orders_by_document/search_documents hit is the right customer just because it matched a document type.
 - Only write out details in prose when there's no search result to back it up, or when the user asks a follow-up question about one specific result.
 - If nothing matches, say so plainly rather than inventing results.
+- Any question needing computed/aggregated data across many rows (counts, totals, "orders not invoiced in the last N days", averages, breakdowns by rep/date/etc.) is NOT a job for the search_* tools — use run_sql_query. Never tell the user you can't answer a data question before trying run_sql_query.
 - Today's date: ${new Date().toISOString().split('T')[0]}
 
 ${AI_CHAT_SCOPE_GUARDRAIL}`;

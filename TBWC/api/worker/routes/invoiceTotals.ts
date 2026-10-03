@@ -38,19 +38,10 @@ export function parseGranularity(value: string | undefined): Granularity {
     : 'week';
 }
 
-// "Weekly" buckets run Friday-to-Friday (not the ISO Monday week) — shift
-// back to the most recent Friday by hand rather than using date_trunc.
-function fridayWeekStart(d: Date): Date {
-  const daysSinceFriday = (d.getUTCDay() - 5 + 7) % 7;
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - daysSinceFriday));
-}
-
-function bucketStart(d: Date, period: FixedGranularity): Date {
+function bucketStart(d: Date, period: Exclude<FixedGranularity, 'week'>): Date {
   switch (period) {
     case 'day':
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-    case 'week':
-      return fridayWeekStart(d);
     case 'month':
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
     case 'quarter':
@@ -94,11 +85,15 @@ export function parseCustomRange(fromParam: string | undefined, toParam: string 
 
 /**
  * Three comparable windows, each [start, end] inclusive:
- *  - current: the bucket containing `now` (or the given custom range)
- *  - previous: exactly one bucket back (yesterday/last week/month/quarter/
- *    year, or an equal-length range immediately before a custom one)
+ *  - current: the bucket containing `now` (or the given custom range) —
+ *    except "week", which is a rolling trailing 7 days ending `now` rather
+ *    than a fixed calendar bucket, so it's never empty just because `now`
+ *    happens to fall on a bucket's own start day.
+ *  - previous: exactly one window back (yesterday/trailing 7 days before
+ *    that/month/quarter/year, or an equal-length range immediately before a
+ *    custom one)
  *  - priorYear: exactly one year back (364 days — 52 whole weeks, so the
- *    Friday anchor survives — for "week"; a calendar year otherwise)
+ *    weekday alignment survives — for "week"; a calendar year otherwise)
  * For period="year", `previous` and `priorYear` land on the same window
  * (one year back either way) — that's expected, not a bug.
  */
@@ -118,14 +113,16 @@ export function periodWindows(period: Granularity, now: Date, customRange?: { fr
     };
   }
 
-  const currentStart = bucketStart(now, period);
+  const currentStart = period === 'week' ? addDays(now, -7) : bucketStart(now, period);
 
   const previousEnd =
-    period === 'day' ? addDays(now, -1) : period === 'week' ? addDays(now, -7) : shiftMonths(now, -UNIT_MONTHS[period]);
-  const previousStart = bucketStart(previousEnd, period);
+    period === 'day' ? addDays(now, -1)
+    : period === 'week' ? addDays(currentStart, -1)
+    : shiftMonths(now, -UNIT_MONTHS[period]);
+  const previousStart = period === 'week' ? addDays(previousEnd, -7) : bucketStart(previousEnd, period);
 
   const priorYearEnd = period === 'week' ? addDays(now, -364) : shiftMonths(now, -12);
-  const priorYearStart = bucketStart(priorYearEnd, period);
+  const priorYearStart = period === 'week' ? addDays(priorYearEnd, -7) : bucketStart(priorYearEnd, period);
 
   return {
     currentStart: toDateStr(currentStart),

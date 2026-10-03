@@ -17,7 +17,7 @@ export const invoicesSchema = defineSchema({
   description: 'QuickBooks invoices (synced QB → TBWC, read-only)',
   formMaxWidth: '900px',
   customListColumns: {},
-  defaultSortBy: 'ref_number asc',
+  defaultSortBy: 'txn_date desc',
 
   formTabs: [
     tab({

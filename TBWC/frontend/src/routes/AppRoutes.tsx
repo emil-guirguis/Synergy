@@ -16,6 +16,8 @@ import { UserManagementPage } from '../features/users/UserManagementPage';
 import RepPortalPage from '../features/repPortal/RepPortalPage';
 import SettingsPage from '../pages/SettingsPage';
 import { AiChatPage } from '../features/ai/AiChatPage';
+import { SupportTicketsPage } from '../features/support/SupportTicketsPage';
+import { TicketDetailPage } from '../features/support/TicketDetailPage';
 import { useAuth } from '../hooks/useAuth';
 
 export default function AppRoutes() {
@@ -34,6 +36,14 @@ export default function AppRoutes() {
       <Route
         path="/ai-chat"
         element={checkPermission('aichat:use') ? <AiChatPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/support"
+        element={checkPermission('support:read') ? <SupportTicketsPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/support/:id"
+        element={checkPermission('support:read') ? <TicketDetailPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/inventory"

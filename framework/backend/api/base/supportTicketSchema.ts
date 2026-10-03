@@ -1,5 +1,11 @@
+/**
+ * Shared support-ticket form schema. Served at GET /api/schema/support_ticket
+ * by each app's own schema.ts registry — drives the generic column/filter
+ * generation in framework/frontend/support/SupportTicketList.tsx.
+ * Table DDL: framework/backend/db/support_ticket.sql.
+ */
 // @ts-ignore - CommonJS module
-const { defineSchema, field, tab, section, FieldTypes } = require('@meterit/framework-backend/api/base/SchemaDefinition');
+const { defineSchema, field, tab, section, FieldTypes } = require('./SchemaDefinition');
 
 export const supportTicketSchema = defineSchema({
   entityName: 'Support Ticket',

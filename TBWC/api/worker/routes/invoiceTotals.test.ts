@@ -54,16 +54,30 @@ describe('periodWindows', () => {
     });
   });
 
-  it('week: current starts on the most recent Friday; previous is 7d back; prior-year is 364d back', () => {
-    // Thursday 2026-09-24 -> current week started Friday 2026-09-18.
+  it('week: current is a rolling trailing 7 days ending now, not a calendar bucket', () => {
+    // Thursday 2026-09-24 -> current window is the trailing 7 days, 2026-09-17 to 2026-09-24,
+    // regardless of what day of the week `now` falls on.
     const w = periodWindows('week', new Date('2026-09-24T12:00:00Z'));
     expect(w).toEqual({
-      currentStart: '2026-09-18',
+      currentStart: '2026-09-17',
       currentEnd: '2026-09-24',
-      previousStart: '2026-09-11',
-      previousEnd: '2026-09-17',
-      priorYearStart: '2025-09-19', // 2026-09-18 - 364d, still a Friday
+      previousStart: '2026-09-09',
+      previousEnd: '2026-09-16',
+      priorYearStart: '2025-09-18', // 2026-09-17 - 364d, same weekday
       priorYearEnd: '2025-09-25', // 2026-09-24 - 364d
+    });
+  });
+
+  it('week: never empty just because `now` lands on a calendar week-start day (regression)', () => {
+    // Friday 2026-10-02 — the old Friday-anchored bucket made "current" a single day.
+    const w = periodWindows('week', new Date('2026-10-02T12:00:00Z'));
+    expect(w).toEqual({
+      currentStart: '2026-09-25',
+      currentEnd: '2026-10-02',
+      previousStart: '2026-09-17',
+      previousEnd: '2026-09-24',
+      priorYearStart: '2025-09-26',
+      priorYearEnd: '2025-10-03',
     });
   });
 

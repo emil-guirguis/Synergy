@@ -1,48 +1,11 @@
 import { createEntityStore, createEntityHook } from '../store/slices/createEntitySlice';
 import { withTokenRefresh } from '../store/middleware/apiMiddleware';
 import type { ListParams } from '../types/entities';
+import type { SupportTicket, TicketType, CreateTicketPayload, UpdateTicketPayload } from '@meterit/framework-frontend/support';
+
+export type { SupportTicket, TicketType, CreateTicketPayload, UpdateTicketPayload };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
-
-export type TicketType = 'bug' | 'feature_request' | 'billing' | 'account' | 'technical' | 'general';
-
-export interface SupportTicket {
-  id: string;
-  support_ticket_id: number;
-  tenant_id: number;
-  client_tenant_id: number | null;
-  users_id: number | null;
-  assigned_to_users_id: number | null;
-  title: string;
-  description: string | null;
-  type: TicketType;
-  status: 'open' | 'in_progress' | 'resolved' | 'closed';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  resolved_at: string | null;
-  created_at: string;
-  updated_at: string;
-  client_tenant_name?: string;
-  created_by_name?: string;
-  assigned_to_name?: string;
-}
-
-export interface CreateTicketPayload {
-  title: string;
-  description?: string;
-  type?: TicketType;
-  priority?: SupportTicket['priority'];
-  client_tenant_id?: number;
-}
-
-export interface UpdateTicketPayload {
-  title: string;
-  description?: string;
-  type?: TicketType;
-  status?: SupportTicket['status'];
-  priority?: SupportTicket['priority'];
-  assigned_to_users_id?: number | null;
-  client_tenant_id?: number | null;
-}
 
 class SupportTicketAPI {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

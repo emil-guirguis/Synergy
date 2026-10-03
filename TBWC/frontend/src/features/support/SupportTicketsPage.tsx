@@ -1,16 +1,16 @@
 import React from 'react';
 import { SupportTicketsPage as SharedSupportTicketsPage } from '@meterit/framework-frontend/support';
-import { useSupportTicketsEnhanced, supportTicketService } from '../supportTicketsStore';
 import { useAuth } from '../../hooks/useAuth';
+import { useSupportTicketsEnhanced, supportTicketService } from './supportTicketsStore';
 
-const SupportTicketsPage: React.FC = () => {
-  const { user } = useAuth();
+export const SupportTicketsPage: React.FC = () => {
+  const { checkPermission } = useAuth();
   return (
     <SharedSupportTicketsPage
       useStore={useSupportTicketsEnhanced}
       ticketService={supportTicketService}
-      isAdminSupport={user?.is_support_admin === true}
-      showClientColumn
+      isAdminSupport={checkPermission('support:write')}
+      basePath="/support"
     />
   );
 };
