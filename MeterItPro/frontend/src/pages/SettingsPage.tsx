@@ -3,6 +3,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import SyncIcon from '@mui/icons-material/Sync';
 import SecurityIcon from '@mui/icons-material/Security';
 import TuneIcon from '@mui/icons-material/Tune';
+import PsychologyIcon from '@mui/icons-material/Psychology';
 import {
   SettingsPageShell,
   OrgInfoForm,
@@ -10,6 +11,7 @@ import {
 } from '@meterit/framework-frontend/components/settings';
 import SyncServersPanel from '../features/syncServers/SyncServersPanel';
 import RolesPanel from '../features/roles/RolesPanel';
+import AiMemoryPanel from '../features/aiMemory/AiMemoryPanel';
 import './SettingsPage.css';
 import { useSettings } from '../store/entities/settingsStore';
 
@@ -138,6 +140,13 @@ const SettingsPage: React.FC = () => {
           icon: <SecurityIcon fontSize="small" />,
           description: 'What each role may do. Add a role and tick its permissions — no deploy needed.',
           content: <RolesPanel />,
+        },
+        {
+          key: 'aiMemory',
+          label: 'AI Memory',
+          icon: <PsychologyIcon fontSize="small" />,
+          description: 'Durable facts the AI chat has taught itself and saved for future conversations.',
+          content: <AiMemoryPanel />,
         },
       ]}
     />

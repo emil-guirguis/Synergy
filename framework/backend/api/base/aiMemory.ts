@@ -92,6 +92,21 @@ async function listUnder(
   return rows.map((r) => ({ path: r.path as string, size: Number(r.size) }));
 }
 
+export interface AiMemoryFile {
+  path: string;
+  content: string;
+  updatedAt: string;
+}
+
+/** All memory files for Settings > AI Memory — a flat, path-sorted list (no directory grouping). */
+export async function listMemoryFiles(query: AiMemoryQuery, tenantId: number | null): Promise<AiMemoryFile[]> {
+  const { rows } = await query(
+    `SELECT path, content, updated_at FROM public.ai_memory WHERE tenant_id IS NOT DISTINCT FROM $1 ORDER BY path`,
+    [tenantId]
+  );
+  return rows.map((r) => ({ path: r.path as string, content: r.content as string, updatedAt: r.updated_at as string }));
+}
+
 async function writeFile(query: AiMemoryQuery, scope: Scope, path: string, content: string): Promise<void> {
   await query(
     `INSERT INTO public.ai_memory (tenant_id, path, content)

@@ -8,6 +8,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import SecurityIcon from '@mui/icons-material/Security';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
+import PsychologyIcon from '@mui/icons-material/Psychology';
 import {
   SettingsPageShell,
   OrgInfoForm,
@@ -22,6 +23,7 @@ import {
 } from '../services/rolesService';
 import DocumentImportPanel from '../features/documentImport/DocumentImportPanel';
 import CommissionImportPanel from '../features/commissionImport/CommissionImportPanel';
+import AiMemoryPanel from '../features/aiMemory/AiMemoryPanel';
 import { NAV, roleOrderFromNav } from '../components/layout/navConfig';
 
 const ROLES_TAB_ENABLED = true;
@@ -227,6 +229,13 @@ export default function SettingsPage() {
             />
           ),
         }] : []),
+        {
+          key: 'aiMemory',
+          label: 'AI Memory',
+          icon: <PsychologyIcon fontSize="small" />,
+          description: 'Durable facts the AI chat has taught itself and saved for future conversations.',
+          content: <AiMemoryPanel />,
+        },
       ]}
     />
   );

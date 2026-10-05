@@ -31,6 +31,7 @@ import documentRoutes from './routes/documents';
 import notificationRoutes from './routes/notifications';
 import aiChatRoutes from './routes/aiChat';
 import aiSearchRoutes from './routes/aiSearch';
+import aiMemoryRoutes from './routes/aiMemory';
 import supportRoutes from './routes/support';
 import { lockStaleReps } from './reverification';
 
@@ -88,6 +89,7 @@ app.route('/api/support', supportRoutes);
 app.route('/api/qb-sync', qbSyncRoutes);
 app.route('/api/ai/chat', aiChatRoutes);
 app.route('/api/ai/search', aiSearchRoutes);
+app.route('/api/ai/memory', aiMemoryRoutes);
 // QuickBooks Web Connector SOAP endpoint (no Supabase auth — QBWC is not a browser
 // and authenticates with its own username/password inside the SOAP body).
 app.route('/qbwc', qbwcRoutes);

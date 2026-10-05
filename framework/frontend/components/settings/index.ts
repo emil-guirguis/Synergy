@@ -6,3 +6,5 @@ export { default as RolesForm } from './RolesForm';
 export type { RolesFormProps, ManagedRole, RoleGrant, GrantScope, RoleGroup, RoleModuleLabel, RoleTreeNode } from './RolesForm';
 export { default as SettingsPageShell } from './SettingsPageShell';
 export type { SettingsSection, SettingsPageShellProps } from './SettingsPageShell';
+export { default as AiMemoryPanel } from './AiMemoryPanel';
+export type { AiMemoryPanelProps, AiMemoryFile } from './AiMemoryPanel';
