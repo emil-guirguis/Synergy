@@ -72,7 +72,8 @@ DATABASE_URL = ""
 # TBWC portal is served under this origin at /<repo>/TBWCPortal/.
 # The portal is served from the site's own domain (tbwctechnology.com/portal/) so it
 # shares localStorage with it; the github.io copy stays allowed while that deploy exists.
-FRONTEND_URL = "https://tbwctechnology.com,https://www.tbwctechnology.com,https://emil-guirguis.github.io"
+# localhost:3000 = tbwc-site's `npm run dev` server, so the site->portal auto-login works locally.
+FRONTEND_URL = "https://tbwctechnology.com,https://www.tbwctechnology.com,https://emil-guirguis.github.io,http://localhost:3000"
 # Unattended sync: the .qbw path as the QB machine sees it (TOML literal string,
 # so backslashes need no escaping). DISABLED 2026-09-04: sending the Q:\ mapped-
 # drive path made BeginSession fail with QBWC1013 0x80040408 "Could not start

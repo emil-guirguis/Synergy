@@ -58,8 +58,11 @@ export interface NotificationsOptions {
 const DEFAULT_TABLE = 'notification';
 const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-const COLUMNS = `notification_id, tenant_id, users_id, notification_type, severity, title,
-                 description, created_at, status, first_detected_at, acknowledged_at, acknowledged_by`;
+function columnsOf(options?: NotificationsOptions): string {
+  const tenantCol = tenantColumnOf(options);
+  return `notification_id, ${tenantCol ? `${tenantCol}, ` : ''}users_id, notification_type, severity, title,
+          description, created_at, status, first_detected_at, acknowledged_at, acknowledged_by`;
+}
 
 /** Thrown for bad client input; app routes map this to a 400. */
 export class NotificationValidationError extends Error {
@@ -137,7 +140,7 @@ export async function listNotifications(
   const where = visibilityClause(tenantId, userId, options, params);
   const result = await execQuery(
     env,
-    `SELECT ${COLUMNS} FROM public.${tableOf(options)}
+    `SELECT ${columnsOf(options)} FROM public.${tableOf(options)}
       WHERE ${where}
       ORDER BY created_at DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -178,7 +181,7 @@ export async function createNotification(
     env,
     `INSERT INTO public.${tableOf(options)} (${cols.join(', ')})
      VALUES (${placeholders})
-     RETURNING ${COLUMNS}`,
+     RETURNING ${columnsOf(options)}`,
     vals,
     'notifications.create'
   );
@@ -208,7 +211,7 @@ export async function acknowledgeNotification(
     `UPDATE public.${tableOf(options)}
         SET status = 'acknowledged', acknowledged_at = NOW(), acknowledged_by = $${ackParam}
       WHERE ${where}
-      RETURNING ${COLUMNS}`,
+      RETURNING ${columnsOf(options)}`,
     params,
     'notifications.acknowledge'
   );

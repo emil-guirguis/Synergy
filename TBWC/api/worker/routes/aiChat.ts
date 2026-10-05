@@ -33,6 +33,12 @@ import {
   AI_CHAT_SCOPE_GUARDRAIL,
 } from '@meterit/framework-backend/api/base/aiChat';
 import { toClaudeTools, toClaudeMessages, fromClaudeMessage } from '../claudeChatAdapter';
+import {
+  executeMemoryCommand,
+  AI_MEMORY_TOOL_NAME,
+  AI_MEMORY_CLAUDE_TOOL,
+  AI_MEMORY_GUIDELINE,
+} from '@meterit/framework-backend/api/base/aiMemory';
 import { searchDocumentsMetadata, searchDocumentsContent } from '@meterit/framework-backend/api/base/aiSearch';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -252,14 +258,29 @@ const TOOLS: AiChatTool[] = [
         'expressible as a single SELECT. Use this whenever the question needs computed/aggregated data across ' +
         'many rows (e.g. "orders not invoiced in the last 2 days", "total sales by rep this month", "average ' +
         'order value") rather than a text search for one record — the search_* tools above are for looking up ' +
-        "one order/invoice/etc. by name/number, not analysis. If you don't know a table's columns, first run " +
-        "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema='public' AND " +
-        "table_name = '<name>' (or query information_schema.tables to list tables) before writing the real " +
-        'query. Known tables include public.qb_sales_order (orders), public.qb_invoice (invoices), public.qb_item ' +
-        '(inventory/pricing), public.qb_estimate (quotes), public.qb_customer, public.document (attachments) — ' +
-        'most QB-synced tables soft-delete via qb_deleted_at (filter WHERE qb_deleted_at IS NULL) and have a ' +
-        'txn_date column. Only a single read-only SELECT statement is allowed — no semicolons, no ' +
-        'INSERT/UPDATE/DELETE/DDL/SET/CALL/etc. Results are automatically capped at 500 rows.',
+        "one order/invoice/etc. by name/number, not analysis. The hints below name the tables/columns for a few " +
+        "common topics, but they are NOT a complete map of the database — if a question is about a kind of data " +
+        "that isn't named below, don't conclude it doesn't exist. Instead search for it first: " +
+        "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public' AND " +
+        "column_name ILIKE '%keyword%' (try a couple of synonyms, e.g. both 'discount' and 'disc') finds every " +
+        'table/column whose name matches, across the whole schema, in one query. Only tell the user a figure ' +
+        "isn't tracked after that search comes up empty — never after just checking the hints below.\n\n" +
+        'Known tables: public.qb_sales_order (orders — also where commission data lives: commission, overage, ' +
+        'and the generated commission_total = commission + overage columns, attributed via sales_rep_list_id/' +
+        'sales_rep; there is NO separate commission table, so a commission question is a qb_sales_order query, ' +
+        'not search_orders), public.qb_invoice (invoices — freight is NOT a column here either; it\'s its own ' +
+        'line item inside the lines jsonb array, same shape search_invoice_lines searches, usually with ' +
+        "item/desc containing \"Freight\" — unnest with jsonb_array_elements(lines) the way search_invoice_lines's " +
+        "query does, or just call search_invoice_lines with text='freight' for a single order/customer), " +
+        'public.qb_item (inventory/pricing), public.qb_estimate (quotes), public.qb_customer, public.qb_sales_rep ' +
+        '(list_id, name — join qb_sales_order.sales_rep_list_id to this for a rep lookup by name), public.document ' +
+        '(attachments) — most QB-synced tables soft-delete via qb_deleted_at (filter WHERE qb_deleted_at IS NULL) ' +
+        "and have a txn_date column. Commission is only actually paid out once an order's invoice_status = 'Paid' " +
+        '(mirrors the Rep Performance report\'s payout ledger) — for a "how much commission has X been paid" ' +
+        'question filter on that; for a looser "commission on X\'s orders" question, omit the filter and say ' +
+        'whether each figure is paid-only or across all orders. Only a single read-only SELECT statement is ' +
+        'allowed — no semicolons, no INSERT/UPDATE/DELETE/DDL/SET/CALL/etc. Results are automatically capped at ' +
+        '500 rows.',
       parameters: {
         type: 'object',
         properties: {
@@ -575,7 +596,7 @@ app.post('/', async (c) => {
   }
 
   const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
-  const claudeTools = toClaudeTools(TOOLS);
+  const claudeTools: Anthropic.ToolUnion[] = [...toClaudeTools(TOOLS), AI_MEMORY_CLAUDE_TOOL];
 
   const systemPrompt = `You are an AI assistant for the TBWC portal, a QuickBooks-backed sales/orders/inventory system for TBWC reps.
 You have access to tools that query the live database. Use them to answer questions accurately rather than guessing.
@@ -593,7 +614,10 @@ Guidelines:
 - Only write out details in prose when there's no search result to back it up, or when the user asks a follow-up question about one specific result.
 - If nothing matches, say so plainly rather than inventing results.
 - Any question needing computed/aggregated data across many rows (counts, totals, "orders not invoiced in the last N days", averages, breakdowns by rep/date/etc.) is NOT a job for the search_* tools — use run_sql_query. Never tell the user you can't answer a data question before trying run_sql_query.
+- Before telling the user a figure isn't tracked/doesn't exist, you MUST have run an information_schema.columns keyword search (see run_sql_query's description) and gotten nothing back — not just checked whether it's one of the topics named in that tool's description. Those are examples, not an exhaustive list; something absent from them is very often still in the database under a name you haven't guessed yet.
 - Today's date: ${new Date().toISOString().split('T')[0]}
+
+${AI_MEMORY_GUIDELINE} Saving or recalling memory is always in scope.
 
 ${AI_CHAT_SCOPE_GUARDRAIL}`;
 
@@ -614,7 +638,10 @@ ${AI_CHAT_SCOPE_GUARDRAIL}`;
         });
         return fromClaudeMessage(res);
       },
-      executeTool: (toolName, toolInput) => executeTool(c.env, toolName, toolInput),
+      executeTool: (toolName, toolInput) =>
+        toolName === AI_MEMORY_TOOL_NAME
+          ? executeMemoryCommand((sql, params) => execQuery(c.env, sql, params, 'ai_memory'), null, toolInput)
+          : executeTool(c.env, toolName, toolInput),
     });
 
     if (outOfScope) {

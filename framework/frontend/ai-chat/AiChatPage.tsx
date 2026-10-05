@@ -37,6 +37,10 @@ import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import { useAiChatStore } from './store';
 import type { AiChatPageConfig, AiChatResultLink } from './types';
 
+// Tools that run on nearly every turn (memory check) or are noise to a user
+// (raw SQL) — not worth a chip under the reply.
+const HIDDEN_TOOL_CHIPS = new Set(['run_sql_query', 'memory']);
+
 /** Chrome/Edge only; feature-detected so other browsers just don't see the mic. */
 const SpeechRecognitionCtor: any =
   typeof window !== 'undefined' ? (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition : undefined;
@@ -200,26 +204,30 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
       window.speechSynthesis.speak(utterance);
     });
 
-  /** One hands-free turn: listen until the user stops talking, auto-send once
-   *  they do. Only ever started while the assistant is NOT speaking (right
-   *  after each reply finishes, or on the very first turn) — the built-in
-   *  SpeechRecognition API has no echo-cancellation coordination with
-   *  speechSynthesis, so a mic that's live while the reply is playing just
-   *  transcribes the assistant's own TTS output and re-sends it as a new
+  /** One hands-free turn: listen for a single utterance, auto-send once the
+   *  user stops talking. Only ever started while the assistant is NOT
+   *  speaking (right after each reply finishes, or on the very first turn) —
+   *  the built-in SpeechRecognition API has no echo-cancellation coordination
+   *  with speechSynthesis, so a mic that's live while the reply is playing
+   *  just transcribes the assistant's own TTS output and re-sends it as a new
    *  question, producing an endless self-answering loop. Voice barge-in is
    *  therefore not supported — use the button's tap-to-interrupt instead.
    *
-   *  Runs `continuous=true` and finalizes on our own VOICE_SILENCE_MS timer
-   *  (reset on every new result) rather than relying on the recognizer's own
-   *  end-of-speech detection — `continuous=false` stops at the first brief
-   *  pause, which is shorter than a natural mid-sentence pause and was
-   *  cutting users off before they finished asking their question. */
+   *  `continuous=false`: a `continuous=true` turn was tried to stop Chrome's
+   *  own end-of-speech cutoff from ending turns mid-sentence, finalizing on
+   *  our own VOICE_SILENCE_MS timer instead — but that timer only ever
+   *  (re)starts from inside `onresult`, and Chrome's continuous mode is
+   *  unreliable about firing `onresult` at all (esp. on Windows): when it
+   *  doesn't, the timer never starts, recognition never stops, and the turn
+   *  hangs forever listening with nothing transcribed or sent. Back to
+   *  `continuous=false` restores working transcription; VOICE_SILENCE_MS is
+   *  kept as a backstop in case a future retry of continuous mode needs it. */
   const startVoiceTurn = () => {
     if (!SpeechRecognitionCtor || !voiceModeRef.current) return;
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = 'en-US';
-    recognition.continuous = true;
+    recognition.continuous = false;
     recognition.interimResults = true;
     voiceTranscriptRef.current = '';
 
@@ -499,9 +507,9 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
                   {msg.content}
                 </Typography>
               </Paper>
-              {msg.toolsUsed && msg.toolsUsed.length > 0 && (
+              {msg.toolsUsed && msg.toolsUsed.filter((t) => !HIDDEN_TOOL_CHIPS.has(t)).length > 0 && (
                 <Stack direction="row" gap={0.5} flexWrap="wrap" mt={0.5}>
-                  {[...new Set(msg.toolsUsed)].map((tool) => (
+                  {[...new Set(msg.toolsUsed.filter((t) => !HIDDEN_TOOL_CHIPS.has(t)))].map((tool) => (
                     <Chip key={tool} label={tool.replace(/_/g, ' ')} size="small" variant="outlined" sx={{ fontSize: 10, height: 20 }} />
                   ))}
                 </Stack>
