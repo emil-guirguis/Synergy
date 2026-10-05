@@ -21,6 +21,18 @@ export interface AiMemoryPanelProps {
   onRefresh?: () => void;
 }
 
+/** First meaningful line of a memory file, stripped of markdown markers — stands in for the raw path as a human label. */
+function describeMemoryFile(f: AiMemoryFile): string {
+  const line = f.content
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  const text = line?.replace(/^[#>*\-\d.)\s]+/, '').trim();
+  if (text) return text.length > 100 ? `${text.slice(0, 100)}…` : text;
+  const base = f.path.replace(/^\/memories\//, '').replace(/\.[a-z0-9]+$/i, '');
+  return base.replace(/[-_/]/g, ' ') || f.path;
+}
+
 /**
  * Settings > AI Memory — read-only viewer over the shared public.ai_memory
  * table. Claude owns writes via the memory_20250818 tool (see
@@ -58,7 +70,7 @@ export const AiMemoryPanel: React.FC<AiMemoryPanelProps> = ({ files, loading, er
             <TableHead>
               <TableRow>
                 <TableCell sx={{ width: 40 }} />
-                <TableCell>Path</TableCell>
+                <TableCell>Description</TableCell>
                 <TableCell>Size</TableCell>
                 <TableCell>Updated</TableCell>
               </TableRow>
@@ -74,7 +86,12 @@ export const AiMemoryPanel: React.FC<AiMemoryPanelProps> = ({ files, loading, er
                           {open ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
                         </IconButton>
                       </TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace' }}>{f.path}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{describeMemoryFile(f)}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                          {f.path}
+                        </Typography>
+                      </TableCell>
                       <TableCell>{f.content.length < 1024 ? `${f.content.length} B` : `${(f.content.length / 1024).toFixed(1)} KB`}</TableCell>
                       <TableCell>{new Date(f.updatedAt).toLocaleString()}</TableCell>
                     </TableRow>
