@@ -615,8 +615,8 @@ const RolesForm: React.FC<RolesFormProps> = ({
     <Box className="settings-form">
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-        <Paper variant="outlined" sx={{ width: 240, flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2, alignItems: { xs: 'stretch', md: 'flex-start' } }}>
+        <Paper variant="outlined" sx={{ width: { xs: '100%', md: 240 }, flexShrink: 0 }}>
           <List disablePadding>
             {roles.map((role) => (
               <ListItemButton

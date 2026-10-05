@@ -29,6 +29,42 @@
   max-width: 100%;
 }
 
+/* Form + side panel (BaseForm's `sidePanel` prop) — row with a fixed-width
+   sticky panel above 768px, stacked full-width below it. Centralized here so
+   no feature form hand-rolls this breakpoint itself. */
+.base-form__layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.base-form__layout-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.base-form__layout-panel {
+  width: var(--side-panel-width, 300px);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+  .base-form__layout {
+    flex-direction: column;
+  }
+
+  .base-form__layout-panel {
+    width: 100%;
+    position: static;
+    max-height: none;
+  }
+}
+
 /* Content wrapper - contains main form and sidebar */
 .base-form__content {
   display: flex;
@@ -552,9 +588,17 @@ div.form-container div.MuiFormControl-root {
     flex-direction: column;
   }
 
-  .base-form__main--grid-2,
-  .base-form__main--grid-3 {
-    grid-template-columns: 1fr;
+  /* Heuristic column count (base-form__main--grid-N) AND an explicit
+     tab({ columns }) grid (data-columns, BaseForm.tsx's tabGridStyle) both
+     set grid-template-columns with !important on .base-form__sections-container
+     itself — a rule on the ancestor, or without !important, never wins
+     against those. Every schema form that declares multi-column tabs or
+     sections (e.g. orderSchema.ts's columns: '1fr 1fr') relied on this to
+     collapse on mobile; it silently didn't. */
+  .base-form__main--grid-2 .base-form__sections-container,
+  .base-form__main--grid-3 .base-form__sections-container,
+  .base-form__sections-container[data-columns] {
+    grid-template-columns: 1fr !important;
   }
 
   .base-form__main {

@@ -415,17 +415,13 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
   return (
     <>
     {invoiceModal}
+    {/* Width/sticky/max-height/scroll are owned by BaseForm's .base-form__layout-panel
+        wrapper (sidePanel prop) — this Paper is visual only. */}
     <Paper
       variant="outlined"
       sx={{
-        width: 300,
-        flexShrink: 0,
+        width: '100%',
         borderRadius: 2,
-        alignSelf: 'flex-start',
-        position: 'sticky',
-        top: 0,
-        maxHeight: 'calc(100vh - 220px)',
-        overflowY: 'auto',
         bgcolor: 'background.paper',
       }}
     >

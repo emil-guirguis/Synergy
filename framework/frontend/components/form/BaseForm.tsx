@@ -99,6 +99,15 @@ export interface BaseFormProps {
   /** Optional content rendered on the right side of the tab header bar */
   tabHeaderActions?: React.ReactNode;
   /**
+   * Optional panel rendered beside the form (e.g. a linked-records summary).
+   * BaseForm owns the responsive composition: side-by-side with a fixed
+   * panel width above `sidePanelBreakpoint`, stacked full-width below it —
+   * so callers don't each re-implement the same flex/breakpoint logic.
+   */
+  sidePanel?: React.ReactNode;
+  /** Side panel width above the 768px stacking breakpoint. Default 300px. */
+  sidePanelWidth?: number | string;
+  /**
    * Tab names to drop from this form. For a tab whose fields have to stay in the
    * schema because the list's columns and filters are generated from them, while
    * the form itself shows them somewhere else (or not at all).
@@ -169,6 +178,8 @@ export const BaseForm: React.FC<BaseFormProps> = ({
   variant,
   tabHeaderActions,
   hiddenTabs,
+  sidePanel,
+  sidePanelWidth = 300,
 }) => {
   const formClassName = className ? `base-form ${className}` : 'base-form';
   const [activeTab, setActiveTab] = useState<string>('');
@@ -666,7 +677,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
     children
   );
 
-  return (
+  const formElement = (
     <form
       id={`form-${schemaName || 'base'}`}
       onSubmit={handleFormSubmit}
@@ -706,7 +717,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
           />
         );
       })()}
-      
+
       <div className="base-form__content">
         <div className={`base-form__main ${gridClass}`}>
           {shouldRenderFormContent ? formContent : null}
@@ -716,9 +727,22 @@ export const BaseForm: React.FC<BaseFormProps> = ({
       </div>
     </form>
   );
+
+  // No side panel: unchanged, no extra wrapper. With one, BaseForm owns the
+  // responsive split (row + fixed panel width above 768px, stacked full-width
+  // below it — see .base-form__layout* in BaseForm.css) so callers don't each
+  // reimplement the same breakpoint.
+  if (!sidePanel) return formElement;
+
+  return (
+    <div
+      className="base-form__layout"
+      style={{ '--side-panel-width': typeof sidePanelWidth === 'number' ? `${sidePanelWidth}px` : sidePanelWidth } as React.CSSProperties}
+    >
+      <div className="base-form__layout-main">{formElement}</div>
+      <div className="base-form__layout-panel">{sidePanel}</div>
+    </div>
+  );
 };
-        // <Sidebar sections={allSidebarSections}>
-        //   {sidebarChildren}
-        // </Sidebar>
 
 export default BaseForm;

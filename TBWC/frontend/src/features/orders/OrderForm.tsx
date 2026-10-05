@@ -100,11 +100,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
     );
   }
 
-  // Form on the left, QB-style billing panel pinned right (linked invoices +
-  // packing slips). Only for a saved order — the panel keys off the record id.
+  // QB-style billing panel (linked invoices + packing slips), pinned beside
+  // the form — only for a saved order, since the panel keys off the record
+  // id. BaseForm's sidePanel prop owns the responsive row/stack split.
   return (
-    <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
         <BaseForm
           schemaName="order"
           entity={freshOrder}
@@ -117,6 +116,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           isDisabled={readOnly}
           hiddenTabs={hiddenTabs}
           fieldsToClean={['id', 'lines', 'documents']}
+          sidePanel={freshOrder?.id ? <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={isAdmin} /> : undefined}
           renderCustomField={(fieldName, fieldDef, value) => {
             if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} freight={freshOrder?.freight} hideAmounts={hideLineAmounts} />;
             // shipping_tracking is free-typed shipping notes off the
@@ -176,11 +176,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
         return null;
       }}
     />
-      </Box>
-      {freshOrder?.id && (
-        <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={isAdmin} />
-      )}
-    </Box>
   );
 };
 

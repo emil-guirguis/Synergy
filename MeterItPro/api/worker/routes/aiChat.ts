@@ -20,6 +20,12 @@ import {
   AI_CHAT_SCOPE_GUARDRAIL,
 } from '@meterit/framework-backend/api/base/aiChat';
 import { toClaudeTools, toClaudeMessages, fromClaudeMessage } from '../claudeChatAdapter';
+import {
+  executeMemoryCommand,
+  AI_MEMORY_TOOL_NAME,
+  AI_MEMORY_CLAUDE_TOOL,
+  AI_MEMORY_GUIDELINE,
+} from '@meterit/framework-backend/api/base/aiMemory';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -276,7 +282,7 @@ app.post('/', async (c) => {
   }
 
   const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
-  const claudeTools = toClaudeTools(TOOLS);
+  const claudeTools: Anthropic.ToolUnion[] = [...toClaudeTools(TOOLS), AI_MEMORY_CLAUDE_TOOL];
 
   const systemPrompt = `You are an AI assistant (Zenith) for MeterItPro, a facility energy management platform.
 You help facility managers understand their meter data, identify issues, and make sense of their energy consumption.
@@ -290,6 +296,8 @@ Guidelines:
 - When you spot a problem (stale meter, missed readings, high demand), mention it proactively.
 - If a meter has not reported in over 48 hours, flag it as potentially offline.
 - Today's date: ${new Date().toISOString().split('T')[0]}
+
+${AI_MEMORY_GUIDELINE} Saving or recalling memory is always in scope.
 
 ${AI_CHAT_SCOPE_GUARDRAIL}`;
 
@@ -310,7 +318,10 @@ ${AI_CHAT_SCOPE_GUARDRAIL}`;
         });
         return fromClaudeMessage(res);
       },
-      executeTool: (toolName, toolInput) => executeTool(c.env, tenantId, toolName, toolInput),
+      executeTool: (toolName, toolInput) =>
+        toolName === AI_MEMORY_TOOL_NAME
+          ? executeMemoryCommand((sql, params) => execQuery(c.env, sql, params, 'ai_memory'), tenantId, toolInput)
+          : executeTool(c.env, tenantId, toolName, toolInput),
     });
 
     if (outOfScope) {
