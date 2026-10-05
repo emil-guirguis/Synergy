@@ -13,8 +13,8 @@ import {
   Button,
   Checkbox,
   Collapse,
-  Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputLabel,
   ListItemIcon,
@@ -42,6 +42,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import EmailIcon from '@mui/icons-material/Email';
 import {
   listDocsTree,
+  loadRootChildren,
+  loadFolderChildren,
   uploadDoc,
   removeDoc,
   moveDoc,
@@ -62,9 +64,17 @@ import {
 const NEW = '__new__';
 const TYPE_LABEL: Record<DocType, string> = { rep: 'Rep', employee: 'Employee', all: 'All' };
 
-/** Files with no row in rep_doc_type default to 'all' (visible to everyone). */
+/** A file or folder with no row of its own inherits the nearest ancestor folder's
+ * type (same table, folder paths are keys too); no row anywhere up the chain
+ * defaults to 'all' (visible to everyone). */
 function typeOf(docTypes: Record<string, DocType>, path: string): DocType {
-  return docTypes[path] ?? 'all';
+  let p = path;
+  for (;;) {
+    if (docTypes[p] != null) return docTypes[p];
+    const slash = p.lastIndexOf('/');
+    if (slash < 0) return 'all';
+    p = p.slice(0, slash);
+  }
 }
 
 /** Keep only files passing `keep`, recursively; prune folders left with nothing under them. */
@@ -162,6 +172,19 @@ function readDragPaths(dt: DataTransfer): string[] {
   return [raw];
 }
 
+/** Replace the node at `path` (any depth, "/"-joined) with `updater(node)`, immutably. */
+function updateTreeAt(tree: DocTree, path: string, updater: (cat: DocCategory) => DocCategory): DocTree {
+  const segs = path.split('/');
+  function recur(cats: DocCategory[], idx: number): DocCategory[] {
+    return cats.map((c) => {
+      if (c.name !== segs[idx]) return c;
+      if (idx === segs.length - 1) return updater(c);
+      return { ...c, subs: recur(c.subs, idx + 1) };
+    });
+  }
+  return { ...tree, categories: recur(tree.categories, 0) };
+}
+
 /** Find the folder node at `dir` (any depth, "/"-joined path), or null if it doesn't exist. */
 function folderAt(tree: DocTree, dir: string): DocCategory | null {
   const segs = dir.split('/');
@@ -226,6 +249,10 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setOpen((o) => ({ ...o, [key]: !o[key] }));
 
+  // Default: lazy per-folder loading (fast — one request per expand). Checking this
+  // trades that for one full recursive walk, needed to show accurate folder counts.
+  const [showCounts, setShowCounts] = useState(false);
+
   // Multi-select for bulk drag-and-drop moves.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const toggleSelect = (path: string) =>
@@ -240,10 +267,13 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
   const [sharePath, setSharePath] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (full = showCounts) => {
     setLoading(true);
     try {
-      const [t, dt] = await Promise.all([listDocsTree(), getDocTypes().catch(() => ({}))]);
+      const [t, dt] = await Promise.all([
+        full ? listDocsTree() : loadRootChildren(),
+        getDocTypes().catch(() => ({})),
+      ]);
       setTree(t);
       setDocTypes(dt);
     } catch (e) {
@@ -251,7 +281,60 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showCounts]);
+
+  async function onToggleShowCounts(checked: boolean) {
+    setShowCounts(checked);
+    if (checked) await load(true);
+  }
+
+  /** Fetch a folder's children the first time it's expanded — no-op once loaded. */
+  async function ensureFolderLoaded(cat: DocCategory) {
+    if (cat.loaded !== false) return;
+    try {
+      const { files, subs } = await loadFolderChildren(cat.path);
+      setTree((t) => updateTreeAt(t, cat.path, (c) => ({ ...c, files, subs, loaded: true })));
+    } catch (e) {
+      setMsg({ text: (e as Error).message || 'Could not load folder', severity: 'error' });
+    }
+  }
+
+  /** Parent directory of `path` ("" = root). */
+  function dirOf(path: string): string {
+    const slash = path.lastIndexOf('/');
+    return slash >= 0 ? path.slice(0, slash) : '';
+  }
+
+  /** Re-fetch root + every ancestor down to `dir` after a mutation, merging onto the
+   * existing tree (preserves other already-loaded folders instead of collapsing them).
+   * Works the same whether or not `showCounts` is on — a folder already `loaded: true`
+   * stays that way for everything untouched by the mutation, so counts stay accurate. */
+  async function refreshPath(dir: string) {
+    try {
+      const rootShallow = await loadRootChildren();
+      setTree((t) => {
+        const byName = new Map(t.categories.map((c) => [c.name, c]));
+        const categories = rootShallow.categories.map((stub) => byName.get(stub.name) ?? stub);
+        return { rootFiles: rootShallow.rootFiles, categories };
+      });
+      if (!dir) return;
+      const segs = dir.split('/');
+      let acc = '';
+      for (const seg of segs) {
+        acc = acc ? `${acc}/${seg}` : seg;
+        const { files, subs } = await loadFolderChildren(acc);
+        setTree((t) =>
+          updateTreeAt(t, acc, (c) => {
+            const byName = new Map(c.subs.map((s) => [s.name, s]));
+            const mergedSubs = subs.map((stub) => byName.get(stub.name) ?? stub);
+            return { ...c, files, subs: mergedSubs, loaded: true };
+          })
+        );
+      }
+    } catch (e) {
+      setMsg({ text: (e as Error).message || 'Could not refresh', severity: 'error' });
+    }
+  }
 
   // Reps only ever see 'all' + 'rep' docs — 'employee' stays hidden regardless of typeSel.
   const filteredTree = useMemo(() => {
@@ -281,7 +364,14 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     void load();
   }, [load]);
 
-  // Subcategory options depend on the chosen (existing) category.
+  // Subcategory options depend on the chosen (existing) category — fetch it lazily
+  // the moment it's picked, same as expanding it in the tree view.
+  useEffect(() => {
+    if (!catSel || catSel === NEW) return;
+    const match = tree.categories.find((c) => c.name === catSel);
+    if (match) void ensureFolderLoaded(match);
+  }, [catSel, tree.categories]);
+
   const subOptions = useMemo(() => {
     const match = tree.categories.find((c) => c.name === catSel);
     return match ? match.subs.map((s) => s.name) : [];
@@ -314,7 +404,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
       }
       setMsg({ text: `Uploaded ${files.length} file(s) to ${prefix}`, severity: 'success' });
       setFiles([]);
-      await load();
+      await refreshPath(prefix);
     } catch (e) {
       setMsg({ text: (e as Error).message || 'Upload failed', severity: 'error' });
     } finally {
@@ -332,9 +422,40 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
         // Best-effort cleanup — the file is gone either way.
       }
       setMsg({ text: `Deleted ${path}`, severity: 'success' });
-      await load();
+      await refreshPath(dirOf(path));
     } catch (e) {
       setMsg({ text: (e as Error).message || 'Delete failed', severity: 'error' });
+    }
+  }
+
+  /** Storage folders are implicit (just a shared path prefix) — only delete-able when
+   * genuinely empty. Always re-fetches fresh before deciding, since the tree's local
+   * copy of this folder may be stale or an unexpanded lazy stub. */
+  async function onDeleteFolder(cat: DocCategory) {
+    if (!window.confirm(`Delete "${cat.path}"? Only works if it's empty.`)) return;
+    try {
+      const { files, subs } = await loadFolderChildren(cat.path);
+      if (files.length > 0 || subs.length > 0) {
+        setMsg({
+          text: `Can't delete "${cat.path}" — it still has ${files.length} file(s) and ${subs.length} subfolder(s). Remove those first.`,
+          severity: 'error',
+        });
+        return;
+      }
+      try {
+        await removeDoc(`${cat.path}/.emptyFolderPlaceholder`);
+      } catch {
+        // No placeholder object to remove — Storage already has nothing under this prefix.
+      }
+      try {
+        await deleteDocType(cat.path);
+      } catch {
+        // Best-effort cleanup — the folder is gone either way.
+      }
+      setMsg({ text: `Deleted ${cat.path}`, severity: 'success' });
+      await refreshPath(dirOf(cat.path));
+    } catch (e) {
+      setMsg({ text: (e as Error).message || 'Could not delete folder', severity: 'error' });
     }
   }
 
@@ -389,6 +510,12 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
   function onOpenInBrowser() {
     if (!shareUrl) return;
     window.open(shareUrl, '_blank', 'noopener');
+    closeShare();
+  }
+
+  async function onDownloadFromShare() {
+    if (!sharePath) return;
+    await onDownload(sharePath);
     closeShare();
   }
 
@@ -459,7 +586,8 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
         severity: 'error',
       });
     }
-    await load();
+    const dirs = new Set([targetDir, ...toMove.map((p) => dirOf(p))]);
+    for (const dir of dirs) await refreshPath(dir);
   }
 
   /** OS drag-drop of files/folders onto the tree — uploads each, preserving nested folder structure under `targetDir`. */
@@ -484,7 +612,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     } else {
       setMsg({ text: `Uploaded ${uploaded} file(s), ${failed} failed: ${lastError}`, severity: 'error' });
     }
-    await load();
+    await refreshPath(targetDir);
   }
 
   /** What to drag: the whole selection if this file is part of it, else just this file. */
@@ -518,7 +646,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
         // Best-effort — the rename itself succeeded either way.
       }
       setMsg({ text: `Renamed to ${newPath}`, severity: 'success' });
-      await load();
+      await refreshPath(dir);
     } catch (e) {
       setMsg({ text: (e as Error).message || 'Rename failed', severity: 'error' });
     }
@@ -640,6 +768,23 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
         </Paper>
       )}
 
+      <Stack direction="row" alignItems="center" justifyContent="flex-end" sx={{ mb: 1 }}>
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              checked={showCounts}
+              onChange={(e) => void onToggleShowCounts(e.target.checked)}
+            />
+          }
+          label={
+            <Typography variant="caption" color="text.secondary">
+              Show folder counts {showCounts && loading ? '(loading…)' : ''}
+            </Typography>
+          }
+        />
+      </Stack>
+
       {/* ---- Tree ---- */}
       <Paper
         variant="outlined"
@@ -696,6 +841,8 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
                 depth={0}
                 open={open}
                 toggle={toggle}
+                onExpand={ensureFolderLoaded}
+                showCounts={showCounts}
                 readOnly={readOnly}
                 docTypes={docTypes}
                 onTypeChange={onTypeChange}
@@ -703,6 +850,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
                 onDownload={onDownload}
                 onShare={onShare}
                 onDelete={onDelete}
+                onDeleteFolder={onDeleteFolder}
                 onRename={onRename}
                 onMoveFiles={onMoveFiles}
                 onUploadDropped={onUploadDropped}
@@ -751,12 +899,17 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
           </ListItemIcon>
           <ListItemText>Email</ListItemText>
         </MenuItem>
-        <Divider />
         <MenuItem onClick={onCopyShareLink} disabled={!shareUrl}>
           <ListItemIcon>
             <ContentCopyIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText>Copy link</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={onDownloadFromShare} disabled={!sharePath}>
+          <ListItemIcon>
+            <DownloadIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Download</ListItemText>
         </MenuItem>
       </Menu>
     </Box>
@@ -776,9 +929,13 @@ function FolderHeader({
   targetDir,
   onMoveFiles,
   onUploadDropped,
+  type,
+  onTypeChange,
+  onDeleteFolder,
 }: {
   name: string;
-  count: number;
+  /** Undefined = don't know (lazy, not loaded) — hide the badge rather than show a wrong number. */
+  count?: number;
   isOpen: boolean;
   onClick: () => void;
   depth: number;
@@ -786,6 +943,11 @@ function FolderHeader({
   targetDir?: string;
   onMoveFiles?: (paths: string[], targetDir: string) => void;
   onUploadDropped?: (dropped: DroppedFile[], targetDir: string) => void;
+  /** Omit (readOnly) to hide the rep/employee/all selector. */
+  type?: DocType;
+  onTypeChange?: (type: DocType) => void;
+  /** Omit (readOnly) to hide the delete button. */
+  onDeleteFolder?: () => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const canDrop = (!!onMoveFiles || !!onUploadDropped) && targetDir != null;
@@ -838,9 +1000,38 @@ function FolderHeader({
       <Typography variant="body2" fontWeight={600}>
         {name}
       </Typography>
-      <Typography variant="caption" color="text.secondary">
-        {count}
-      </Typography>
+      {count != null && (
+        <Typography variant="caption" color="text.secondary">
+          {count}
+        </Typography>
+      )}
+      <Box sx={{ flex: 1 }} />
+      {type != null && onTypeChange && (
+        <Select
+          size="small"
+          variant="standard"
+          value={type}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => onTypeChange(e.target.value as DocType)}
+          sx={{ minWidth: 90, fontSize: '0.8125rem' }}
+        >
+          <MenuItem value="all">All</MenuItem>
+          <MenuItem value="rep">Rep</MenuItem>
+          <MenuItem value="employee">Employee</MenuItem>
+        </Select>
+      )}
+      {onDeleteFolder && (
+        <IconButton
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteFolder();
+          }}
+          title="Delete folder (must be empty)"
+        >
+          <DeleteOutlineIcon fontSize="small" />
+        </IconButton>
+      )}
     </Box>
   );
 }
@@ -851,6 +1042,8 @@ function FolderRow({
   depth,
   open,
   toggle,
+  onExpand,
+  showCounts,
   readOnly,
   docTypes,
   onTypeChange,
@@ -858,6 +1051,7 @@ function FolderRow({
   onDownload,
   onShare,
   onDelete,
+  onDeleteFolder,
   onRename,
   onMoveFiles,
   onUploadDropped,
@@ -869,6 +1063,11 @@ function FolderRow({
   depth: number;
   open: Record<string, boolean>;
   toggle: (key: string) => void;
+  /** Fetches this folder's children the first time it's opened (no-op once loaded). */
+  onExpand: (cat: DocCategory) => void | Promise<void>;
+  /** Only true right after the "show counts" full load — otherwise a partially-loaded
+   * subtree would show an undercount, so the badge stays hidden. */
+  showCounts: boolean;
   readOnly: boolean;
   docTypes: Record<string, DocType>;
   onTypeChange: (path: string, type: DocType) => void;
@@ -876,6 +1075,7 @@ function FolderRow({
   onDownload: (path: string) => void;
   onShare: (path: string, anchor: HTMLElement) => void;
   onDelete: (path: string) => void;
+  onDeleteFolder: (cat: DocCategory) => void;
   onRename: (path: string) => void;
   onMoveFiles: (paths: string[], targetDir: string) => void;
   onUploadDropped: (dropped: DroppedFile[], targetDir: string) => void;
@@ -889,13 +1089,19 @@ function FolderRow({
     <Box>
       <FolderHeader
         name={cat.name}
-        count={countFiles(cat)}
+        count={showCounts ? countFiles(cat) : undefined}
         isOpen={isOpen}
-        onClick={() => toggle(key)}
+        onClick={() => {
+          if (!isOpen) void onExpand(cat);
+          toggle(key);
+        }}
         depth={depth}
         targetDir={readOnly ? undefined : cat.path}
         onMoveFiles={readOnly ? undefined : onMoveFiles}
         onUploadDropped={readOnly ? undefined : onUploadDropped}
+        type={readOnly ? undefined : typeOf(docTypes, cat.path)}
+        onTypeChange={readOnly ? undefined : (type) => onTypeChange(cat.path, type)}
+        onDeleteFolder={readOnly ? undefined : () => onDeleteFolder(cat)}
       />
       <Collapse in={isOpen} unmountOnExit>
         {cat.files.map((f) => (
@@ -923,6 +1129,8 @@ function FolderRow({
             depth={depth + 1}
             open={open}
             toggle={toggle}
+            onExpand={onExpand}
+            showCounts={showCounts}
             readOnly={readOnly}
             docTypes={docTypes}
             onTypeChange={onTypeChange}
@@ -930,6 +1138,7 @@ function FolderRow({
             onDownload={onDownload}
             onShare={onShare}
             onDelete={onDelete}
+            onDeleteFolder={onDeleteFolder}
             onRename={onRename}
             onMoveFiles={onMoveFiles}
             onUploadDropped={onUploadDropped}

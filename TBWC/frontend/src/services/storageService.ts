@@ -31,6 +31,8 @@ export interface DocCategory {
   path: string;
   files: DocFile[];
   subs: DocCategory[];
+  /** false = stub node (name known, children not fetched yet) from a lazy listing. Absent/true = children are real. */
+  loaded?: boolean;
 }
 export interface DocTree {
   rootFiles: DocFile[];
@@ -68,8 +70,37 @@ interface StorageListEntry {
   metadata?: { size?: number } | null;
 }
 
+/** Caps concurrent `list()` calls across the whole tree walk — full Promise.all fan-out
+ * opens one Storage/Postgres connection per folder at once and trips Supabase's connection
+ * cap; fully sequential is safe but slow. This bounds concurrency instead of killing it. */
+function createLimiter(max: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+  return function limit<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const run = () => {
+        active++;
+        fn()
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            const next = queue.shift();
+            if (next) next();
+          });
+      };
+      if (active < max) run();
+      else queue.push(run);
+    });
+  };
+}
+const limitListCall = createLimiter(4);
+
 /** One directory listing (non-recursive) under `prefix` (""=bucket root). */
 async function list(prefix: string): Promise<{ files: DocFile[]; folders: string[] }> {
+  return limitListCall(() => listRaw(prefix));
+}
+
+async function listRaw(prefix: string): Promise<{ files: DocFile[]; folders: string[] }> {
   const res = await fetch(`${storageBase()}/object/list/${DOCS_BUCKET}`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -100,18 +131,49 @@ async function list(prefix: string): Promise<{ files: DocFile[]; folders: string
   return { files, folders };
 }
 
-/** Walk `path` and all its descendants into folder nodes, however deep (OS drag-drop can nest arbitrarily). */
+/** Walk `path` and all its descendants into folder nodes, however deep (OS drag-drop can nest arbitrarily).
+ * Fan-out is back to Promise.all — `list()` itself is concurrency-capped now, so this
+ * stays parallel (fast) without re-tripping Supabase's connection limit. */
 async function listFolder(name: string, path: string): Promise<DocCategory> {
   const { files, folders } = await list(path);
   const subs = await Promise.all(folders.map((sub) => listFolder(sub, `${path}/${sub}`)));
-  return { name, path, files, subs };
+  return { name, path, files, subs, loaded: true };
 }
 
-/** Walk the whole bucket into an arbitrarily-deep folder tree. */
+/** Walk the whole bucket into an arbitrarily-deep folder tree — every node fully fetched.
+ * Used only for the "show counts" opt-in, since this is the only way to get an accurate
+ * recursive file count per folder. */
 export async function listDocsTree(): Promise<DocTree> {
   const root = await list('');
   const categories = await Promise.all(root.folders.map((cat) => listFolder(cat, cat)));
   return { rootFiles: root.files, categories };
+}
+
+/** Root-only listing — one request, folders come back as unloaded stubs. Pair with
+ * `loadFolderChildren` to fetch a folder's contents the moment the user expands it. */
+export async function loadRootChildren(): Promise<DocTree> {
+  const root = await list('');
+  const categories: DocCategory[] = root.folders.map((name) => ({
+    name,
+    path: name,
+    files: [],
+    subs: [],
+    loaded: false,
+  }));
+  return { rootFiles: root.files, categories };
+}
+
+/** One folder's direct children (files + stub subfolders), fetched on demand. */
+export async function loadFolderChildren(path: string): Promise<{ files: DocFile[]; subs: DocCategory[] }> {
+  const { files, folders } = await list(path);
+  const subs: DocCategory[] = folders.map((name) => ({
+    name,
+    path: `${path}/${name}`,
+    files: [],
+    subs: [],
+    loaded: false,
+  }));
+  return { files, subs };
 }
 
 /** Upload one file to `path` (overwrites — upsert). */
