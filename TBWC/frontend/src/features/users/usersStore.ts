@@ -62,6 +62,15 @@ export const useUsersStore = createEntityStore<User & { id: string }>(usersServi
 
 export const useUsers = createEntityHook(useUsersStore);
 
+/** Dashboard-card counts: users missing a role and/or a linked QB sales rep. */
+export async function getUserRoleRepCounts(): Promise<{ noRole: number; noQbRep: number }> {
+  const { items } = await usersService.getAll({ limit: 1000 });
+  return {
+    noRole: items.filter((u: any) => u.role_id == null).length,
+    noQbRep: items.filter((u: any) => u.qb_sales_rep_id == null).length,
+  };
+}
+
 export const useUsersEnhanced = () => {
   const users = useUsers();
   return {

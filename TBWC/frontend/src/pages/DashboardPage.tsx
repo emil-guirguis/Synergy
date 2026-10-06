@@ -1,6 +1,7 @@
 import { Box, Stack, Typography } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 import RepInquiriesCard from '../features/repPortal/RepInquiriesCard';
+import UserDataGapsCard from '../features/repPortal/UserDataGapsCard';
 import RepStatsCards from '../features/repPortal/RepStatsCards';
 import OrderAlertsCards from '../features/orders/OrderAlertsCards';
 import YearlyOrderTotalCard from '../features/orders/YearlyOrderTotalCard';
@@ -24,6 +25,7 @@ export default function DashboardPage() {
       {isAdmin ? (
         <Stack spacing={3}>
           <RepInquiriesCard />
+          <UserDataGapsCard />
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             <YearlyOrderTotalCard />
             <ReceivablesCard />
