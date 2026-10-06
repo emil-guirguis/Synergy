@@ -27,13 +27,22 @@ export interface EntityManagementPageProps<T = any> {
   showSaveButton?: boolean;
   /**
    * Render the list. Receives onEdit and onCreate callbacks.
-   * Wire these to your list component's edit/create props.
+   * Wire these to your list component's edit/create props. onCreate takes an
+   * optional partial entity — pre-fills the new-record form (e.g. a second
+   * "create" button that bakes in a fixed field value) without affecting
+   * isNew, which is still driven off `selected === null`.
    */
-  renderList: (props: { onEdit: (entity: T) => void; onCreate: () => void }) => React.ReactNode;
+  renderList: (props: { onEdit: (entity: T) => void; onCreate: (initial?: Partial<T>) => void }) => React.ReactNode;
   /**
    * Render the form inside the modal.
    * Called only while the modal is open.
-   * Use entity === undefined to detect "new" mode.
+   * Use entity === undefined to detect "new" mode. Note: when opened via
+   * onCreate(initial) with partial defaults, `entity` is only AS GOOD AS what
+   * the caller passed to onCreate — not necessarily a complete T — even
+   * though isNew is still true. Kept typed as T (not Partial<T>) here so
+   * every existing renderForm callback keeps compiling unchanged; a form that
+   * uses create-with-defaults (see OrderForm) should declare its own looser
+   * prop type for the entity it actually receives.
    */
   renderForm: (props: { entity: T | undefined; onCancel: () => void; isNew: boolean }) => React.ReactNode;
 }
@@ -73,17 +82,20 @@ export function EntityManagementPage<T = any>({
   renderForm,
 }: EntityManagementPageProps<T>) {
   const [selected, setSelected] = useState<T | null>(null);
+  const [createDefaults, setCreateDefaults] = useState<Partial<T> | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [formKey, setFormKey] = useState(0);
 
   const handleEdit = useCallback((entity: T) => {
     setSelected(entity);
+    setCreateDefaults(null);
     setShowForm(true);
     setFormKey(k => k + 1);
   }, []);
 
-  const handleCreate = useCallback(() => {
+  const handleCreate = useCallback((initial?: Partial<T>) => {
     setSelected(null);
+    setCreateDefaults(initial ?? null);
     setShowForm(true);
     setFormKey(k => k + 1);
   }, []);
@@ -91,6 +103,7 @@ export function EntityManagementPage<T = any>({
   const handleClose = useCallback(() => {
     setShowForm(false);
     setSelected(null);
+    setCreateDefaults(null);
   }, []);
 
   // Only fetch when schemaName is given and no explicit editLabel override —
@@ -122,7 +135,11 @@ export function EntityManagementPage<T = any>({
         {showForm && (
           <React.Fragment key={formKey}>
             {renderForm({
-              entity: selected ?? undefined,
+              // Cast: createDefaults is only ever a Partial<T> (see onCreate's
+              // JSDoc above) — renderForm's own type stays T for every other
+              // caller's sake, so a partial-defaults form must re-type its own
+              // entity prop looser (e.g. OrderForm's order?: Partial<Order>).
+              entity: selected ?? (createDefaults as T | null) ?? undefined,
               onCancel: handleClose,
               isNew: selected === null,
             })}

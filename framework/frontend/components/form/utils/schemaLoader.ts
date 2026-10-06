@@ -296,7 +296,7 @@ function convertFieldDefinition(backendField: BackendFieldDefinition & { validat
     ...(backendField.formGrouping && { formGrouping: backendField.formGrouping }),
     // Preserve createOnly/referenceSearch/lineItemPicker — schema-declared
     // options a form reads off fieldDef in renderCustomField (see
-    // SchemaDefinition.js's field() and TBWC's estimateSchema.ts/EstimateForm).
+    // SchemaDefinition.js's field() and TBWC's quoteSchema.ts/QuoteForm).
     ...(backendField.createOnly != null && { createOnly: backendField.createOnly }),
     ...(backendField.referenceSearch && { referenceSearch: backendField.referenceSearch }),
     ...(backendField.lineItemPicker && { lineItemPicker: backendField.lineItemPicker }),

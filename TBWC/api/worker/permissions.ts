@@ -12,8 +12,9 @@ export const PERMISSIONS = [
   'order:read',
   'order:write',
   'order:delete',
-  'estimate:read',
-  'estimate:write',
+  'quote:read',
+  'quote:write',
+  'quote:delete',
   'invoice:read',
   'customer:read',
   'payment:read',
@@ -58,11 +59,8 @@ export const PERMISSIONS = [
   // admin-only edits (status/priority/type/assignee).
   'support:read',
   'support:write',
-  // Managing the roles themselves. Separate from setting:* even though the UI
-  // lives in Settings: granting someone role:write lets them grant themselves
-  // anything else, so it should be possible to hand out org settings without it.
-  'role:read',
-  'role:write',
+  // Role management (Settings > Roles) is gated by setting:read/setting:write
+  // directly — see routes/roles.ts — not its own permission.
 ] as const;
 
 export type TbwcPermission = (typeof PERMISSIONS)[number];
@@ -73,5 +71,5 @@ export const OWNER_COLUMN = {
   // rep_id is a legacy column an admin would have had to set by hand. See the
   // header comment in routes/orders.ts.
   order: 'sales_rep_list_id',
-  estimate: 'sales_rep_list_id',
+  quote: 'sales_rep_list_id',
 } as const;

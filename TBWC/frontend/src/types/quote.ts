@@ -1,52 +1,32 @@
-/** Quote line item (tbwc-site public.quote_line). */
-export interface QuoteLine {
-  quote_line_id?: number;
-  quote_id?: number;
-  qb_item_id: number | null;
-  part_number: string | null;
-  description: string | null;
-  qty: number;
-  unit_price: number;
-  ext_price?: number;
-  line_order?: number;
-}
-
-/** Quote header (tbwc-site public.quote). PK is `quote_id`. */
+/** Quote row shape (tbwc-site public.quote) — TBWC-owned, local-only (not
+ *  synced with or pushed to QuickBooks — see migration 070). Every field is
+ *  directly editable via quotesStore.ts / QuoteForm. */
 export interface Quote {
   quote_id: number;
   /** Normalised alias of quote_id set by the entity store (idFieldName). */
   id?: number | string;
-  quote_number: string | null;
-  project_name: string | null;
-  customer: string | null;
-  street_address: string | null;
-  city_state_zip: string | null;
-  poc: string | null;
-  cc_email: string | null;
-  status: string;
-  rep: string | null;
-  rep_id: string | null;
-  notes: string | null;
-  subtotal: number;
-  tax: number;
-  freight: number;
-  total: number;
-  /** Present on GET /:id and on create/update responses. */
-  lines?: QuoteLine[];
+  ref_number: string | null;
+  customer_list_id: string | null;
+  customer_name: string | null;
+  txn_date: string | null;
+  total: number | null;
+  /** Editable (quantity/rate/desc, plus add/remove) via the item picker — see QuoteForm. */
+  lines: QuoteLine[] | null;
+  memo: string | null;
+  sales_rep: string | null;
+  sales_rep_list_id: string | null;
+  /** TBWC-owned lifecycle flag (migration 059). */
+  status: 'quote' | 'on_hold' | 'cancelled' | null;
 }
 
-/** Payload sent to create/update a quote (server recomputes ext/subtotal/total). */
-export interface QuoteInput {
-  quote_number?: string | null;
-  project_name?: string | null;
-  customer?: string | null;
-  street_address?: string | null;
-  city_state_zip?: string | null;
-  poc?: string | null;
-  cc_email?: string | null;
-  status?: string;
-  notes?: string | null;
-  tax?: number;
-  freight?: number;
-  lines?: QuoteLine[];
+export interface QuoteLine {
+  /** Display label for the picked item (QB FullName) — set alongside
+   *  itemValue by the item picker (PickableLineItemsGrid). */
+  item: string | null;
+  /** The picked item's qb_item.qb_item_id. */
+  itemValue?: number | null;
+  desc: string | null;
+  quantity: number | null;
+  rate: number | null;
+  amount: number | null;
 }

@@ -7,8 +7,8 @@ import {
 // Mirrors the sidebar's nav order (components/layout/AppLayoutWrapper.tsx),
 // top to bottom, so the permission tree reads the same as the nav. Reports
 // has no dedicated permission module in the catalog, so it's skipped here.
-// `email`/`template`/`role` aren't in the nav — they fall through to
-// RolesForm's catalog-order fallback.
+// `email`/`template` aren't in the nav — they fall through to RolesForm's
+// catalog-order fallback.
 const ROLE_ORDER = [
   'dashboard',
   'meter',

@@ -2,8 +2,15 @@
  * Header bell — count badge + popover list, backed by whatever NotificationsApi
  * the host app hands it (see types.ts). Drop into AppLayoutConfig.notificationComponent
  * (framework/frontend/layout) to replace the layout's built-in generic dropdown.
+ *
+ * Background poll (every `refreshInterval`) diffs the fetched list against
+ * notification ids already seen this session — any new OPEN one triggers a
+ * chime + toast, so a notification that arrives while the bell is closed
+ * still gets noticed. The first load on mount only seeds the seen-set
+ * (no chime/toast for notifications that already existed before this page
+ * loaded).
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Badge,
   IconButton,
@@ -13,14 +20,15 @@ import {
   Button,
   CircularProgress,
   Alert,
+  Snackbar,
 } from '@mui/material';
 import NotificationsIcon from '@mui/icons-material/Notifications';
-import type { NotificationRecord, NotificationsApi } from './types';
+import type { NotificationRecord, NotificationsApi, NotificationSeverity } from './types';
 import NotificationList from './NotificationList';
 
 interface NotificationBellProps {
   api: NotificationsApi;
-  /** Poll interval in ms for the count badge. Default 60000. */
+  /** Poll interval in ms for picking up new notifications. Default 60000. */
   refreshInterval?: number;
 }
 
@@ -34,35 +42,88 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
+  const [toast, setToast] = useState<{ message: string; severity: NotificationSeverity } | null>(null);
 
-  const fetchNotifications = useCallback(async () => {
+  // null until the first fetch completes — that first fetch only seeds this,
+  // it never chimes/toasts (otherwise every pre-existing open notification
+  // would announce itself the moment the page loads).
+  const seenIdsRef = useRef<Set<string> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const playChime = useCallback(() => {
     try {
-      setIsLoading(true);
-      setError(null);
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioCtx();
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') void ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    } catch (err) {
+      console.error('[NotificationBell] Error playing chime:', err);
+    }
+  }, []);
+
+  // AudioContext can only be resumed as a result of a user gesture in most
+  // browsers — warm it up on the first click/keypress anywhere on the page
+  // so a chime triggered later by a background poll actually plays.
+  useEffect(() => {
+    const unlock = () => {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx && !audioCtxRef.current) audioCtxRef.current = new AudioCtx();
+      audioCtxRef.current?.resume().catch(() => {});
+    };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
+  const refresh = useCallback(async (opts: { silent?: boolean } = {}) => {
+    const silent = opts.silent ?? false;
+    try {
+      if (!silent) {
+        setIsLoading(true);
+        setError(null);
+      }
       const result = await api.list(100, 0);
+
+      const seen = seenIdsRef.current;
+      if (seen) {
+        const fresh = result.notifications.filter((n) => n.status === 'open' && !seen.has(n.id));
+        if (fresh.length > 0) {
+          playChime();
+          setToast({
+            message: fresh.length === 1 ? fresh[0].title : `${fresh[0].title} (+${fresh.length - 1} more)`,
+            severity: fresh[0].severity,
+          });
+        }
+      }
+      seenIdsRef.current = new Set(result.notifications.map((n) => n.id));
+
       setNotifications(result.notifications);
       setCount(result.total);
     } catch (err) {
       console.error('[NotificationBell] Error fetching notifications:', err);
-      setError('Failed to load notifications');
+      if (!silent) setError('Failed to load notifications');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
-  }, [api]);
-
-  const updateCount = useCallback(async () => {
-    try {
-      setCount(await api.count());
-    } catch (err) {
-      console.error('[NotificationBell] Error updating count:', err);
-    }
-  }, [api]);
+  }, [api, playChime]);
 
   useEffect(() => {
-    fetchNotifications();
-    const pollInterval = setInterval(() => {
-      updateCount();
-    }, refreshInterval);
+    refresh();
+    const pollInterval = setInterval(() => refresh({ silent: true }), refreshInterval);
     return () => clearInterval(pollInterval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshInterval, api]);
@@ -70,7 +131,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const handleBellClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget);
     setIsOpen(true);
-    fetchNotifications();
+    refresh();
   };
 
   const handleClose = () => {
@@ -170,6 +231,19 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             ))}
         </Box>
       </Popover>
+
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={6000}
+        onClose={() => setToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        {toast ? (
+          <Alert severity={toast.severity} variant="filled" onClose={() => setToast(null)}>
+            {toast.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </>
   );
 };

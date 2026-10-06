@@ -7,28 +7,28 @@ import {
   generateColumnsFromSchema,
   generateFiltersFromSchema,
 } from '@meterit/framework-frontend/components/list/utils/schemaColumnGenerator';
-import { useEstimates } from './estimatesStore';
+import { useQuotes } from './quotesStore';
 import { useAuth } from '../../hooks/useAuth';
 import { Permission } from '../../types/auth';
-import type { Estimate } from '../../types/estimate';
+import type { Quote } from '../../types/quote';
 
-interface EstimateListProps {
-  onEstimateEdit?: (estimate: Estimate) => void;
-  onEstimateCreate?: () => void;
+interface QuoteListProps {
+  onQuoteEdit?: (quote: Quote) => void;
+  onQuoteCreate?: () => void;
 }
 
-/** QuickBooks-synced (or manually drafted — see estimatesStore.ts's create())
- *  estimate list. Admins see, edit, and create every estimate; a rep sees
- *  only their own, read-only (see estimate:read/write grants, migration 056). */
-export const EstimateList: React.FC<EstimateListProps> = ({ onEstimateEdit, onEstimateCreate }) => {
+/** TBWC-local quote list. Admins see, edit, create, and delete every quote;
+ *  a rep sees only their own (read-only, but may delete one — see
+ *  quote:read/write/delete grants, migrations 056 and 075). */
+export const QuoteList: React.FC<QuoteListProps> = ({ onQuoteEdit, onQuoteCreate }) => {
   const auth = useAuth();
-  const { schema } = useSchema('estimate');
+  const { schema } = useSchema('quote');
   const [searchParams, setSearchParams] = useSearchParams();
-  const estimatesHook = useEstimates();
+  const quotesHook = useQuotes();
 
   const columns = useMemo(() => {
     if (!schema) return [];
-    return generateColumnsFromSchema<Estimate>(schema.formFields, {
+    return generateColumnsFromSchema<Quote>(schema.formFields, {
       fieldOrder: ['ref_number', 'customer_name', 'sales_rep', 'status', 'txn_date', 'total'],
       responsive: 'hide-mobile',
     });
@@ -39,14 +39,14 @@ export const EstimateList: React.FC<EstimateListProps> = ({ onEstimateEdit, onEs
     return generateFiltersFromSchema(schema.formFields);
   }, [schema]);
 
-  const baseList = useBaseList<Estimate, any>({
-    entityName: 'estimate',
-    entityNamePlural: 'estimates',
-    useStore: useEstimates,
+  const baseList = useBaseList<Quote, any>({
+    entityName: 'quote',
+    entityNamePlural: 'quotes',
+    useStore: useQuotes,
     features: {
       allowCreate: true,
       allowEdit: true,
-      allowDelete: false,
+      allowDelete: true,
       allowBulkActions: false,
       allowExport: false,
       allowImport: false,
@@ -55,30 +55,33 @@ export const EstimateList: React.FC<EstimateListProps> = ({ onEstimateEdit, onEs
       allowStats: false,
     },
     permissions: {
-      // checkPermission resolves these against the real estimate:write grant
-      // (admin only today — migration 056 gives every non-admin role
-      // estimate:read 'own' but no write at all). canUpdate below decides the
+      // checkPermission resolves create/update against the real quote:write
+      // grant (admin only today — migration 056 gives every non-admin role
+      // quote:read 'own' but no write at all). canUpdate below decides the
       // row affordance, not whether the row opens — a rep still opens it,
-      // read-only (see EstimateForm), via onView.
-      create: Permission.ESTIMATE_CREATE,
-      update: Permission.ESTIMATE_UPDATE,
+      // read-only (see QuoteForm), via onView. quote:delete (migration 075)
+      // is separate and scoped 'own' for rep/customer, so canDelete can be
+      // true for a rep even though canUpdate is false.
+      create: Permission.QUOTE_CREATE,
+      update: Permission.QUOTE_UPDATE,
+      delete: Permission.QUOTE_DELETE,
     },
     columns,
     filters,
-    onEdit: onEstimateEdit,
-    onCreate: onEstimateCreate,
+    onEdit: onQuoteEdit,
+    onCreate: onQuoteCreate,
     authContext: auth,
   });
 
-  // AI chat search results link here with ?openId=<qb_estimate_id> (see
+  // AI chat search results link here with ?openId=<quote_id> (see
   // features/ai/AiChatPage.tsx) — same pattern as OrderList/InvoiceList.
   useEffect(() => {
     const openId = searchParams.get('openId');
-    if (!openId || !onEstimateEdit) return;
-    estimatesHook
+    if (!openId || !onQuoteEdit) return;
+    quotesHook
       .fetchItem(openId)
-      .then((entity) => entity && onEstimateEdit(entity as unknown as Estimate))
-      .catch((err) => console.error('[EstimateList] Failed to open estimate from AI chat link:', err));
+      .then((entity) => entity && onQuoteEdit(entity as unknown as Quote))
+      .catch((err) => console.error('[QuoteList] Failed to open quote from AI chat link:', err));
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -91,24 +94,26 @@ export const EstimateList: React.FC<EstimateListProps> = ({ onEstimateEdit, onEs
   }, [searchParams]);
 
   return (
-    <div className="estimate-list">
+    <div className="quote-list">
       <BaseList
-        title="Estimates"
+        title="Quotes"
         filters={baseList.renderFilters()}
         data={baseList.data}
         columns={baseList.columns}
         loading={baseList.loading}
         error={baseList.error}
-        emptyMessage="No estimates found. Run a QuickBooks sync to pull estimates, or create one."
+        emptyMessage="No quotes found. Create one to get started."
         onCreateClick={baseList.canCreate ? baseList.handleCreate : undefined}
         onEdit={baseList.canUpdate ? baseList.handleEdit : undefined}
         onView={!baseList.canUpdate ? baseList.handleView : undefined}
+        onDelete={baseList.canDelete ? baseList.handleDelete : undefined}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}
       />
+      {baseList.renderDeleteConfirmation()}
     </div>
   );
 };
 
-export default EstimateList;
+export default QuoteList;

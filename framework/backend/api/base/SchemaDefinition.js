@@ -87,7 +87,7 @@ const FieldTypes = {
  * @param {string} [definition.referenceSearch.valueField] - Row field to use as the picked option's value.
  * @param {string} [definition.referenceSearch.labelField] - Row field to display as the picked option's label.
  * @param {Object} [definition.lineItemPicker] - Declares this field (expected OBJECT/array-shaped, e.g. an
- *   order/estimate's `lines`) as an addable/removable line-item grid with an async item picker per row, instead
+ *   order/quote's `lines`) as an addable/removable line-item grid with an async item picker per row, instead
  *   of a fixed-columns editable grid over already-synced rows. Only meaningful while creating a new record.
  * @param {Object} [definition.lineItemPicker.itemSearch] - Same shape as referenceSearch, for picking each
  *   line's item (e.g. { endpoint: '/inventory', valueField: 'full_name', labelField: 'full_name' }).

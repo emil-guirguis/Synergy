@@ -22,12 +22,32 @@ import type { Order } from '../../types/order';
 function getOrderStatusChips(order: Order): ChipItem[] {
   const chips: ChipItem[] = [];
 
+  // TBWC-only placeholder, never sent to QuickBooks (migration 069) — shown
+  // here instead of its own list column so "Statuses" stays the one place to
+  // scan for anything noteworthy about an order.
+  if (order.order_type === 'hold_for_release') {
+    chips.push({
+      label: 'Hold for Release',
+      variant: 'primary',
+      title: 'TBWC-only placeholder order — editable in full, never sent to QuickBooks.',
+    });
+  }
+
   // Ship Date (actual_ship_date) entered but no invoice number yet.
   if (order.actual_ship_date && !order.invoice_number) {
     chips.push({
       label: 'Not Invoiced',
       variant: 'warning',
       title: 'Ship Date is set but no Invoices created yet.',
+    });
+  }
+
+  // Financials tab never filled in (sold_for + commission are its core fields).
+  if (order.sold_for == null || order.commission == null) {
+    chips.push({
+      label: 'Missing Financials',
+      variant: 'warning',
+      title: 'Sold For has not been entered on the Financials tab.',
     });
   }
 
@@ -51,7 +71,7 @@ function getOrderStatusChips(order: Order): ChipItem[] {
 
 const STATUS_CHIPS_COLUMN: ColumnDefinition<Order> = {
   key: 'status_chips',
-  label: 'Status',
+  label: 'Statuses',
   responsive: 'always-show',
   render: (_value, row) => renderChipList(getOrderStatusChips(row)),
 };
@@ -62,6 +82,8 @@ const STATUS_CHIPS_COLUMN: ColumnDefinition<Order> = {
 const CHIP_OPTIONS: { value: string; label: string }[] = [
   { value: 'notInvoiced', label: 'Not Invoiced' },
   { value: 'notShipped', label: 'Not Shipped' },
+  { value: 'missingFinancials', label: 'Missing Financials' },
+  { value: 'holdForRelease', label: 'Hold for Release' },
 ];
 
 /** Small checkbox-popover filter — show only orders carrying at least one of
@@ -145,7 +167,7 @@ function renderCheckbox(value: boolean | null | undefined) {
 
 interface OrderListProps {
   onOrderEdit?: (order: Order) => void;
-  onOrderCreate?: () => void;
+  onOrderCreate?: (initial?: Partial<Order>) => void;
   authContext?: { checkPermission: (p: any) => boolean; user: any; scopeOf?: (p: string) => 'all' | 'own' | null };
 }
 
@@ -160,6 +182,10 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // see everyone's orders) actually widens the rep dropdown + list, not just the
   // backend query.
   const canSeeAll = auth.scopeOf?.('order:read') === 'all';
+  // Hold for Release is an admin-only affordance (same bar as the 'jay'/
+  // 'service' flags) — no reason to check a dedicated permission for a
+  // button no rep role is granted order:write to use anyway.
+  const isAdmin = !!auth.user?.is_admin;
   // A rep who manages other reps (public.user_manager) still has order:read
   // scope 'own', but the server's IN-list for "own" already covers every
   // managed rep too (orders.ts visibleRepListIds) — so this list can show
@@ -193,11 +219,20 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     if (!schema) return [];
     const cols = generateColumnsFromSchema<Order>(schema.formFields, {
       fieldOrder: canSeeAll
-        ? ['customer_name', 'build_notes', 'ref_number', 'txn_date', 'ship_no_later_than', 'actual_ship_date', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'invoice_number', 'shipped_date', 'expedite', 'service']
+        ? ['customer_name', 'build_notes', 'ref_number', 'txn_date', 'ship_no_later_than', 'actual_ship_date', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'shipped_date', 'expedite', 'service']
         : REP_FIELD_ORDER,
       responsive: 'hide-mobile',
     });
-    const visible = canSeeAll ? cols : cols.filter((col) => REP_FIELD_ORDER.includes(col.key as string));
+    // order_type isn't its own column — a hold_for_release order gets a
+    // "Hold for Release" chip in the Statuses column instead (see
+    // getOrderStatusChips), so drop the raw column the schema's showOn:
+    // ['list'] would otherwise add. Its Type filter stays (generated
+    // separately off the same schema field), which is still a reasonable way
+    // to look up every hold-for-release order. invoice_number is dropped too —
+    // never populated for a hold-for-release row, and otherwise redundant with
+    // the Statuses column's "Not Invoiced" chip and the Invoiced filter.
+    const visible = (canSeeAll ? cols : cols.filter((col) => REP_FIELD_ORDER.includes(col.key as string)))
+      .filter((col) => col.key !== 'order_type' && col.key !== 'invoice_number');
     // Admin-only: the chip rules read shipped_date, which is QB's internal
     // ship-by scheduling field — reps only ever see actual_ship_date (see
     // REP_FIELD_ORDER comment above), so don't derive a rep-facing status
@@ -380,6 +415,24 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     <div className="order-list">
       <BaseList
         title="Orders"
+        toolbarContent={
+          isAdmin && onOrderCreate ? (
+            <button
+              type="button"
+              className="base-list__toolbar-btn"
+              title="Create a TBWC-only placeholder order, editable in full, that is never sent to QuickBooks"
+              onClick={() => onOrderCreate({
+                order_type: 'hold_for_release',
+                // Pre-filled, not just defaulted server-side on save — so it's
+                // visibly set the moment the form opens (see routes/orders.ts's
+                // POST / for the same default as a fallback, not a cross-check).
+                txn_date: new Date().toISOString().slice(0, 10),
+              })}
+            >
+              + Hold for Release
+            </button>
+          ) : undefined
+        }
         filters={
           <>
             {baseList.renderFilters()}

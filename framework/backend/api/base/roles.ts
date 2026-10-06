@@ -302,29 +302,34 @@ export async function saveGrants(
   roleId: string | number,
   tenantId: number | null,
   rawGrants: unknown,
-  catalog: readonly string[]
+  catalog: readonly string[],
+  // The permission that actually gates this very endpoint (routes/roles.ts) —
+  // TBWC passes 'setting:write', MeterItPro 'settings:update'. Not a fixed
+  // 'role:write' string: role management isn't its own permission in either
+  // app, it's just part of managing Settings.
+  roleManagementPermission: string
 ): Promise<{ role_id: number; grants: ParsedGrant[] }> {
   const grants = parseGrants(rawGrants, catalog);
   const role = await ownRole(execQuery, env, roleId, tenantId);
   if (!role) throw new RoleNotFoundError();
 
-  // Refuse to leave the instance with nobody who can edit roles: if this is
-  // the last role holding role:write (among the ones this tenant can see),
-  // removing it locks everyone out of the permission model with no way back
-  // except SQL.
-  const dropsRoleWrite = !grants.some((g) => g.permission === 'role:write');
-  if (dropsRoleWrite) {
+  // Refuse to leave the instance with nobody who can manage roles: if this is
+  // the last role holding roleManagementPermission (among the ones this
+  // tenant can see), removing it locks everyone out of the permission model
+  // with no way back except SQL.
+  const dropsRoleManagement = !grants.some((g) => g.permission === roleManagementPermission);
+  if (dropsRoleManagement) {
     const others = await execQuery(
       env,
       `SELECT COUNT(*)::int AS n FROM public.role_permission rp
          JOIN public.role r ON r.role_id = rp.role_id
         WHERE (r.tenant_id IS NULL OR r.tenant_id = $1)
-          AND rp.permission = 'role:write' AND rp.role_id <> $2`,
-      [tenantId, role.role_id],
+          AND rp.permission = $3 AND rp.role_id <> $2`,
+      [tenantId, role.role_id, roleManagementPermission],
       'roles.grants.lastAdminCheck'
     );
     if ((others.rows[0]?.n ?? 0) === 0) {
-      throw new RoleConflictError('This is the only role that can manage roles — grant role:write elsewhere first.');
+      throw new RoleConflictError(`This is the only role that can manage roles — grant ${roleManagementPermission} elsewhere first.`);
     }
   }
 

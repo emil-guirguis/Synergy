@@ -8,6 +8,13 @@
  * tenant_id NULL is a system role every tenant sees and nobody edits, and one
  * carrying a tenant_id belongs to that tenant alone — see that module's
  * header for the visibility-vs-ownership distinction it enforces.
+ *
+ * Gated by settings:read/settings:update, not a dedicated role permission —
+ * managing roles is just part of managing Settings here, so whoever can get
+ * into Settings can manage them. (There used to be a separate role:read/
+ * role:write pair specifically so Settings access could be handed out
+ * without also handing out the keys to the permission model — dropped since
+ * this app doesn't need that separation.)
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
@@ -35,15 +42,15 @@ function fail(c: any, e: unknown) {
   throw e;
 }
 
-app.get('/', requirePermission('role:read'), async (c) => {
+app.get('/', requirePermission('settings:read'), async (c) => {
   const items = await listRoles(execQuery, c.env, c.get('tenantId'), { usersHaveTenant: true });
   return c.json({ success: true, data: { items } });
 });
 
-app.get('/catalog', requirePermission('role:read'), (c) =>
+app.get('/catalog', requirePermission('settings:read'), (c) =>
   c.json({ success: true, data: { permissions: PERMISSIONS } }));
 
-app.post('/', requirePermission('role:write'), async (c) => {
+app.post('/', requirePermission('settings:update'), async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   try {
     const created = await createRole(execQuery, c.env, c.get('tenantId'), body, PERMISSIONS);
@@ -54,7 +61,7 @@ app.post('/', requirePermission('role:write'), async (c) => {
   }
 });
 
-app.put('/:id', requirePermission('role:write'), async (c) => {
+app.put('/:id', requirePermission('settings:update'), async (c) => {
   const name = (await c.req.json().catch(() => ({} as any)))?.name;
   try {
     const role = await renameRole(execQuery, c.env, c.req.param('id'), c.get('tenantId'), name);
@@ -64,10 +71,10 @@ app.put('/:id', requirePermission('role:write'), async (c) => {
   }
 });
 
-app.put('/:id/grants', requirePermission('role:write'), async (c) => {
+app.put('/:id/grants', requirePermission('settings:update'), async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   try {
-    const result = await saveGrants(execQuery, c.env, c.req.param('id'), c.get('tenantId'), body?.grants, PERMISSIONS);
+    const result = await saveGrants(execQuery, c.env, c.req.param('id'), c.get('tenantId'), body?.grants, PERMISSIONS, 'settings:update');
     clearPermissionCache();
     return c.json({ success: true, data: result });
   } catch (e) {
@@ -75,7 +82,7 @@ app.put('/:id/grants', requirePermission('role:write'), async (c) => {
   }
 });
 
-app.delete('/:id', requirePermission('role:write'), async (c) => {
+app.delete('/:id', requirePermission('settings:update'), async (c) => {
   try {
     const result = await deleteRole(execQuery, c.env, c.req.param('id'), c.get('tenantId'));
     clearPermissionCache();

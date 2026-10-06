@@ -675,6 +675,18 @@ const RolesForm: React.FC<RolesFormProps> = ({
               />
               <Chip label={selected.code} size="small" variant="outlined" />
               <Box sx={{ flex: 1 }} />
+              <Button
+                size="small" disabled={!dirty || loading}
+                onClick={() => setDraft(new Map(selected.grants.map((g) => [g.permission, g])))}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="small" variant="contained" disabled={!dirty || loading}
+                onClick={() => onSaveGrants(selected.role_id, [...draft.values()])}
+              >
+                Save permissions
+              </Button>
               {!selected.is_system && (
                 <Tooltip title={selected.user_count > 0 ? 'Reassign its users first' : 'Delete role'}>
                   <span>
@@ -695,21 +707,6 @@ const RolesForm: React.FC<RolesFormProps> = ({
                 ? renderGroupNode(node.label, node.modules)
                 : renderModuleNode(node.module, node.permissions, 0, node.label)
             )}
-
-            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-              <Button
-                variant="contained" disabled={!dirty || loading}
-                onClick={() => onSaveGrants(selected.role_id, [...draft.values()])}
-              >
-                Save permissions
-              </Button>
-              <Button
-                disabled={!dirty || loading}
-                onClick={() => setDraft(new Map(selected.grants.map((g) => [g.permission, g])))}
-              >
-                Cancel
-              </Button>
-            </Box>
           </Paper>
         )}
       </Box>

@@ -138,7 +138,7 @@ const SettingsPage: React.FC = () => {
           key: 'roles',
           label: 'Roles',
           icon: <SecurityIcon fontSize="small" />,
-          description: 'What each role may do. Add a role and tick its permissions — no deploy needed.',
+          description: 'What each role may do. Add a role and tick its permissions.',
           content: <RolesPanel />,
         },
         {

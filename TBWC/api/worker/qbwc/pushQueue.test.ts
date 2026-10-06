@@ -5,7 +5,7 @@ const mockExecQuery = vi.fn<(env: any, sql: string, params?: any[]) => Promise<{
 );
 vi.mock('../db', () => ({ execQuery: (env: any, sql: string, params?: any[]) => mockExecQuery(env, sql, params) }));
 
-import { queueFieldPush, pendingPushes, pendingValue, markPushed, markFailed, promoteQueuedPush } from './pushQueue';
+import { queueFieldPush, pendingPushes, pendingValue, markPushed, markFailed } from './pushQueue';
 
 const ENV = {} as any;
 
@@ -20,34 +20,12 @@ describe('queueFieldPush', () => {
     const [, sql, params] = mockExecQuery.mock.calls[0];
     expect(sql).toMatch(/INSERT INTO public\.qbwc_push_queue/);
     expect(sql).toMatch(/ON CONFLICT \(object_type, txn_id, field_name\) DO UPDATE/);
-    expect(params).toEqual(['SalesOrder', 'TXN-1', 'memo', 'new memo', 'pending']);
+    expect(params).toEqual(['SalesOrder', 'TXN-1', 'memo', 'new memo']);
   });
 
   it('accepts a null value (clearing a field)', async () => {
     await queueFieldPush(ENV, 'SalesOrder', 'TXN-1', 'memo', null);
-    expect(mockExecQuery.mock.calls[0][2]).toEqual(['SalesOrder', 'TXN-1', 'memo', null, 'pending']);
-  });
-
-  it('stages a draft when asked, instead of defaulting to pending', async () => {
-    await queueFieldPush(ENV, 'Estimate', 'TXN-1', 'memo', 'draft memo', 'draft');
-    expect(mockExecQuery.mock.calls[0][2]).toEqual(['Estimate', 'TXN-1', 'memo', 'draft memo', 'draft']);
-  });
-});
-
-describe('promoteQueuedPush', () => {
-  it('flips draft rows to pending for the given fields and returns what was promoted', async () => {
-    mockExecQuery.mockResolvedValueOnce({ rows: [{ field_name: 'memo' }, { field_name: 'lines' }], rowCount: 2 });
-    const promoted = await promoteQueuedPush(ENV, 'Estimate', 'TXN-1', ['memo', 'lines']);
-    const [, sql, params] = mockExecQuery.mock.calls[0];
-    expect(sql).toMatch(/UPDATE public\.qbwc_push_queue SET status = 'pending'/);
-    expect(sql).toMatch(/AND status = 'draft'/);
-    expect(params).toEqual(['Estimate', 'TXN-1', ['memo', 'lines']]);
-    expect(promoted).toEqual(['memo', 'lines']);
-  });
-
-  it('is a no-op for an empty field list', async () => {
-    expect(await promoteQueuedPush(ENV, 'Estimate', 'TXN-1', [])).toEqual([]);
-    expect(mockExecQuery).not.toHaveBeenCalled();
+    expect(mockExecQuery.mock.calls[0][2]).toEqual(['SalesOrder', 'TXN-1', 'memo', null]);
   });
 });
 

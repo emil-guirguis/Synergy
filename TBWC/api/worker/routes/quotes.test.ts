@@ -38,32 +38,30 @@ vi.mock('../crud', async (importOriginal) => {
 const mockExecQuery = vi.fn();
 vi.mock('../db', () => ({
   execQuery: (...a: any[]) => mockExecQuery(...a),
+  // Tests don't exercise transactional behavior (no POST/PUT coverage below) —
+  // just run fn against the same mocked query fn so quotes.ts's import resolves.
+  withTransaction: (_env: any, fn: any) => fn((...a: any[]) => mockExecQuery(...a)),
 }));
 
-const mockQueueFieldPush = vi.fn();
-const mockPromoteQueuedPush = vi.fn();
-vi.mock('../qbwc/pushQueue', () => ({
-  queueFieldPush: (...a: any[]) => mockQueueFieldPush(...a),
-  promoteQueuedPush: (...a: any[]) => mockPromoteQueuedPush(...a),
-}));
-
-import estimatesApp from './estimates';
+import quotesApp from './quotes';
 
 const ENV = {} as any;
-const req = (path: string, init?: RequestInit) => estimatesApp.request(path, init, ENV);
+const req = (path: string, init?: RequestInit) => quotesApp.request(path, init, ENV);
 
 function repPermSet() {
-  return resolvePermissions([{ permission: 'estimate:read', scope: 'own', hiddenFields: [] }], null, PERMISSIONS);
+  return resolvePermissions([{ permission: 'quote:read', scope: 'own', hiddenFields: [] }], null, PERMISSIONS);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   currentUser = { id: 'admin', sales_rep_list_id: null };
   currentPermSet = fullAccess(PERMISSIONS);
+  // GET /:id always fetches quote_line rows via execQuery after findById.
+  mockExecQuery.mockResolvedValue({ rows: [] });
 });
 
 describe('permission gate', () => {
-  it('403s GET / without estimate:read', async () => {
+  it('403s GET / without quote:read', async () => {
     currentPermSet = resolvePermissions([], null, PERMISSIONS);
     const res = await req('/');
     expect(res.status).toBe(403);
@@ -72,7 +70,7 @@ describe('permission gate', () => {
 });
 
 describe('GET / scoping', () => {
-  it('admin (all scope) sees every estimate, no rep filter', async () => {
+  it('admin (all scope) sees every quote, no rep filter', async () => {
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
     await req('/');
     const opts = mockFindAll.mock.calls[0][1];
@@ -99,7 +97,7 @@ describe('GET / scoping', () => {
     ]);
   });
 
-  it('an unlinked rep (manages nobody) gets a filter that can never match a real estimate', async () => {
+  it('an unlinked rep (manages nobody) gets a filter that can never match a real quote', async () => {
     currentUser = { id: 'rep1', sales_rep_list_id: null };
     currentPermSet = repPermSet();
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
@@ -109,19 +107,65 @@ describe('GET / scoping', () => {
 });
 
 describe('GET /:id scoping', () => {
-  it("404s (not 403) when a rep requests another rep's estimate", async () => {
+  it("404s (not 403) when a rep requests another rep's quote", async () => {
     currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
     currentPermSet = repPermSet();
-    mockFindById.mockResolvedValue({ qb_estimate_id: 1, sales_rep_list_id: 'OTHER-REP' });
+    mockFindById.mockResolvedValue({ quote_id: 1, sales_rep_list_id: 'OTHER-REP' });
     const res = await req('/1');
     expect(res.status).toBe(404);
   });
 
-  it("a managing rep can see a managed user's estimate", async () => {
+  it("a managing rep can see a managed user's quote", async () => {
     currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123', managed_sales_rep_list_ids: ['REP-456'] };
     currentPermSet = repPermSet();
-    mockFindById.mockResolvedValue({ qb_estimate_id: 1, sales_rep_list_id: 'REP-456' });
+    mockFindById.mockResolvedValue({ quote_id: 1, sales_rep_list_id: 'REP-456' });
     const res = await req('/1');
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('DELETE /:id', () => {
+  function repDeletePermSet() {
+    return resolvePermissions(
+      [
+        { permission: 'quote:read', scope: 'own', hiddenFields: [] },
+        { permission: 'quote:delete', scope: 'own', hiddenFields: [] },
+      ],
+      null,
+      PERMISSIONS
+    );
+  }
+
+  it('403s without quote:delete', async () => {
+    currentPermSet = repPermSet(); // quote:read only, no delete grant
+    mockFindById.mockResolvedValue({ quote_id: 1, sales_rep_list_id: 'REP-123' });
+    const res = await req('/1', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+    expect(mockExecQuery).not.toHaveBeenCalled();
+  });
+
+  it("404s (not 403) when a rep (own scope) deletes another rep's quote", async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = repDeletePermSet();
+    mockFindById.mockResolvedValue({ quote_id: 1, sales_rep_list_id: 'OTHER-REP' });
+    const res = await req('/1', { method: 'DELETE' });
+    expect(res.status).toBe(404);
+    expect(mockExecQuery).not.toHaveBeenCalled();
+  });
+
+  it('a rep (own scope) can delete their own quote', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = repDeletePermSet();
+    mockFindById.mockResolvedValue({ quote_id: 1, sales_rep_list_id: 'REP-123' });
+    mockExecQuery.mockResolvedValue({ rows: [{ quote_id: 1 }] });
+    const res = await req('/1', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+  });
+
+  it('admin (all scope) deletes any quote with no ownership check', async () => {
+    mockFindById.mockResolvedValue({ quote_id: 1, sales_rep_list_id: 'ANY-REP' });
+    mockExecQuery.mockResolvedValue({ rows: [{ quote_id: 1 }] });
+    const res = await req('/1', { method: 'DELETE' });
     expect(res.status).toBe(200);
   });
 });

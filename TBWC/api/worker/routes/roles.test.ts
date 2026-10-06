@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Controllable auth: adjust `currentGrants` to exercise the permission gate.
 let currentUser: any = { id: 'admin' };
-let currentGrants: string[] = ['role:read', 'role:write'];
+let currentGrants: string[] = ['setting:read', 'setting:write'];
 const clearPermissionCache = vi.fn();
 
 vi.mock('../middleware', () => ({
@@ -40,19 +40,19 @@ function queue(...rows: any[][]) {
 beforeEach(() => {
   vi.clearAllMocks();
   currentUser = { id: 'admin' };
-  currentGrants = ['role:read', 'role:write'];
+  currentGrants = ['setting:read', 'setting:write'];
 });
 
 describe('permission gate', () => {
-  it('403s GET / without role:read', async () => {
+  it('403s GET / without setting:read', async () => {
     currentGrants = [];
     const res = await req('/');
     expect(res.status).toBe(403);
     expect(mockExecQuery).not.toHaveBeenCalled();
   });
 
-  it('403s mutating routes without role:write', async () => {
-    currentGrants = ['role:read'];
+  it('403s mutating routes without setting:write', async () => {
+    currentGrants = ['setting:read'];
     const res = await req('/', json('POST', { code: 'auditor', name: 'Auditor' }));
     expect(res.status).toBe(403);
   });
@@ -92,7 +92,8 @@ describe('GET /catalog', () => {
     const res = await req('/catalog');
     expect(res.status).toBe(200);
     const body: any = await res.json();
-    expect(body.data.permissions).toContain('role:write');
+    expect(body.data.permissions).toContain('setting:write');
+    expect(body.data.permissions).not.toContain('role:write');
     expect(mockExecQuery).not.toHaveBeenCalled();
   });
 });
@@ -178,7 +179,7 @@ describe('PUT /:id/grants', () => {
     expect(res.status).toBe(404);
   });
 
-  it('blocks dropping role:write when no other role would hold it', async () => {
+  it('blocks dropping setting:write when no other role would hold it', async () => {
     queue([{ role_id: 1, code: 'admin' }], [{ n: 0 }]);
     const res = await req('/1/grants', json('PUT', { grants: [{ permission: 'order:read' }] }));
     expect(res.status).toBe(409);
@@ -188,7 +189,7 @@ describe('PUT /:id/grants', () => {
     expect(clearPermissionCache).not.toHaveBeenCalled();
   });
 
-  it('allows dropping role:write when another role still holds it', async () => {
+  it('allows dropping setting:write when another role still holds it', async () => {
     queue([{ role_id: 1, code: 'admin' }], [{ n: 1 }]);
     mockExecQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // clear
     mockExecQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // insert
@@ -198,11 +199,11 @@ describe('PUT /:id/grants', () => {
   });
 
   it('replaces grants wholesale: clears then re-inserts each one', async () => {
-    queue([{ role_id: 2, code: 'rep' }]); // find (role:write kept, no last-admin check)
+    queue([{ role_id: 2, code: 'rep' }]); // find (setting:write kept, no last-admin check)
     mockExecQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // clear
     mockExecQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 }); // insert
     const res = await req('/2/grants', json('PUT', {
-      grants: [{ permission: 'role:write' }, { permission: 'order:read', scope: 'own' }],
+      grants: [{ permission: 'setting:write' }, { permission: 'order:read', scope: 'own' }],
     }));
     expect(res.status).toBe(200);
     expect(mockExecQuery).toHaveBeenCalledWith(

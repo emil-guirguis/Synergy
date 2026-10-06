@@ -41,6 +41,17 @@ export const orderSchema = defineSchema({
           gridColumn: '1',
           gridRow: '1 / 3',
           fields: [
+            // Always readOnly in the form itself -- the type is decided once,
+            // by which button created the row (the normal QB sync, or the
+            // list's "+ Hold for Release" button; see orders.ts POST /), and
+            // is immutable after (no route ever writes this column again).
+            // There's deliberately no in-form control to change it.
+            field({
+              name: 'order_type', order: 0, type: FieldTypes.SELECT, default: 'order', required: false,
+              readOnly: true, label: 'Type', dbField: 'order_type', showOn: ['list', 'form'], visibleFor: ['admin'],
+              enumValues: ['order', 'hold_for_release'],
+              enumLabels: { order: 'Order', hold_for_release: 'Hold for Release' },
+            }),
             field({ name: 'customer_name', order: 1, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer', dbField: 'customer_name', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'ref_number', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'SO #', description: 'Sales Order Number', dbField: 'ref_number', maxLength: 100, showOn: ['list', 'form'] }),
             field({ name: 'po_number', order: 3, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'PO #', description: 'Purchase Order Number', dbField: 'po_number', maxLength: 100, showOn: ['list', 'form'] }),
@@ -137,13 +148,17 @@ export const orderSchema = defineSchema({
           name: 'Line Items',
           order: 1,
           fields: [
-            // No dbField write-back (QB-owned, sync-only) — rendered by
-            // OrderForm's renderCustomField as a read-only EditableDataGrid.
-            // gridColumns mirrors OrderLinesGrid.tsx's own COLUMNS — kept in
-            // sync by hand (the grid isn't schema-driven), purely so Settings
-            // > Roles can list Rate/Amount as their own field-security rows
-            // (addressed as lines[].rate / lines[].amount, same as the
-            // existing hidden_fields entries for reps — migration 040).
+            // No dbField write-back — rendered by OrderForm's renderCustomField.
+            // Two UIs share this one field depending on order_type: a normal
+            // synced order gets a read-only EditableDataGrid (QB-owned,
+            // sync-only); a hold_for_release order gets an addable/removable
+            // grid with an item picker (framework's PickableLineItemsGrid,
+            // same as quoteSchema.ts's lines) since there's no QB source to
+            // build rows from. gridColumns mirrors OrderLinesGrid.tsx's own
+            // COLUMNS — kept in sync by hand (the grid isn't schema-driven),
+            // purely so Settings > Roles can list Rate/Amount as their own
+            // field-security rows (addressed as lines[].rate / lines[].amount,
+            // same as the existing hidden_fields entries for reps — migration 040).
             field({
               name: 'lines', order: 1, type: FieldTypes.OBJECT, default: null, dbField: 'lines', showOn: ['form'],
               gridColumns: [
@@ -153,6 +168,10 @@ export const orderSchema = defineSchema({
                 { key: 'rate', label: 'Rate' },
                 { key: 'amount', label: 'Amount' },
               ],
+              lineItemPicker: {
+                itemSearch: { endpoint: '/inventory', valueField: 'list_id', labelField: 'full_name' },
+                descField: 'desc', quantityField: 'quantity', rateField: 'rate',
+              },
             }),
           ],
         }),

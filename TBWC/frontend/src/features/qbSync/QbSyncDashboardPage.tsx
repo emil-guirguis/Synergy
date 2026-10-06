@@ -29,13 +29,13 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { getSummary, getRuns, requestReload, type SyncRun, type SyncSummary } from '../../services/qbSyncService';
 
 /** Tiles shown on dashboard; Vendor excluded per request. Payment (AR) re-added. */
-const OBJECTS = ['Customer', 'SalesRep', 'Item', 'SalesOrder', 'Estimate', 'Invoice', 'Payment'];
+const OBJECTS = ['Customer', 'SalesRep', 'Item', 'SalesOrder', 'Invoice', 'Payment'];
 
 const RUNS_PAGE_SIZE = 100;
 
 const LABELS: Record<string, string> = {
   Customer: 'Customers', Vendor: 'Vendors', SalesRep: 'Sales Reps', Item: 'Items',
-  Invoice: 'Invoices', Payment: 'Payments', SalesOrder: 'Sales Orders', Estimate: 'Estimates',
+  Invoice: 'Invoices', Payment: 'Payments', SalesOrder: 'Sales Orders',
 };
 
 // Sync timestamps are stored UTC; render them in the viewer's own local zone

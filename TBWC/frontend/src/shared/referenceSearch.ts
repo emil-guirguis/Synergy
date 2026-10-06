@@ -2,7 +2,7 @@
 // ReferenceSearchField / PickableLineItemsGrid (@meterit/framework-frontend) —
 // the framework knows nothing about TBWC's API base or auth, only that a
 // schema field's `referenceSearch`/`lineItemPicker.itemSearch` config names a
-// REST list endpoint to hit with `?search=`. Currently only estimateSchema.ts
+// REST list endpoint to hit with `?search=`. Currently only quoteSchema.ts
 // declares either option (customer_list_id, and lines' item picker).
 import type { ReferenceSearchConfig, ReferenceSearchOption } from '@meterit/framework-frontend/components/form';
 import { API_BASE_URL } from '../config/api';

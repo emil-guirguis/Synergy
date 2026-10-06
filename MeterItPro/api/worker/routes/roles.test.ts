@@ -37,10 +37,11 @@ const ADMIN_USER = {
   role: 'admin', active: true, tenant_id: 1, permissions: {},
 };
 
-// Every catalogued permission except role:write — used to exercise the
-// last-admin guard and the 403-without-role:write paths.
-const NO_ROLE_WRITE_GRANTS: typeof ADMIN_GRANT_ROWS = [
-  { permission: 'role:read', scope: 'all', hidden_fields: [] },
+// Used to exercise the last-admin guard and the 403-without-settings:update
+// paths (role management is gated by settings:read/settings:update, not its
+// own permission — see routes/roles.ts).
+const NO_SETTINGS_UPDATE_GRANTS: typeof ADMIN_GRANT_ROWS = [
+  { permission: 'settings:read', scope: 'all', hidden_fields: [] },
 ];
 
 function setupAuth() {
@@ -66,14 +67,14 @@ describe('Roles Routes', () => {
   });
 
   describe('permission gate', () => {
-    it('403s GET / without role:read', async () => {
-      queueAuth(mockQuery, ADMIN_USER, NO_ROLE_WRITE_GRANTS.filter((g) => g.permission !== 'role:read'));
+    it('403s GET / without settings:read', async () => {
+      queueAuth(mockQuery, ADMIN_USER, NO_SETTINGS_UPDATE_GRANTS.filter((g) => g.permission !== 'settings:read'));
       const res = await rolesApp.request('/', auth(), TEST_ENV);
       expect(res.status).toBe(403);
     });
 
-    it('403s POST / without role:write', async () => {
-      queueAuth(mockQuery, ADMIN_USER, NO_ROLE_WRITE_GRANTS);
+    it('403s POST / without settings:update', async () => {
+      queueAuth(mockQuery, ADMIN_USER, NO_SETTINGS_UPDATE_GRANTS);
       const res = await rolesApp.request('/', auth('POST', { code: 'auditor', name: 'Auditor' }), TEST_ENV);
       expect(res.status).toBe(403);
     });
@@ -118,7 +119,8 @@ describe('Roles Routes', () => {
       const res = await rolesApp.request('/catalog', auth(), TEST_ENV);
       expect(res.status).toBe(200);
       const body: any = await res.json();
-      expect(body.data.permissions).toContain('role:write');
+      expect(body.data.permissions).toContain('settings:update');
+      expect(body.data.permissions).not.toContain('role:write');
       expect(mockQuery).toHaveBeenCalledTimes(2); // only the auth lookups
     });
   });
@@ -207,7 +209,7 @@ describe('Roles Routes', () => {
       expect(res.status).toBe(404);
     });
 
-    it('blocks dropping role:write when no other role in scope would hold it', async () => {
+    it('blocks dropping settings:update when no other role in scope would hold it', async () => {
       queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ role_id: 2, code: 'auditor', is_system: false, tenant_id: 1 }] })
         .mockResolvedValueOnce({ rows: [{ n: 0 }] });
@@ -218,13 +220,13 @@ describe('Roles Routes', () => {
       expect((await res.json()).message).toContain('only role that can manage roles');
     });
 
-    it('replaces grants wholesale when role:write survives', async () => {
+    it('replaces grants wholesale when settings:update survives', async () => {
       queueAuth(mockQuery, ADMIN_USER)
         .mockResolvedValueOnce({ rows: [{ role_id: 2, code: 'auditor', is_system: false, tenant_id: 1 }] })
         .mockResolvedValueOnce({ rows: [] }) // clear
         .mockResolvedValueOnce({ rows: [] }); // insert
       const res = await rolesApp.request('/2/grants', auth('PUT', {
-        grants: [{ permission: 'role:write' }, { permission: 'meter:read', scope: 'own' }],
+        grants: [{ permission: 'settings:update' }, { permission: 'meter:read', scope: 'own' }],
       }), TEST_ENV);
       expect(res.status).toBe(200);
       expect(mockQuery.mock.calls[3][1]).toContain('DELETE FROM public.role_permission');

@@ -4,7 +4,7 @@ import ResourcesPage from '../pages/ResourcesPage';
 import NotificationsPage from '../pages/NotificationsPage';
 import { OrderManagementPage } from '../features/orders/OrderManagementPage';
 import { InventoryManagementPage } from '../features/inventory/InventoryManagementPage';
-import { EstimateManagementPage } from '../features/estimates/EstimateManagementPage';
+import { QuoteManagementPage } from '../features/quotes/QuoteManagementPage';
 import { CustomerManagementPage } from '../features/customers/CustomerManagementPage';
 import { InvoiceManagementPage } from '../features/invoices/InvoiceManagementPage';
 import { PaymentManagementPage } from '../features/payments/PaymentManagementPage';
@@ -26,8 +26,8 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/orders" element={<OrderManagementPage />} />
-      {/* Read-only for reps; the API scopes them to their own (see estimates.ts). */}
-      <Route path="/estimates" element={<EstimateManagementPage />} />
+      {/* Read-only for reps; the API scopes them to their own (see quotes.ts). */}
+      <Route path="/quotes" element={<QuoteManagementPage />} />
       <Route
         path="/resources"
         element={checkPermission('resource:read') ? <ResourcesPage /> : <Navigate to="/dashboard" replace />}

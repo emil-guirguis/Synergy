@@ -62,8 +62,9 @@ export enum Permission {
   INVENTORY_CREATE = 'inventory:create',
   INVENTORY_UPDATE = 'inventory:update',
   INVENTORY_DELETE = 'inventory:delete',
-  ESTIMATE_CREATE = 'estimate:create',
-  ESTIMATE_UPDATE = 'estimate:update',
+  QUOTE_CREATE = 'quote:create',
+  QUOTE_UPDATE = 'quote:update',
+  QUOTE_DELETE = 'quote:delete',
 }
 
 export interface LoginCredentials {

@@ -68,14 +68,22 @@ export const ordersService = {
     const data = await parse(await fetch(`${API_BASE_URL}/orders/import-index`, { headers: authHeaders() }));
     return (data.data || []) as OrderImportIndexRow[];
   },
-  // Orders exist only via the QuickBooks sync — the list disables create/delete;
-  // these throw defensively if ever called.
-  async create(): Promise<never> { throw new Error('Orders are created by the QuickBooks sync and cannot be created here.'); },
+  // Creates a Hold for Release order — the only kind creatable here (a normal
+  // order still only ever arrives via the QuickBooks sync; see routes/orders.ts).
+  async create(data: Partial<Order>) {
+    const r = await parse(await fetch(`${API_BASE_URL}/orders`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(data) }));
+    return r.data;
+  },
   async update(id: string, data: Partial<Order>) {
     const r = await parse(await fetch(`${API_BASE_URL}/orders/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }));
     return r.data;
   },
-  async delete(): Promise<never> { throw new Error('Orders are managed by the QuickBooks sync and cannot be deleted here.'); },
+  // Only ever succeeds for a Hold for Release row — a real synced order's 405
+  // surfaces as a thrown error.
+  async delete(id: string) {
+    const r = await parse(await fetch(`${API_BASE_URL}/orders/${id}`, { method: 'DELETE', headers: authHeaders() }));
+    return r.data;
+  },
 };
 
 export const useOrdersStore = createEntityStore<Order & { id: string }>(ordersService as any, {

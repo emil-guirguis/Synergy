@@ -13,6 +13,13 @@
  * TBWC-specific: auth middleware, the permission catalog, and the response
  * envelope. TBWC has no tenant concept, so tenantId is always null — see that
  * module's header for what that means for role visibility/ownership.
+ *
+ * Gated by setting:read/setting:write, not a dedicated role permission —
+ * managing roles is just part of managing Settings here, so whoever can get
+ * into Settings can manage them. (There used to be a separate role:read/
+ * role:write pair specifically so Settings access could be handed out
+ * without also handing out the keys to the permission model — dropped since
+ * this app doesn't need that separation.)
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
@@ -40,15 +47,15 @@ function fail(c: any, e: unknown) {
   throw e;
 }
 
-app.get('/', requirePermission('role:read'), async (c) => {
+app.get('/', requirePermission('setting:read'), async (c) => {
   const items = await listRoles(execQuery, c.env, null);
   return c.json({ success: true, data: { items } });
 });
 
-app.get('/catalog', requirePermission('role:read'), (c) =>
+app.get('/catalog', requirePermission('setting:read'), (c) =>
   c.json({ success: true, data: { permissions: PERMISSIONS } }));
 
-app.post('/', requirePermission('role:write'), async (c) => {
+app.post('/', requirePermission('setting:write'), async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   try {
     const created = await createRole(execQuery, c.env, null, body, PERMISSIONS);
@@ -59,7 +66,7 @@ app.post('/', requirePermission('role:write'), async (c) => {
   }
 });
 
-app.put('/:id', requirePermission('role:write'), async (c) => {
+app.put('/:id', requirePermission('setting:write'), async (c) => {
   const name = (await c.req.json().catch(() => ({} as any)))?.name;
   try {
     const role = await renameRole(execQuery, c.env, c.req.param('id'), null, name);
@@ -69,10 +76,10 @@ app.put('/:id', requirePermission('role:write'), async (c) => {
   }
 });
 
-app.put('/:id/grants', requirePermission('role:write'), async (c) => {
+app.put('/:id/grants', requirePermission('setting:write'), async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   try {
-    const result = await saveGrants(execQuery, c.env, c.req.param('id'), null, body?.grants, PERMISSIONS);
+    const result = await saveGrants(execQuery, c.env, c.req.param('id'), null, body?.grants, PERMISSIONS, 'setting:write');
     // Grants are cached per role for a minute; drop it so an edit takes effect
     // on the next request rather than whenever the TTL happens to lapse.
     clearPermissionCache();
@@ -82,7 +89,7 @@ app.put('/:id/grants', requirePermission('role:write'), async (c) => {
   }
 });
 
-app.delete('/:id', requirePermission('role:write'), async (c) => {
+app.delete('/:id', requirePermission('setting:write'), async (c) => {
   try {
     const result = await deleteRole(execQuery, c.env, c.req.param('id'), null);
     clearPermissionCache();

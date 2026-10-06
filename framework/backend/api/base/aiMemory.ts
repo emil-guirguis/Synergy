@@ -31,13 +31,11 @@ export const AI_MEMORY_CLAUDE_TOOL = { type: 'memory_20250818', name: AI_MEMORY_
 
 /** Prompt guidance on WHAT to remember — the API-injected protocol only
  *  covers checking memory, not what belongs in it. */
-export const AI_MEMORY_GUIDELINE =
-  'You have a persistent memory directory (/memories) shared by everyone who uses this chat, kept across ' +
-  'conversations. When the user teaches you something about the data (which table or column holds a figure, ' +
-  'how two tables link, what a business term means) or asks you to remember something, save it there so ' +
-  'future chats can use it, then confirm you saved it. Keep it to durable facts that help answer future ' +
-  'questions, grouped into a few topic files (e.g. /memories/schema.md, /memories/business_terms.md) rather ' +
-  'than one file per fact. Never store passwords, API keys, or other secrets.';
+export const AI_MEMORY_GUIDELINE = `You have a persistent memory directory (/memories) shared by everyone who uses this chat, kept across conversations.
+SAVE, without being asked twice: anything the user tells you that would change a future answer. That includes how the data is laid out (which table or column holds a figure, how two tables link, what a business term means) AND corrections about specific records and people - how a name is actually spelled, which record someone means by a nickname or job name, that a figure lives somewhere other than you guessed. A correction the user bothered to type is exactly the thing worth keeping.
+Take the instruction as the user phrases it. "Remember that", "note that", "for next time", "don't forget", or just stating the correction is a request to save it - never ask them to put it another way. Resolve what "she"/"he"/"they"/"it"/"that" refers to from earlier in THIS conversation, which you can see above, and save the fact about that person or record. If the conversation genuinely never named them, ask one short question - but do not claim you have no earlier context when the conversation above has it.
+CHECK memory before telling the user something cannot be found or does not exist, and whenever they use a name, term, or abbreviation you cannot resolve - a past chat may already have recorded what it means.
+Keep it to durable facts that help answer future questions, grouped into a few topic files (e.g. /memories/schema.md, /memories/business_terms.md, /memories/people.md) rather than one file per fact. Confirm what you saved, in one line. Never store passwords, API keys, or other secrets.`;
 
 const ROOT = '/memories';
 const MAX_FILE_CHARS = 20_000;

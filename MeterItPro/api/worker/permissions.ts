@@ -45,10 +45,8 @@ export const PERMISSIONS = [
   'user:delete',
   'user:read',
   'user:update',
-  // Managing the roles themselves. Separate from settings:update because
-  // role:write lets its holder grant themselves everything else.
-  'role:read',
-  'role:write',
+  // Role management (Settings > Roles) is gated by settings:read/
+  // settings:update directly — see routes/roles.ts — not its own permission.
 ] as const;
 
 export type MipPermission = (typeof PERMISSIONS)[number];

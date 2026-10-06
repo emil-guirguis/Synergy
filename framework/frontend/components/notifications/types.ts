@@ -14,6 +14,9 @@ export interface NotificationRecord {
   created_at: string;
   status: NotificationStatus;
   acknowledged_at: string | null;
+  /** Display name of whoever raised it. Null for system-raised rows (cron
+   *  thresholds, sync failures), which show no From line. */
+  created_by_name?: string | null;
 }
 
 export interface NotificationListResult {

@@ -6,6 +6,10 @@ export interface Order {
   /** Normalised alias of qb_sales_order_id set by the entity store (idFieldName). */
   id?: number | string;
   txn_id: string;
+  /** 'order' (default) = normal QB-synced row; 'hold_for_release' = TBWC-only
+   *  placeholder never pushed to QuickBooks (migration 069). Set once at
+   *  creation, immutable after — see orders.ts. */
+  order_type: 'order' | 'hold_for_release';
   ref_number: string | null;
   customer_list_id: string | null;
   customer_name: string | null;
@@ -18,6 +22,8 @@ export interface Order {
    *  nothing's pending. Same field throughout, no separate "pending" one. */
   memo: string | null;
   sales_rep: string | null;
+  /** FK to qb_sales_rep.list_id — editable (a plain dropdown, see OrderForm)
+   *  only on a hold_for_release order; QB-owned otherwise. */
   sales_rep_list_id: string | null;
   total: number | null;
   /** Denormalised from the linked invoice's FREIGHT line item (see
@@ -127,6 +133,10 @@ export interface LinkedPayment {
 
 export interface OrderLine {
   item: string | null;
+  /** The picked item's QB ListID — set alongside `item` by a hold_for_release
+   *  order's item picker (PickableLineItemsGrid). Absent on a normal
+   *  QB-synced order's lines, which carry no ListID at all. */
+  itemValue?: string | null;
   desc: string | null;
   quantity: number | null;
   rate: number | null;

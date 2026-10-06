@@ -16,7 +16,7 @@ registerIconMappings({
   dashboard: 'dashboard',
   users: 'people',
   orders: 'table_chart',
-  estimates: 'request_quote',
+  quotes: 'request_quote',
   inventory: 'inventory_2',
   customers: 'contacts',
   invoices: 'receipt_long',
@@ -36,7 +36,7 @@ registerIconMappings({
 
 export const NAV: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', path: '/dashboard', requiredPermission: 'dashboard:read' },
-  { id: 'estimates', label: 'Estimates', icon: 'estimates', path: '/estimates', disabled: true },
+  { id: 'quotes', label: 'Quotes', icon: 'quotes', path: '/quotes', requiredPermission: 'quote:read' },
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders', requiredPermission: 'order:read' },
   // Reps see Invoices too, scoped to their own by the API (see invoices.ts).
   { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices', requiredPermission: 'invoice:read' },
@@ -91,7 +91,7 @@ export const NAV: MenuItem[] = [
 
 export function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/orders')) return 'Orders';
-  if (pathname.startsWith('/estimates')) return 'Estimates';
+  if (pathname.startsWith('/quotes')) return 'Quotes';
   if (pathname.startsWith('/resources')) return 'Resources';
   if (pathname.startsWith('/notifications')) return 'Notifications';
   if (pathname.startsWith('/ai-chat')) return 'Ask AI';

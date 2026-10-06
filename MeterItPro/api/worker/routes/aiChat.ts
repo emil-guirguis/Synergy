@@ -19,6 +19,7 @@ import {
   describeAiChatError,
   AI_CHAT_SCOPE_GUARDRAIL,
 } from '@meterit/framework-backend/api/base/aiChat';
+import { checkRateLimit } from '@meterit/framework-backend/api/base/auth';
 import { toClaudeTools, toClaudeMessages, fromClaudeMessage } from '../claudeChatAdapter';
 import {
   executeMemoryCommand,
@@ -29,6 +30,31 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
+
+/** Per-user cap on AI chat calls. Every request here spends money at the model
+ *  host and can fan out to several tool round trips, and the route previously
+ *  had no limit of its own - a stuck client retrying, or a script holding a
+ *  valid token, could run up a bill unchecked. Generous enough that ordinary
+ *  use (including a fast back-and-forth in voice mode) never meets it.
+ *
+ *  The counter lives in the isolate, so the effective limit is per isolate
+ *  rather than global - enough for cost protection, not an authorisation
+ *  control (that is authenticateToken + the permission guard above). */
+const AI_CHAT_MAX_REQUESTS = 40;
+const AI_CHAT_WINDOW_MS = 5 * 60_000;
+
+app.use('*', async (c, next) => {
+  const user = c.get('user');
+  const key = `aichat:${user?.id ?? c.req.header('cf-connecting-ip') ?? 'unknown'}`;
+  if (!checkRateLimit(key, AI_CHAT_MAX_REQUESTS, AI_CHAT_WINDOW_MS)) {
+    return c.json(
+      { success: false, message: 'Too many AI requests in a short time - give it a minute and try again.' },
+      429
+    );
+  }
+  return next();
+});
+
 
 // --- Tool definitions ---------------------------------------------------------
 

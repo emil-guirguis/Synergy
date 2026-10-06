@@ -181,7 +181,7 @@ export function listModifiedFilter(sinceIso: string | null): string {
 }
 
 /** <ModifiedDateRangeFilter> filter for TRANSACTION queries (SalesOrder,
- *  Invoice, Payment, Estimate). Same offset/bump handling as
+ *  Invoice, Payment). Same offset/bump handling as
  *  listModifiedFilter — a bare FromModifiedDate here is read in QB's local
  *  time with no offset, silently shifting the incremental window. '' when
  *  `sinceIso` is null (first run — full pull). */
@@ -226,8 +226,8 @@ export function dataExtBlocks(scope: string): Array<{ name?: string; value?: str
 
 /** Extract transaction line rows (e.g. InvoiceLineRet) as a plain array.
  *  txnLineId (TxnLineID) rides along on every row — unused by most callers,
- *  but estimate.ts needs it to target an existing line in an EstimateLineMod
- *  push (QB requires it to identify which line an edit applies to). */
+ *  but needed to target an existing line in a *LineMod push (QB requires it
+ *  to identify which line an edit applies to). */
 export function lineItems(scope: string, lineRetName: string): any[] {
   return blocks(scope, lineRetName).map((ln) => {
     const item = refField(ln, 'ItemRef');

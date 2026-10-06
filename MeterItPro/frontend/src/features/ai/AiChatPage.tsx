@@ -9,12 +9,19 @@ const SUGGESTED_QUESTIONS = [
   'Give me a summary of all my meters and their latest readings.',
 ];
 
+// Up to 8 tool-call round trips on the backend (runAiChatLoop), so a slow but
+// legitimate reply takes a while. Without this the shared apiClient has no
+// timeout at all: a hung call (an Anthropic API stall) left the request
+// pending forever, `loading` never cleared, and Send and the mic stayed
+// disabled until a page reload. TBWC's client already guards this.
+const CHAT_TIMEOUT_MS = 60_000;
+
 async function sendMessage(
   message: string,
   history: { role: 'user' | 'assistant'; content: string }[]
 ): Promise<AiChatResponse> {
   try {
-    const res = await apiClient.post('/ai/chat', { message, history });
+    const res = await apiClient.post('/ai/chat', { message, history }, { timeout: CHAT_TIMEOUT_MS });
     return res.data;
   } catch (err: any) {
     throw new Error(err?.response?.data?.message ?? err?.message ?? 'Failed to reach the AI. Please try again.');

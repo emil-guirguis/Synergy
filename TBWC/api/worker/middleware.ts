@@ -111,7 +111,7 @@ export const requireAdmin = requireCheck((user) => !!user?.is_admin, 'Admin acce
  * Every QB sales-rep list_id this caller may see rows for under an "own"
  * scope: their own linked rep, plus every user they manage (flat, one level —
  * public.user_manager, baked into managed_sales_rep_list_ids above). Shared
- * by orders.ts/estimates.ts/invoices.ts so a manager's own-scope visibility
+ * by orders.ts/quotes.ts/invoices.ts so a manager's own-scope visibility
  * means the same thing everywhere rather than three hand-copied versions
  * drifting apart. Empty when unlinked and managing nobody, so the caller
  * matches zero rows rather than falling through to "every unassigned row"

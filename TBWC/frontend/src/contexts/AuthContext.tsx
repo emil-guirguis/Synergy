@@ -27,8 +27,9 @@ const BACKEND_PERMISSION: Record<string, string> = {
   'inventory:create': 'inventory:write',
   'inventory:update': 'inventory:write',
   'inventory:delete': 'inventory:write',
-  'estimate:create': 'estimate:write',
-  'estimate:update': 'estimate:write',
+  'quote:create': 'quote:write',
+  'quote:update': 'quote:write',
+  'quote:delete': 'quote:delete',
 };
 
 export interface AuthContextValue {

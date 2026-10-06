@@ -64,6 +64,9 @@ export const NotificationList: React.FC<NotificationListProps> = ({
             sx={{ py: 1.5, '&:hover': { backgroundColor: 'action.hover' } }}
           >
             <ListItemText
+              // secondary renders inside a <p> by default, and the block below
+              // is a <div> - invalid DOM that React warns about on every row.
+              secondaryTypographyProps={{ component: 'div' }}
               primary={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
@@ -91,6 +94,17 @@ export const NotificationList: React.FC<NotificationListProps> = ({
                   {notification.description && (
                     <Typography variant="caption" display="block" color="textSecondary">
                       {notification.description}
+                    </Typography>
+                  )}
+                  {notification.created_by_name && (
+                    <Typography
+                      variant="caption"
+                      display="block"
+                      color="textSecondary"
+                      sx={{ fontWeight: 600 }}
+                      data-testid={`notification-sender-${notification.id}`}
+                    >
+                      From {notification.created_by_name}
                     </Typography>
                   )}
                   <Typography variant="caption" display="block" color="textSecondary">

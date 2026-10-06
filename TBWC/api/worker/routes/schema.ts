@@ -18,7 +18,7 @@ import { canImpersonate } from '@meterit/framework-backend/api/base/auth';
 import { usersSchema } from './usersSchema';
 import { orderSchema } from './orderSchema';
 import { inventorySchema } from './inventorySchema';
-import { estimateSchema } from './estimateSchema';
+import { quoteSchema } from './quoteSchema';
 import { customersSchema } from './customersSchema';
 import { invoicesSchema } from './invoicesSchema';
 import { paymentsSchema } from './paymentsSchema';
@@ -31,7 +31,7 @@ const schemas: Record<string, any> = {
   user: usersSchema,
   order: orderSchema,
   inventory: inventorySchema,
-  estimate: estimateSchema,
+  quote: quoteSchema,
   customer: customersSchema,
   invoice: invoicesSchema,
   payment: paymentsSchema,
@@ -140,7 +140,7 @@ app.get('/:entity', async (c) => {
     if (!canImpersonate(c.env, c.get('user')?.email)) removeFormSection(json, 'Impersonate', 'impersonate_actions');
   }
 
-  if (entity === 'order' || entity === 'estimate') {
+  if (entity === 'order' || entity === 'quote') {
     const { values, labels } = await salesRepListIdOptions(c.env);
     injectFieldOptions(json, 'sales_rep_list_id', values, labels);
   }

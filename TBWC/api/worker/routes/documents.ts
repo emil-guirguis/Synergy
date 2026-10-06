@@ -26,7 +26,7 @@ app.use('*', authenticateToken);
 
 // Modules allowed to own documents. A new module adds its key here (and a
 // Documents tab in its schema) — no migration needed.
-const ENTITY_TYPES = ['order', 'estimate', 'invoice', 'inventory'] as const;
+const ENTITY_TYPES = ['order', 'quote', 'invoice', 'inventory'] as const;
 
 function isEntityType(v: unknown): v is (typeof ENTITY_TYPES)[number] {
   return typeof v === 'string' && (ENTITY_TYPES as readonly string[]).includes(v);
@@ -55,21 +55,21 @@ function forbidden(c: any) {
 // document:read/document:write (checked above by requirePermission, or by
 // resolveWriteAccess below for the mutating routes) is one flat grant
 // covering every module's attachments — it says nothing about whether the
-// caller can see or edit the *estimate* a given row is attached to. An
-// employee has document:write 'all' but no estimate:write at all (migrations
-// 040/042), so without this, they could add/delete documents on any estimate
-// despite having no access to estimates themselves. Gated by permission
-// only, not by which estimate — matching how every other permission check in
+// caller can see or edit the *quote* a given row is attached to. An
+// employee has document:write 'all' but no quote:write at all (migrations
+// 040/042), so without this, they could add/delete documents on any quote
+// despite having no access to quotes themselves. Gated by permission
+// only, not by which quote — matching how every other permission check in
 // this file works (document:read/write themselves carry no row-level scope
 // either).
-function canAccessEstimateDocs(c: any, action: 'estimate:read' | 'estimate:write'): boolean {
+function canAccessQuoteDocs(c: any, action: 'quote:read' | 'quote:write'): boolean {
   return !!c.get('permissions')?.has(action);
 }
 
 /**
  * Write access for one mutation, parking the resolved PermissionSet on the
  * context (same side effect requirePermission's own guard has) so
- * canAccessEstimateDocs above keeps working regardless of which branch below
+ * canAccessQuoteDocs above keeps working regardless of which branch below
  * grants access.
  *
  * A plain rep has no document:write grant at all (migrations/042-role-admin-
@@ -79,7 +79,7 @@ function canAccessEstimateDocs(c: any, action: 'estimate:read' | 'estimate:write
  * add/edit their own orders' documents, matching the elevated access that
  * relation already grants them over those users' orders (orders.ts's ownOnly
  * scoping). Scoped to entityType === 'order' only — it says nothing about
- * invoice/inventory/estimate documents, which stay gated by document:write.
+ * invoice/inventory/quote documents, which stay gated by document:write.
  *
  * restrictedOrderDocs says whether THIS caller's order-document access is the
  * limited kind (REP_VISIBLE_ORDER_DOC_TYPES/REP_ORDER_MAX_FILE_SIZE below) —
@@ -108,7 +108,7 @@ app.get('/', requirePermission('document:read'), async (c) => {
   const entityId = c.req.query('entity_id');
   if (!isEntityType(entityType)) return c.json({ success: false, message: 'Unknown entity_type' }, 400);
   if (!entityId) return c.json({ success: false, message: 'entity_id is required' }, 400);
-  if (entityType === 'estimate' && !canAccessEstimateDocs(c, 'estimate:read')) return forbidden(c);
+  if (entityType === 'quote' && !canAccessQuoteDocs(c, 'quote:read')) return forbidden(c);
 
   try {
     let rows = await listDocuments(execQuery, c.env, entityType, entityId);
@@ -133,7 +133,7 @@ app.post('/', async (c) => {
   }
   const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType);
   if (!allowed) return forbidden(c);
-  if (body.entityType === 'estimate' && !canAccessEstimateDocs(c, 'estimate:write')) return forbidden(c);
+  if (body.entityType === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
   if (restrictedOrderDocs && !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)) {
     return c.json({ success: false, message: `doc_type must be one of: ${REP_VISIBLE_ORDER_DOC_TYPES.join(', ')}` }, 400);
   }
@@ -158,13 +158,13 @@ app.post('/', async (c) => {
 app.put('/:id', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   try {
-    // Needed either way now (the write-access/estimate gates below apply
+    // Needed either way now (the write-access/quote gates below apply
     // regardless of which fields changed), so fetched unconditionally rather
     // than only when docType is set.
     const existing = await getDocument(execQuery, c.env, c.req.param('id'));
     const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '');
     if (!allowed) return forbidden(c);
-    if (existing?.entity_type === 'estimate' && !canAccessEstimateDocs(c, 'estimate:write')) return forbidden(c);
+    if (existing?.entity_type === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
     if (
       body.docType !== undefined &&
       restrictedOrderDocs &&
@@ -186,14 +186,14 @@ app.put('/:id', async (c) => {
 // Deletes the row and hands it back; the client then drops the object from the
 // bucket with its own token (see framework DocumentsGrid.confirmDelete).
 app.delete('/:id', async (c) => {
-  // Fetched first, before deleting, so the write-access/estimate gates can
+  // Fetched first, before deleting, so the write-access/quote gates can
   // run on its entity_type — deleteDocument's returned row would be too late
   // to check.
   const existing = await getDocument(execQuery, c.env, c.req.param('id'));
   if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
   const { allowed } = await resolveWriteAccess(c, existing.entity_type);
   if (!allowed) return forbidden(c);
-  if (existing.entity_type === 'estimate' && !canAccessEstimateDocs(c, 'estimate:write')) return forbidden(c);
+  if (existing.entity_type === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
   const row = await deleteDocument(execQuery, c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Document not found' }, 404);
   return c.json({ success: true, data: row });

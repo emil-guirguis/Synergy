@@ -26,7 +26,6 @@ const STAGING_TABLES: Record<string, string> = {
   Invoice: 'qb_invoice',
   Payment: 'qb_payment',
   SalesOrder: 'qb_sales_order',
-  Estimate: 'qb_estimate',
 };
 
 /** Object types the QBWC session actually pulls incrementally — the only ones a

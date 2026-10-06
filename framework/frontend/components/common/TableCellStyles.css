@@ -194,7 +194,8 @@
 
 .table-cell__chip-list {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 0.25rem;
 }
 

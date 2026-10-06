@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // grants only (document:write covers admin and employee identically).
 let currentUser: any = { id: 'admin' };
 let currentGrants: string[] = ['document:read', 'document:write'];
-let fakeGrants: string[] = ['document:read', 'document:write', 'estimate:read', 'estimate:write'];
+let fakeGrants: string[] = ['document:read', 'document:write', 'quote:read', 'quote:write'];
 
 vi.mock('../middleware', () => ({
   authenticateToken: (c: any, next: any) => {
@@ -62,25 +62,25 @@ beforeEach(() => {
   vi.clearAllMocks();
   currentUser = { id: 'admin' };
   currentGrants = ['document:read', 'document:write'];
-  fakeGrants = ['document:read', 'document:write', 'estimate:read', 'estimate:write'];
+  fakeGrants = ['document:read', 'document:write', 'quote:read', 'quote:write'];
 });
 
-describe('GET / — estimate gate', () => {
-  it('403s an estimate list for a caller with document:read but no estimate:read', async () => {
+describe('GET / — quote gate', () => {
+  it('403s an quote list for a caller with document:read but no quote:read', async () => {
     fakeGrants = [];
-    const res = await req('/?entity_type=estimate&entity_id=1');
+    const res = await req('/?entity_type=quote&entity_id=1');
     expect(res.status).toBe(403);
     expect(mockListDocuments).not.toHaveBeenCalled();
   });
 
-  it('200s an estimate list for a caller holding estimate:read', async () => {
-    mockListDocuments.mockResolvedValue([{ document_id: 1, entity_type: 'estimate' }]);
-    const res = await req('/?entity_type=estimate&entity_id=1');
+  it('200s an quote list for a caller holding quote:read', async () => {
+    mockListDocuments.mockResolvedValue([{ document_id: 1, entity_type: 'quote' }]);
+    const res = await req('/?entity_type=quote&entity_id=1');
     expect(res.status).toBe(200);
     expect(mockListDocuments).toHaveBeenCalled();
   });
 
-  it('order lists are unaffected by the estimate gate even with no estimate grants', async () => {
+  it('order lists are unaffected by the quote gate even with no quote grants', async () => {
     fakeGrants = [];
     mockListDocuments.mockResolvedValue([{ document_id: 1, entity_type: 'order', doc_type: 'packing_slip' }]);
     const res = await req('/?entity_type=order&entity_id=1');
@@ -88,36 +88,36 @@ describe('GET / — estimate gate', () => {
   });
 });
 
-describe('POST / — estimate gate', () => {
-  const body = { entityType: 'estimate', storageBucket: 'record-docs', fileName: 'a.pdf' };
+describe('POST / — quote gate', () => {
+  const body = { entityType: 'quote', storageBucket: 'record-docs', fileName: 'a.pdf' };
 
-  it('403s creating an estimate document without estimate:write', async () => {
-    fakeGrants = ['estimate:read'];
+  it('403s creating an quote document without quote:write', async () => {
+    fakeGrants = ['quote:read'];
     const res = await req('/', json('POST', body));
     expect(res.status).toBe(403);
     expect(mockCreateDocument).not.toHaveBeenCalled();
   });
 
-  it('201s when the caller holds estimate:write', async () => {
+  it('201s when the caller holds quote:write', async () => {
     mockCreateDocument.mockResolvedValue({ document_id: 1, ...body });
     const res = await req('/', json('POST', body));
     expect(res.status).toBe(201);
   });
 });
 
-describe('PUT /:id — estimate gate', () => {
-  it('403s editing an estimate document without estimate:write, before any update is attempted', async () => {
-    fakeGrants = ['estimate:read'];
-    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'estimate' });
+describe('PUT /:id — quote gate', () => {
+  it('403s editing an quote document without quote:write, before any update is attempted', async () => {
+    fakeGrants = ['quote:read'];
+    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
     const res = await req('/1', json('PUT', { description: 'x' }));
     expect(res.status).toBe(403);
     expect(mockUpdateDocument).not.toHaveBeenCalled();
   });
 
-  it('allows editing an order document unaffected by the estimate gate', async () => {
-    // No estimate:* grant, but document:write is what actually lets an order
+  it('allows editing an order document unaffected by the quote gate', async () => {
+    // No quote:* grant, but document:write is what actually lets an order
     // edit through (see resolveWriteAccess in documents.ts) — this proves
-    // the estimate gate specifically isn't what's blocking/allowing it.
+    // the quote gate specifically isn't what's blocking/allowing it.
     fakeGrants = ['document:write'];
     mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'order' });
     mockUpdateDocument.mockResolvedValue({ document_id: 1, entity_type: 'order' });
@@ -126,23 +126,23 @@ describe('PUT /:id — estimate gate', () => {
   });
 });
 
-describe('DELETE /:id — estimate gate', () => {
-  it('403s deleting an estimate document without estimate:write, and never calls deleteDocument', async () => {
-    fakeGrants = ['estimate:read'];
-    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'estimate' });
+describe('DELETE /:id — quote gate', () => {
+  it('403s deleting an quote document without quote:write, and never calls deleteDocument', async () => {
+    fakeGrants = ['quote:read'];
+    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
     const res = await req('/1', { method: 'DELETE' });
     expect(res.status).toBe(403);
     expect(mockDeleteDocument).not.toHaveBeenCalled();
   });
 
-  it('deletes when the caller holds estimate:write', async () => {
-    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'estimate' });
-    mockDeleteDocument.mockResolvedValue({ document_id: 1, entity_type: 'estimate' });
+  it('deletes when the caller holds quote:write', async () => {
+    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
+    mockDeleteDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
     const res = await req('/1', { method: 'DELETE' });
     expect(res.status).toBe(200);
   });
 
-  it('404s when the document does not exist, without checking the estimate gate', async () => {
+  it('404s when the document does not exist, without checking the quote gate', async () => {
     fakeGrants = [];
     mockGetDocument.mockResolvedValue(null);
     const res = await req('/1', { method: 'DELETE' });

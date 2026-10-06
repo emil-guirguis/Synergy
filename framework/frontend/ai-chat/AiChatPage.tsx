@@ -35,6 +35,7 @@ import MicIcon from '@mui/icons-material/Mic';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import { useAiChatStore } from './store';
+import { detectVoiceActivity, type StopVoiceActivity } from './voiceActivity';
 import type { AiChatPageConfig, AiChatResultLink } from './types';
 
 // Tools that run on nearly every turn (memory check) or are noise to a user
@@ -52,6 +53,67 @@ const SpeechRecognitionCtor: any =
  *  thought. Running `continuous=true` and finalizing on our own timer instead
  *  fixes that. */
 const VOICE_SILENCE_MS = 1500;
+
+/** Hard ceiling on one voice-mode turn, independent of VOICE_SILENCE_MS.
+ *  `continuous=true` was reverted once already (see startVoiceTurn) because
+ *  Chrome on Windows can fail to fire `onresult` at all, so the
+ *  VOICE_SILENCE_MS timer — which only (re)starts from inside `onresult` —
+ *  never starts and the turn hangs forever. This timer doesn't depend on
+ *  `onresult` firing, so it force-ends the turn even when that happens,
+ *  without reintroducing continuous mode's old infinite-hang failure mode. */
+const VOICE_MAX_TURN_MS = 20_000;
+
+/** Chrome does not release the audio device synchronously, so starting the
+ *  next recognition from inside the previous one's `onend` (or right after
+ *  aborting a stale one) throws `InvalidStateError` or errors straight back
+ *  out with `aborted`. Restarting off a short timer instead of recursing
+ *  gives the device a tick to come free. */
+const VOICE_RESTART_DELAY_MS = 250;
+
+/** Chrome stops speaking roughly 15s into a long utterance unless something
+ *  pokes it; `resume()` on this interval is the standard defence. Replies here
+ *  routinely run longer than that. */
+const TTS_KEEPALIVE_MS = 10_000;
+
+/** Ceiling on one spoken reply, from its length (speech runs ~15 chars/sec, so
+ *  this is generous) and clamped below. Needed because voice mode AWAITS
+ *  speak(): if `onend` never arrives - which happens when Chrome's synthesis
+ *  gets wedged, or the tab is backgrounded mid-utterance - the promise never
+ *  settles and the next turn never starts, leaving voice mode dead with no
+ *  error. Same failure the recognition side guards with VOICE_MAX_TURN_MS. */
+const TTS_MIN_TIMEOUT_MS = 10_000;
+const TTS_MAX_TIMEOUT_MS = 180_000;
+const TTS_MS_PER_CHAR = 100;
+
+/** Recognition errors where retrying is pointless (no mic, permission
+ *  refused). On these, leave voice mode and say so — the old code restarted
+ *  on every `onend` regardless, which hammered a denied mic forever while the
+ *  button still claimed voice chat was on. */
+const FATAL_SPEECH_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'audio-capture']);
+
+/** The live SpeechRecognition for this page, tracked at module level and not
+ *  only in a ref: refs die with the component, so a recognition still holding
+ *  the microphone when the user navigated away mid-voice-chat was unreachable
+ *  from the next mount — every later `start()` failed and voice chat stayed
+ *  broken until a full page reload. */
+let activeRecognition: any = null;
+
+/** Hard-stops a recognition so it CANNOT come back. Detaching the handlers
+ *  first is the whole point: both `stop()` and `abort()` fire `onend`, and
+ *  that handler is what starts the next voice turn, so stopping without
+ *  detaching is exactly how an unmounted page kept re-opening the mic. */
+function killRecognition(recognition: any): void {
+  if (!recognition) return;
+  recognition.onresult = null;
+  recognition.onerror = null;
+  recognition.onend = null;
+  try {
+    recognition.abort();
+  } catch {
+    /* already stopped */
+  }
+  if (activeRecognition === recognition) activeRecognition = null;
+}
 
 /** One tool-result row → its clickable card. A single action clicks straight
  *  through; two or more (e.g. a document-backed order result) pop a small
@@ -125,6 +187,10 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
   const speakingRef = useRef(false);
   const voiceTranscriptRef = useRef('');
   const voiceSilenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceHardStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopBargeInRef = useRef<StopVoiceActivity | null>(null);
+  const mountedRef = useRef(true);
   const autoRanRef = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -133,10 +199,43 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  /** Releases the barge-in microphone, if one is open. */
+  const stopBargeIn = () => {
+    stopBargeInRef.current?.();
+    stopBargeInRef.current = null;
+  };
+
+  const clearVoiceTimers = () => {
+    if (voiceSilenceTimerRef.current) {
+      clearTimeout(voiceSilenceTimerRef.current);
+      voiceSilenceTimerRef.current = null;
+    }
+    if (voiceHardStopTimerRef.current) {
+      clearTimeout(voiceHardStopTimerRef.current);
+      voiceHardStopTimerRef.current = null;
+    }
+    if (voiceRestartTimerRef.current) {
+      clearTimeout(voiceRestartTimerRef.current);
+      voiceRestartTimerRef.current = null;
+    }
+  };
+
   useEffect(() => {
+    mountedRef.current = true;
+    // A recognition left over from a previous mount of this page may still
+    // hold the microphone; clear it before anything here tries to start one.
+    killRecognition(activeRecognition);
     return () => {
-      if (voiceSilenceTimerRef.current) clearTimeout(voiceSilenceTimerRef.current);
-      recognitionRef.current?.stop();
+      mountedRef.current = false;
+      // Clear voice mode BEFORE stopping anything: stopping fires `onend`,
+      // and that handler starts the next turn whenever voice mode is on —
+      // which is how navigating away mid-voice-chat left a mic-holding
+      // recognition running (and its reply speaking) on the next screen.
+      voiceModeRef.current = false;
+      clearVoiceTimers();
+      stopBargeIn();
+      killRecognition(recognitionRef.current);
+      recognitionRef.current = null;
       window.speechSynthesis?.cancel();
     };
   }, []);
@@ -153,6 +252,38 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Leaves voice mode and puts the UI back in sync with reality. Deliberately
+   *  does not touch recognition — it's called from inside recognition's own
+   *  error handler — only the mode flag, timers, TTS and the message. */
+  const exitVoiceMode = (message?: string) => {
+    voiceModeRef.current = false;
+    clearVoiceTimers();
+    stopBargeIn();
+    window.speechSynthesis?.cancel();
+    if (!mountedRef.current) return;
+    setVoiceMode(false);
+    setListening(false);
+    if (message) setError(message);
+  };
+
+  /** `start()` throws synchronously (`InvalidStateError`) whenever another
+   *  recognition in the page is still live. That throw used to escape the
+   *  click handler after `setVoiceMode(true)` had already run, leaving the
+   *  button lit with a dead mic — so the next click only toggled voice mode
+   *  back off and the one after it tried again. That is the "have to click it
+   *  a few times" bug: fail out of voice mode instead of lying about it. */
+  const tryStart = (recognition: any): boolean => {
+    try {
+      recognition.start();
+      return true;
+    } catch {
+      killRecognition(recognition);
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      exitVoiceMode('Could not start the microphone. Try again.');
+      return false;
+    }
+  };
+
   const toggleListening = () => {
     if (!SpeechRecognitionCtor) return;
 
@@ -160,6 +291,9 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
       recognitionRef.current?.stop();
       return;
     }
+
+    killRecognition(recognitionRef.current);
+    killRecognition(activeRecognition);
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = 'en-US';
@@ -175,33 +309,80 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
       setInput(baseTextRef.current + transcript);
     };
     recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
+    recognition.onend = () => {
+      if (activeRecognition === recognition) activeRecognition = null;
+      setListening(false);
+    };
 
     recognitionRef.current = recognition;
-    recognition.start();
+    activeRecognition = recognition;
+    if (!tryStart(recognition)) return;
     setListening(true);
   };
 
   const setSpeakingState = (value: boolean) => {
     speakingRef.current = value;
+    if (!mountedRef.current) return;
     setSpeaking(value);
   };
 
-  /** Reads text aloud; resolves once done (or immediately if TTS isn't available).
-   *  Resolves early if `cancel()` interrupts it — e.g. the barge-in check below. */
+  /** Reads text aloud; resolves once done (or immediately if TTS isn't
+   *  available). Resolves early when `cancel()` interrupts it — which is how
+   *  both the button's tap-to-interrupt and barge-in below end a reply: the
+   *  caller then just carries on into the next voice turn.
+   *
+   *  While it plays, a microphone energy meter watches for the user starting
+   *  to talk (see ./voiceActivity) and cancels playback when they do, so a
+   *  long reply doesn't have to be sat through. That detector is deliberately
+   *  not SpeechRecognition — a live recognition during playback transcribes
+   *  the assistant's own voice and re-sends it as the next question, which is
+   *  why barge-in was previously unsupported. An energy meter produces no
+   *  text, so a false positive only ends a reply early. */
   const speak = (text: string) =>
     new Promise<void>((resolve) => {
       if (!text || !('speechSynthesis' in window)) return resolve();
       const utterance = new SpeechSynthesisUtterance(text);
-      const finish = () => {
+      let settled = false;
+      const keepAlive = setInterval(() => window.speechSynthesis.resume(), TTS_KEEPALIVE_MS);
+      const watchdog = setTimeout(
+        () => {
+          window.speechSynthesis.cancel();
+          finish();
+        },
+        Math.min(Math.max(text.length * TTS_MS_PER_CHAR, TTS_MIN_TIMEOUT_MS), TTS_MAX_TIMEOUT_MS)
+      );
+      function finish() {
+        if (settled) return;
+        settled = true;
+        clearInterval(keepAlive);
+        clearTimeout(watchdog);
+        stopBargeIn();
         setSpeakingState(false);
         resolve();
-      };
+      }
       utterance.onend = finish;
       utterance.onerror = finish;
       window.speechSynthesis.cancel();
       setSpeakingState(true);
       window.speechSynthesis.speak(utterance);
+
+      // Only in hands-free voice mode: typing a question and hearing it read
+      // back shouldn't open the microphone at all.
+      if (!voiceModeRef.current) return;
+      stopBargeIn();
+      void detectVoiceActivity({
+        onSpeechStart: () => {
+          stopBargeInRef.current = null;
+          // cancel() fires the utterance's onend, so `finish` above runs and
+          // the turn moves on to listening by the normal path.
+          window.speechSynthesis.cancel();
+          finish();
+        },
+      }).then((stop) => {
+        // Playback may already have finished while permission was pending.
+        if (settled || !voiceModeRef.current) stop();
+        else stopBargeInRef.current = stop;
+      });
     });
 
   /** One hands-free turn: listen for a single utterance, auto-send once the
@@ -210,37 +391,49 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
    *  the built-in SpeechRecognition API has no echo-cancellation coordination
    *  with speechSynthesis, so a mic that's live while the reply is playing
    *  just transcribes the assistant's own TTS output and re-sends it as a new
-   *  question, producing an endless self-answering loop. Voice barge-in is
-   *  therefore not supported — use the button's tap-to-interrupt instead.
+   *  question, producing an endless self-answering loop. Barge-in is supported
+   *  but never by this route: speak() watches microphone ENERGY (no text, so
+   *  nothing can be fed back) and cancels playback, and only then does the
+   *  next turn open recognition here.
    *
-   *  `continuous=false`: a `continuous=true` turn was tried to stop Chrome's
-   *  own end-of-speech cutoff from ending turns mid-sentence, finalizing on
-   *  our own VOICE_SILENCE_MS timer instead — but that timer only ever
+   *  `continuous=true`, finalizing on our own VOICE_SILENCE_MS timer instead
+   *  of Chrome's own end-of-speech cutoff — `continuous=false` stops at the
+   *  first brief pause (under a second), shorter than a natural mid-sentence
+   *  pause, and was cutting users off before they finished talking.
+   *
+   *  This was tried once before and reverted: VOICE_SILENCE_MS only
    *  (re)starts from inside `onresult`, and Chrome's continuous mode is
-   *  unreliable about firing `onresult` at all (esp. on Windows): when it
-   *  doesn't, the timer never starts, recognition never stops, and the turn
-   *  hangs forever listening with nothing transcribed or sent. Back to
-   *  `continuous=false` restores working transcription; VOICE_SILENCE_MS is
-   *  kept as a backstop in case a future retry of continuous mode needs it. */
+   *  unreliable about firing `onresult` at all (esp. on Windows) — when it
+   *  doesn't, the timer never starts and recognition never stops on its own.
+   *  VOICE_MAX_TURN_MS is the fix for that: a hard ceiling, started once and
+   *  never reset, that force-stops the turn regardless of whether onresult
+   *  ever fires — so a silent/stuck mic ends the turn within
+   *  VOICE_MAX_TURN_MS (and voice mode just listens again) instead of
+   *  hanging forever, while a talking user is no longer cut off at the first
+   *  short pause. */
   const startVoiceTurn = () => {
-    if (!SpeechRecognitionCtor || !voiceModeRef.current) return;
+    if (!SpeechRecognitionCtor || !voiceModeRef.current || !mountedRef.current) return;
+
+    // Never leave an older instance holding the mic — a second `start()`
+    // while one is live throws and kills the turn before it begins.
+    killRecognition(recognitionRef.current);
+    killRecognition(activeRecognition);
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = 'en-US';
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     voiceTranscriptRef.current = '';
+    // A fatal error fires `onerror` and then `onend`; this flag is what stops
+    // `onend` from restarting the turn straight back into the same failure.
+    let fatal = false;
 
-    const clearSilenceTimer = () => {
-      if (voiceSilenceTimerRef.current) {
-        clearTimeout(voiceSilenceTimerRef.current);
-        voiceSilenceTimerRef.current = null;
-      }
-    };
+    const clearTimers = clearVoiceTimers;
     const resetSilenceTimer = () => {
-      clearSilenceTimer();
+      if (voiceSilenceTimerRef.current) clearTimeout(voiceSilenceTimerRef.current);
       voiceSilenceTimerRef.current = setTimeout(() => recognitionRef.current?.stop(), VOICE_SILENCE_MS);
     };
+    voiceHardStopTimerRef.current = setTimeout(() => recognitionRef.current?.stop(), VOICE_MAX_TURN_MS);
 
     recognition.onresult = (event: any) => {
       // Rebuild from every result each time (not just from event.resultIndex)
@@ -254,25 +447,50 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
       setInput(transcript);
       resetSilenceTimer();
     };
-    recognition.onerror = () => {
-      clearSilenceTimer();
-      setListening(false);
+    recognition.onerror = (event: any) => {
+      clearTimers();
+      if (mountedRef.current) setListening(false);
+      if (FATAL_SPEECH_ERRORS.has(event?.error)) {
+        fatal = true;
+        exitVoiceMode(
+          event.error === 'audio-capture'
+            ? 'No microphone found.'
+            : 'Microphone access is blocked. Allow it in the browser, then start voice chat again.'
+        );
+      }
     };
     recognition.onend = () => {
-      clearSilenceTimer();
-      setListening(false);
+      clearTimers();
+      if (activeRecognition === recognition) activeRecognition = null;
+      if (mountedRef.current) setListening(false);
       const said = voiceTranscriptRef.current.trim();
+      // Unmounted (navigated away), voice mode off, or a dead mic: stop here.
+      // Restarting from this handler regardless is what kept the mic open
+      // after the page was gone.
+      if (fatal || !mountedRef.current || !voiceModeRef.current) return;
       if (said) {
         handleSend(said);
-      } else if (voiceModeRef.current) {
+      } else {
         // Silence (no speech detected) — keep listening rather than dropping out of voice mode.
-        startVoiceTurn();
+        scheduleVoiceTurn();
       }
     };
 
     recognitionRef.current = recognition;
-    recognition.start();
+    activeRecognition = recognition;
+    if (!tryStart(recognition)) return;
     setListening(true);
+  };
+
+  /** Starts the next voice turn off a timer instead of recursing from inside
+   *  `onend`: see VOICE_RESTART_DELAY_MS — Chrome still holds the audio
+   *  device at that point and an immediate `start()` fails. */
+  const scheduleVoiceTurn = () => {
+    if (voiceRestartTimerRef.current) clearTimeout(voiceRestartTimerRef.current);
+    voiceRestartTimerRef.current = setTimeout(() => {
+      voiceRestartTimerRef.current = null;
+      startVoiceTurn();
+    }, VOICE_RESTART_DELAY_MS);
   };
 
   const toggleVoiceMode = () => {
@@ -283,26 +501,34 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
         window.speechSynthesis?.cancel();
         return;
       }
-      voiceModeRef.current = false;
-      setVoiceMode(false);
-      if (voiceSilenceTimerRef.current) clearTimeout(voiceSilenceTimerRef.current);
-      recognitionRef.current?.stop();
-      window.speechSynthesis?.cancel();
+      exitVoiceMode();
+      killRecognition(recognitionRef.current);
+      recognitionRef.current = null;
     } else {
       voiceModeRef.current = true;
       setVoiceMode(true);
-      startVoiceTurn();
+      setError(null);
+      // Via the timer, not directly: any stale recognition is aborted first
+      // and Chrome needs a moment to hand the microphone over.
+      scheduleVoiceTurn();
     }
   };
 
   const handleSend = async (text: string) => {
     const userMessage = text.trim();
-    if (!userMessage || loading) return;
+    // Read the store live rather than using this render's `messages`/`loading`:
+    // a voice turn arrives through the recognition `onend` closure captured
+    // when that turn STARTED, so the render-scope values are stale by then.
+    // That meant every follow-up voice turn posted an empty history and the
+    // assistant lost the thread — "I don't have context on who 'her' refers
+    // to" right after answering a question about her.
+    const { messages: conversation, loading: busy } = useAiChatStore.getState();
+    if (!userMessage || busy) return;
 
     setInput('');
     setError(null);
 
-    const history = messages.map((m) => ({ role: m.role, content: m.content }));
+    const history = conversation.map((m) => ({ role: m.role, content: m.content }));
     addMessage({ role: 'user', content: userMessage });
     setLoading(true);
 
@@ -316,6 +542,10 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
           toolsUsed: data.tools_used,
           toolResults: data.tool_results,
         });
+        // Release the composer before speaking: `loading` disables the input
+        // and Send button, and speaking a long reply held them disabled for
+        // its whole duration, so the user couldn't type while it talked.
+        setLoading(false);
         if (voiceModeRef.current) {
           // Speak first, THEN open the mic — SpeechRecognition has no echo
           // cancellation against speechSynthesis, so listening while the
@@ -323,15 +553,15 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
           // re-sends it, looping forever. Tap-to-interrupt (the button) is
           // the supported way to cut a reply short, not talking over it.
           await speak(data.response ?? '');
-          startVoiceTurn();
+          scheduleVoiceTurn();
         }
       } else {
         setError(data.message ?? 'An error occurred.');
-        if (voiceModeRef.current) startVoiceTurn();
+        if (voiceModeRef.current) scheduleVoiceTurn();
       }
     } catch (err: any) {
       setError(err?.message ?? 'Failed to reach the AI. Please try again.');
-      if (voiceModeRef.current) startVoiceTurn();
+      if (voiceModeRef.current) scheduleVoiceTurn();
     } finally {
       setLoading(false);
     }

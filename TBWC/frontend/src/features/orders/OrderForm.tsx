@@ -1,6 +1,8 @@
 import React from 'react';
-import { Box, CircularProgress, Typography } from '@mui/material';
-import { BaseForm } from '@meterit/framework-frontend/components/form';
+import { Alert, Box, Button, CircularProgress, MenuItem, TextField, Typography } from '@mui/material';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import { BaseForm, ReferenceSearchField } from '@meterit/framework-frontend/components/form';
+import { PickableLineItemsGrid } from '@meterit/framework-frontend/components/datagrid/';
 import { useSchema } from '@meterit/framework-frontend/components/form/utils/schemaLoader';
 import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
@@ -10,8 +12,14 @@ import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import type { DocType } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
+import { tbwcReferenceSearch } from '../../shared/referenceSearch';
 import { useAuth } from '../../hooks/useAuth';
-import type { Order } from '../../types/order';
+import type { Order, OrderLine } from '../../types/order';
+
+// Picks a real QuickBooks customer onto a Hold for Release order — never a
+// free-text name (routes/orders.ts's resolveCustomer is the authoritative
+// check; this picker just keeps a typo from ever reaching it).
+const CUSTOMER_SEARCH_CONFIG = { endpoint: '/customers', valueField: 'list_id', labelField: 'full_name' };
 
 // Reps may see these on an order's Documents tab. Admins see every type.
 const REP_VISIBLE_DOC_TYPES: DocType[] = ['packing_slip', 'invoice', 'proof_of_delivery', 'load_schedule'];
@@ -20,9 +28,44 @@ const repOversizeMessage = (file: File) =>
   `"${file.name}" is over the 20MB upload limit. Please contact info@tbwcinc.com for help sending this file.`;
 
 interface OrderFormProps {
-  order?: Order;
+  /** A full Order when editing, or a Partial<Order> carrying just
+   *  `{ order_type: 'hold_for_release' }` when opened via the list's
+   *  "+ Hold for Release" button (see OrderManagementPage/OrderList). */
+  order?: Partial<Order>;
   onCancel: () => void;
   loading?: boolean;
+}
+
+// Header fields that are QB-owned (readOnly in orderSchema.ts) on every
+// normal synced order, but fully editable by hand on a hold_for_release
+// order, which has no QB source to be clobbered by the next sync. Overridden
+// here via renderCustomField rather than in the schema itself, so a normal
+// order's form is completely unaffected (renderCustomField returns null for
+// these field names unless isHoldForRelease, falling back to the schema's own
+// readOnly rendering).
+// customer_name is deliberately not here — it's picked via ReferenceSearchField
+// (see the 'customer_name' branch in renderCustomField), not typed free-text,
+// so the customer is always a real QuickBooks one (validated again server-side).
+// total isn't here either — like lines, it's computed server-side from the
+// line items (routes/orders.ts's sumLines), never independently editable.
+const HOLD_FOR_RELEASE_HEADER_FIELDS = new Set([
+  'ref_number', 'po_number', 'txn_date', 'due_date',
+  'bill_address_block', 'ship_address_block', 'freight_terms', 'ship_via',
+  'contact', 'customer_tax_code',
+]);
+
+function renderHoldForReleaseField(fieldDef: any, value: any, disabled: boolean, onChange: (v: any) => void) {
+  const common = { fullWidth: true, size: 'small' as const, label: fieldDef?.label, disabled };
+  if (fieldDef?.type === 'textarea') {
+    return <TextField {...common} multiline minRows={fieldDef.rows || 3} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
+  }
+  if (fieldDef?.type === 'date') {
+    return <TextField {...common} type="date" InputLabelProps={{ shrink: true }} value={value ? String(value).slice(0, 10) : ''} onChange={(e) => onChange(e.target.value || null)} />;
+  }
+  if (fieldDef?.type === 'currency' || fieldDef?.type === 'number') {
+    return <TextField {...common} type="number" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} />;
+  }
+  return <TextField {...common} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
 }
 
 /**
@@ -73,12 +116,30 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   const hiddenTabs = (orderSchema?.formTabs ?? [])
     .filter((tab) => !isFieldVisible('order:read', `tab:${tab.name}`))
     .map((tab) => tab.name);
-  const [freshOrder, setFreshOrder] = React.useState<Order | undefined>(order?.id ? undefined : order);
+  // order is a full Order when editing/viewing, or just { order_type:
+  // 'hold_for_release' } when opened via "+ Hold for Release" — cast since
+  // freshOrder only ever needs the fields actually present at each stage.
+  const [freshOrder, setFreshOrder] = React.useState<Order | undefined>(order?.id ? undefined : (order as Order | undefined));
   const [fetching, setFetching] = React.useState(!!order?.id);
+  const isHoldForRelease = freshOrder?.order_type === 'hold_for_release';
+  // Picked via a plain dropdown (renderCustomField below), not schema's
+  // generic field plumbing — sales_rep is a joined display string, not the
+  // real FK (sales_rep_list_id) a hold-for-release order needs to write.
+  const [pendingRepListId, setPendingRepListId] = React.useState<string | null>(null);
+  // Same reason, for the customer picker — customer_name is a plain display
+  // string; the real FK the server validates (routes/orders.ts's
+  // resolveCustomer) is customer_list_id, picked via ReferenceSearchField.
+  const [pendingCustomer, setPendingCustomer] = React.useState<{ list_id: string; name: string } | null>(null);
+  // Hold-for-release line items (add/remove + item picker, see
+  // PickableLineItemsGrid below) — not schema field plumbing, same reason as
+  // QuoteForm's pendingLines: the grid owns its own add/remove/pick-item state.
+  const [pendingLines, setPendingLines] = React.useState<OrderLine[] | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!order?.id) {
-      setFreshOrder(order);
+      setFreshOrder(order as Order | undefined);
       setFetching(false);
       return;
     }
@@ -86,11 +147,44 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
     setFetching(true);
     orders.fetchItem(order.id)
       .then((fresh) => { if (!cancelled) setFreshOrder(fresh as Order); })
-      .catch(() => { if (!cancelled) setFreshOrder(order); }) // fall back to the stale row rather than block editing entirely
+      .catch(() => { if (!cancelled) setFreshOrder(order as Order | undefined); }) // fall back to the stale row rather than block editing entirely
       .finally(() => { if (!cancelled) setFetching(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.id]);
+
+  // sales_rep_list_id is spliced into the save payload here rather than via
+  // BaseForm's generic field plumbing (see the dropdown above) — mirrors
+  // QuoteForm's pendingCustomer pattern for the same reason: the field
+  // being picked (a rep) isn't the field being displayed (sales_rep's joined
+  // name string).
+  const applyPending = React.useCallback((data: any) => ({
+    ...data,
+    ...(pendingRepListId != null ? { sales_rep_list_id: pendingRepListId } : {}),
+    ...(pendingCustomer ? { customer_list_id: pendingCustomer.list_id } : {}),
+    ...(pendingLines ? { lines: pendingLines } : {}),
+  }), [pendingRepListId, pendingCustomer, pendingLines]);
+
+  const formStore = React.useMemo(() => ({
+    ...orders,
+    createItem: (data: any) => orders.createItem(applyPending(data)),
+    updateItem: (id: string, data: any) => orders.updateItem(id, applyPending(data)),
+  }), [orders, applyPending]);
+
+  const handleDelete = async () => {
+    if (!freshOrder?.id) return;
+    if (!window.confirm('Delete this Hold for Release order? This cannot be undone.')) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await orders.deleteOrder(String(freshOrder.id));
+      onCancel();
+    } catch (e: any) {
+      setDeleteError(e?.message || 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (fetching) {
     return (
@@ -104,10 +198,31 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   // the form — only for a saved order, since the panel keys off the record
   // id. BaseForm's sidePanel prop owns the responsive row/stack split.
   return (
+    <Box>
+      {isAdmin && isHoldForRelease && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+          <Alert severity="info" sx={{ py: 0, flex: 1 }}>
+            Hold for Release — editable in full, never sent to QuickBooks. Delete this once the real order is entered in QuickBooks.
+          </Alert>
+          {freshOrder?.id && (
+            <Button
+              variant="outlined"
+              color="error"
+              size="small"
+              startIcon={deleting ? <CircularProgress size={16} /> : <DeleteOutlineIcon />}
+              disabled={deleting}
+              onClick={handleDelete}
+            >
+              Delete
+            </Button>
+          )}
+        </Box>
+      )}
+      {deleteError && <Alert severity="error" sx={{ mb: 2 }}>{deleteError}</Alert>}
         <BaseForm
           schemaName="order"
           entity={freshOrder}
-          store={orders}
+          store={formStore}
           onCancel={onCancel}
           className="order-form"
           loading={loading}
@@ -117,8 +232,78 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           hiddenTabs={hiddenTabs}
           fieldsToClean={['id', 'lines', 'documents']}
           sidePanel={freshOrder?.id ? <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={isAdmin} /> : undefined}
-          renderCustomField={(fieldName, fieldDef, value) => {
-            if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshOrder?.total} freight={freshOrder?.freight} hideAmounts={hideLineAmounts} />;
+          renderCustomField={(fieldName, fieldDef, value, _error, isFieldDisabled, onChange) => {
+            if (fieldName === 'lines') {
+              // Hold for release: an addable/removable grid with an item
+              // picker (framework's PickableLineItemsGrid) — there's no QB
+              // source to build rows from, so the admin builds the order
+              // itself. total is computed from these server-side (sumLines).
+              if (isHoldForRelease) {
+                return (
+                  <PickableLineItemsGrid
+                    lines={pendingLines ?? value ?? []}
+                    config={fieldDef.lineItemPicker}
+                    disabled={isFieldDisabled}
+                    search={tbwcReferenceSearch}
+                    onChange={setPendingLines}
+                  />
+                );
+              }
+              return <OrderLinesGrid lines={value} total={freshOrder?.total} freight={freshOrder?.freight} hideAmounts={hideLineAmounts} />;
+            }
+            if (HOLD_FOR_RELEASE_HEADER_FIELDS.has(fieldName)) {
+              // Falls back to the schema's own (readOnly) rendering on a
+              // normal order — this override exists only for hold_for_release.
+              if (!isHoldForRelease) return null;
+              return <Box data-field={fieldName}>{renderHoldForReleaseField(fieldDef, value, isFieldDisabled, onChange)}</Box>;
+            }
+            if (fieldName === 'customer_name') {
+              // Normal order: customer_name is QB-owned plain text — the
+              // schema's own readOnly rendering is correct, unchanged.
+              if (!isHoldForRelease) return null;
+              return (
+                <Box data-field="customer_name">
+                  <ReferenceSearchField
+                    label="Customer"
+                    placeholder="Search QuickBooks customers…"
+                    config={CUSTOMER_SEARCH_CONFIG}
+                    search={tbwcReferenceSearch}
+                    disabled={isFieldDisabled}
+                    value={pendingCustomer?.list_id ?? freshOrder?.customer_list_id ?? null}
+                    valueLabel={pendingCustomer?.name ?? freshOrder?.customer_name ?? null}
+                    onChange={(option) => {
+                      setPendingCustomer(option ? { list_id: String(option.value), name: option.label } : null);
+                      // Also feeds BaseForm's own formData so it displays
+                      // immediately — applyPending() above is still what
+                      // actually goes on the wire (the real FK, not this name).
+                      onChange(option?.label ?? null);
+                    }}
+                  />
+                </Box>
+              );
+            }
+            if (fieldName === 'sales_rep') {
+              if (!isHoldForRelease) return null;
+              const repField = orderSchema?.entityFields?.sales_rep_list_id;
+              const repOptions: string[] = repField?.enumValues ?? [];
+              const repLabels: Record<string, string> = repField?.enumLabels ?? {};
+              return (
+                <TextField
+                  select
+                  fullWidth
+                  size="small"
+                  label="Sales Rep"
+                  disabled={isFieldDisabled}
+                  value={pendingRepListId ?? freshOrder?.sales_rep_list_id ?? ''}
+                  onChange={(e) => setPendingRepListId(e.target.value || null)}
+                >
+                  <MenuItem value="">—</MenuItem>
+                  {repOptions.map((v) => (
+                    <MenuItem key={v} value={v}>{repLabels[v] || v}</MenuItem>
+                  ))}
+                </TextField>
+              );
+            }
             // shipping_tracking is free-typed shipping notes off the
             // invoice's FREIGHT line(s) (see orderInvoiceStatus.ts) — a memo,
             // not a single value: a multi-package shipment carries several
@@ -176,6 +361,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
         return null;
       }}
     />
+    </Box>
   );
 };
 

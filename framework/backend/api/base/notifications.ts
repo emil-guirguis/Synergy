@@ -34,6 +34,12 @@ export interface NotificationRow {
   first_detected_at: string | null;
   acknowledged_at: string | null;
   acknowledged_by: string | null;
+  /** Who raised it. Null for system-raised rows (cron thresholds, sync
+   *  failures), which is how the bell decides whether to show a From line. */
+  created_by: string | number | null;
+  /** Sender's display name as it read when sent - denormalised rather than
+   *  joined, since each app's users table has a different key type. */
+  created_by_name: string | null;
 }
 
 export interface CreateNotificationInput {
@@ -42,6 +48,11 @@ export interface CreateNotificationInput {
   severity?: NotificationSeverity;
   description?: string | null;
   usersId?: string | number | null;
+  /** The acting user, when a person raised this rather than a scheduled job.
+   *  Pass both or neither - a name with no id is still accepted, but an id
+   *  alone leaves the bell with nothing to show. */
+  createdBy?: string | number | null;
+  createdByName?: string | null;
 }
 
 export interface NotificationsOptions {
@@ -61,7 +72,8 @@ const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 function columnsOf(options?: NotificationsOptions): string {
   const tenantCol = tenantColumnOf(options);
   return `notification_id, ${tenantCol ? `${tenantCol}, ` : ''}users_id, notification_type, severity, title,
-          description, created_at, status, first_detected_at, acknowledged_at, acknowledged_by`;
+          description, created_at, status, first_detected_at, acknowledged_at, acknowledged_by,
+          created_by, created_by_name`;
 }
 
 /** Thrown for bad client input; app routes map this to a 400. */
@@ -163,13 +175,15 @@ export async function createNotification(
     throw new NotificationValidationError('notificationType and title are required');
   }
   const tenantCol = tenantColumnOf(options);
-  const cols = ['users_id', 'notification_type', 'severity', 'title', 'description'];
+  const cols = ['users_id', 'notification_type', 'severity', 'title', 'description', 'created_by', 'created_by_name'];
   const vals: any[] = [
     input.usersId ?? null,
     input.notificationType,
     input.severity ?? 'warning',
     input.title,
     input.description ?? null,
+    input.createdBy ?? null,
+    input.createdByName?.trim() || null,
   ];
   if (tenantCol) {
     cols.unshift(tenantCol);

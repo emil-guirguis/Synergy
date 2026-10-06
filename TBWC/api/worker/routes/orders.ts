@@ -1,8 +1,16 @@
 /**
  * Orders — backed by public.qb_sales_order (PK qb_sales_order_id), the QB-synced
- * staging table. Rows are created/removed by the QuickBooks sync only, so there
- * is no POST/DELETE here; PUT updates just the TBWC-owned columns (the QB-owned
- * ones would be clobbered by the next sync anyway).
+ * staging table. Two kinds of row share it, told apart by order_type:
+ *   - 'order' (default) — created/removed by the QuickBooks sync only. PUT
+ *     updates just the TBWC-owned columns (the QB-owned ones would be
+ *     clobbered by the next sync anyway); nothing here can create or delete one.
+ *   - 'hold_for_release' — a TBWC-only placeholder for a sale not yet entered
+ *     in QuickBooks (POST / below). Every header field is editable directly
+ *     (HOLD_WRITABLE) since there's no QB sync to clobber it, and nothing
+ *     about it is ever pushed to QuickBooks — an admin deletes the row by
+ *     hand (DELETE below) once the real order is entered in QB and synced in
+ *     under its own txn_id. order_type is set once at creation and immutable
+ *     after; no route ever writes it again.
  * Visibility mirrors the tbwc RLS intent (enforced here since the Worker
  * connects at service level and bypasses RLS):
  *   - admins                   -> every order
@@ -20,7 +28,7 @@ import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission, visibleRepListIds } from '../middleware';
 import { redactRow, redactRows, stripNonEditable } from '@meterit/framework-backend/api/base/permissions';
-import { findAll, findById, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
+import { findAll, findById, create, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { orderSchema } from './orderSchema';
 import { queueFieldPush } from '../qbwc/pushQueue';
 
@@ -97,6 +105,51 @@ const WRITABLE = new Set([
   // in orderSchema) — excluded here so a PUT can never write it.
 ]);
 
+const HOLD_FOR_RELEASE = 'hold_for_release';
+
+// Columns a Hold for Release order's header may set directly — QB-owned on
+// every normal synced order (the next sync would clobber a direct edit), but
+// a hold-for-release row has no QB source to be clobbered by, so an admin
+// fills them in by hand instead. Never includes order_type itself: that's set
+// once at creation (POST / below) and no route ever writes it again.
+// No customer_name here — it's derived from the validated customer_list_id
+// (see resolveCustomer below), never trusted as raw client text. No total
+// either — like lines, it's computed from the line items (sumLines below),
+// never independently settable. lines itself isn't here either: a jsonb
+// column needs its own cast (see the raw queries in PUT/POST below), which
+// the generic data[k]=v loop and crud.ts's create()/update() can't express.
+const HOLD_WRITABLE = new Set([
+  'ref_number', 'po_number', 'txn_date', 'due_date',
+  'sales_rep_list_id', 'bill_address_block', 'ship_address_block',
+  'freight_terms', 'ship_via', 'contact', 'customer_tax_code',
+]);
+
+/** Sum of each line's amount, rounded to cents — null for no lines, same as
+ *  QB leaves `total` on a sales order with none. Mirrors quotes.ts's sumLines. */
+function sumLines(lines: any): number | null {
+  if (!Array.isArray(lines) || lines.length === 0) return null;
+  const sum = lines.reduce((s: number, l: any) => s + (Number(l?.amount) || 0), 0);
+  return Math.round(sum * 100) / 100;
+}
+
+/**
+ * Confirms `listId` is a real, non-deleted QuickBooks customer and returns its
+ * authoritative name — server-side backstop for a hold-for-release order's
+ * customer picker (OrderForm's ReferenceSearchField only ever commits a value
+ * picked from a live /customers search, but nothing stops a stale or
+ * hand-crafted request from naming a customer that doesn't exist, or one QB
+ * has since deleted). Same pattern as quotes.ts's resolveCustomer.
+ */
+async function resolveCustomer(env: Env, listId: string): Promise<{ full_name: string | null } | null> {
+  const r = await execQuery(
+    env,
+    `SELECT full_name FROM public.qb_customer WHERE list_id = $1 AND qb_deleted_at IS NULL`,
+    [listId],
+    'orders.resolveCustomer'
+  );
+  return r.rows[0] ?? null;
+}
+
 // Mirrors OrderList.tsx's getOrderStatusChips() exactly — the frontend's
 // "Not Invoiced"/"Not Shipped" status chips aren't real columns, so the
 // list's chip filter needs the same predicate reproduced server-side (chips
@@ -105,6 +158,8 @@ const WRITABLE = new Set([
 const CHIP_CONDITIONS: Record<string, string> = {
   notInvoiced: `"${TABLE}".actual_ship_date IS NOT NULL AND "${TABLE}".invoice_number IS NULL`,
   notShipped: `"${TABLE}".actual_ship_date IS NULL AND "${TABLE}".ship_no_later_than IS NOT NULL AND "${TABLE}".ship_no_later_than < CURRENT_DATE`,
+  missingFinancials: `("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL)`,
+  holdForRelease: `"${TABLE}".order_type = 'hold_for_release'`,
 };
 
 /** True when this caller's order:read grant is limited to their own rows. */
@@ -113,7 +168,7 @@ function ownOnly(c: any): boolean {
 }
 
 // visibleRepListIds (own rep + every managed user's rep) now lives in
-// middleware.ts — shared with estimates.ts/invoices.ts so "own scope" means
+// middleware.ts — shared with quotes.ts/invoices.ts so "own scope" means
 // the same thing everywhere.
 
 app.get('/', requirePermission('order:read'), async (c) => {
@@ -159,6 +214,13 @@ app.get('/', requirePermission('order:read'), async (c) => {
         : { sql: '1 = 0' }
     );
   }
+  // Orders on/before 2022-06-30 are always excluded from the list — but a
+  // hold-for-release row has no required txn_date (it's filled in by hand,
+  // see HOLD_WRITABLE), and whereRange's >= comparison would otherwise hide
+  // a brand-new one with no date set yet, or one dated before the cutoff, as
+  // if it didn't exist. Exempt hold_for_release rows from the cutoff instead
+  // of defaulting a date the admin never chose.
+  whereRaw.push({ sql: `(order_type = '${HOLD_FOR_RELEASE}' OR txn_date >= '2022-07-01')` });
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
@@ -173,8 +235,6 @@ app.get('/', requirePermission('order:read'), async (c) => {
     where,
     whereLike,
     whereRaw,
-    // Orders on/before 2022-06-30 are always excluded from the list.
-    whereRange: { txn_date: { gte: '2022-07-01' } },
     selectFields: SELECT_WITH_REP_NAME,
   });
   // Field-level scope, not just row-level: the rep grant hides every dollar
@@ -357,56 +417,139 @@ app.get('/:id/payments', requirePermission('order:read'), async (c) => {
 
 app.put('/:id', requirePermission('order:write'), async (c) => {
   const id = c.req.param('id');
+  const existing = await findById(c.env, TABLE, PK, id);
+  if (!existing) return c.json({ success: false, message: 'Order not found' }, 404);
   // No role grants own-scoped order:write today, but the scope is editable per
   // role, so honour it here rather than assuming write implies every row.
   if (c.get('permissions').scopeOf('order:write') === 'own') {
     const user = c.get('user');
-    const existing = await findById(c.env, TABLE, PK, id);
-    if (!existing || !user.sales_rep_list_id || existing.sales_rep_list_id !== user.sales_rep_list_id) {
+    if (!user.sales_rep_list_id || existing.sales_rep_list_id !== user.sales_rep_list_id) {
       return c.json({ success: false, message: 'Not found' }, 404);
     }
   }
+  const isHold = existing.order_type === HOLD_FOR_RELEASE;
   // Field-level security (role_permission.field_access, edit:false) on top of
-  // the WRITABLE allowlist below — that allowlist says what a PUT can ever
-  // touch at all; this says what THIS caller's role may touch within it.
+  // the WRITABLE/HOLD_WRITABLE allowlists below — those say what a PUT can
+  // ever touch at all; this says what THIS caller's role may touch within it.
   const body = stripNonEditable(c.get('permissions'), 'order:write', await c.req.json());
   const data: Record<string, any> = {};
   const pushes: [string, any][] = [];
-  for (const [k, v] of Object.entries(body)) {
-    if (WRITABLE.has(k)) data[k] = v;
-    else if (k in PUSHABLE) pushes.push([k, v]);
+  // Validated here rather than falling into the generic loop below — the
+  // customer is never trusted as raw text (see HOLD_WRITABLE's comment), so
+  // setting it always resolves customer_list_id against QuickBooks' own
+  // customer list and derives customer_name from that, not from the request.
+  if (isHold && 'customer_list_id' in body) {
+    const customer = await resolveCustomer(c.env, body.customer_list_id);
+    if (!customer) {
+      return c.json({ success: false, message: 'Unknown customer — pick one from the search results' }, 400);
+    }
+    data.customer_list_id = body.customer_list_id;
+    data.customer_name = customer.full_name;
   }
-  if (Object.keys(data).length === 0 && pushes.length === 0) {
+  for (const [k, v] of Object.entries(body)) {
+    if (k === 'customer_list_id' || k === 'lines') continue; // handled separately (lines needs its own ::jsonb cast)
+    if (WRITABLE.has(k) || (isHold && HOLD_WRITABLE.has(k))) { data[k] = v; continue; }
+    if (k in PUSHABLE) {
+      // A hold-for-release row never reaches QuickBooks — write pushable
+      // fields (memo) directly to the column instead of staging them in
+      // qbwc_push_queue, which is keyed by txn_id and would just sit there
+      // forever against this row's synthetic one.
+      if (isHold) data[k] = v;
+      else pushes.push([k, v]);
+    }
+  }
+  // lines is jsonb — crud.ts's generic update() has no per-column cast, so
+  // it's written with its own explicit ::jsonb statement instead (same
+  // reason quotes.ts hand-rolls its own SQL for this column). total is
+  // recomputed from it in the same statement, same as quotes.ts's sumLines.
+  const linesUpdate = isHold && 'lines' in body;
+  const lines = linesUpdate ? (Array.isArray(body.lines) ? body.lines : []) : null;
+
+  if (Object.keys(data).length === 0 && pushes.length === 0 && !linesUpdate) {
     return c.json({ success: false, message: 'No editable fields in request' }, 400);
   }
 
-  let txnId: string | undefined;
   if (Object.keys(data).length > 0) {
     // qb_sales_order has no updated_at column.
     const updated = await update(c.env, TABLE, PK, id, data, { touchUpdatedAt: false });
     if (!updated) return c.json({ success: false, message: 'Order not found or nothing to update' }, 404);
-    txnId = updated.txn_id;
   }
-  if (pushes.length > 0) {
-    if (!txnId) {
-      const existing = await findById(c.env, TABLE, PK, id);
-      if (!existing) return c.json({ success: false, message: 'Order not found' }, 404);
-      txnId = existing.txn_id;
-    }
-    const resolvedTxnId: string = txnId!;
-    for (const [field, value] of pushes) {
-      await queueFieldPush(c.env, PUSHABLE[field], resolvedTxnId, field, value == null ? null : String(value));
-    }
+  if (linesUpdate) {
+    await execQuery(
+      c.env,
+      `UPDATE public.${TABLE} SET lines = $1::jsonb, total = $2 WHERE ${PK} = $3`,
+      [JSON.stringify(lines), sumLines(lines), id],
+      'orders.updateLinesHold'
+    );
+  }
+  for (const [field, value] of pushes) {
+    await queueFieldPush(c.env, PUSHABLE[field], existing.txn_id, field, value == null ? null : String(value));
   }
 
   const row = await findById(c.env, TABLE, PK, id, undefined, SELECT_WITH_REP_NAME);
   return c.json({ success: true, data: row });
 });
 
-// Orders exist only via the QuickBooks sync — no manual create/delete.
-app.post('/', requirePermission('order:write'), (c) =>
-  c.json({ success: false, message: 'Orders are created by the QuickBooks sync and cannot be created here.' }, 405));
-app.delete('/:id', requirePermission('order:delete'), (c) =>
-  c.json({ success: false, message: 'Orders are managed by the QuickBooks sync and cannot be deleted here.' }, 405));
+// Creates a Hold for Release order — a TBWC-only placeholder that never syncs
+// from, or pushes to, QuickBooks (see HOLD_WRITABLE above and the module
+// header comment). A real order still only ever arrives via the QB sync; an
+// admin deletes this placeholder by hand once the real one lands (DELETE
+// below only allows that for a hold-for-release row).
+app.post('/', requirePermission('order:write'), async (c) => {
+  const body = stripNonEditable(c.get('permissions'), 'order:write', await c.req.json().catch(() => ({})));
+  if (!body.customer_list_id) {
+    return c.json({ success: false, message: 'customer_list_id is required' }, 400);
+  }
+  const customer = await resolveCustomer(c.env, body.customer_list_id);
+  if (!customer) {
+    return c.json({ success: false, message: 'Unknown customer — pick one from the search results' }, 400);
+  }
+  const lines = Array.isArray(body.lines) ? body.lines : [];
+  const data: Record<string, any> = {
+    order_type: HOLD_FOR_RELEASE,
+    // Unique, non-null stand-in for QB's own TxnID (NOT NULL UNIQUE) — this
+    // row has no real one and never will.
+    txn_id: `HOLD-${crypto.randomUUID()}`,
+    customer_list_id: body.customer_list_id,
+    customer_name: customer.full_name,
+    // Defaults to today — every order needs an Order Date and, unlike a
+    // QB-synced row, there's no sync to ever backfill one.
+    txn_date: body.txn_date ?? new Date().toISOString().slice(0, 10),
+    // Computed from any lines given up front, same as a PUT's linesUpdate —
+    // total is never independently settable (see HOLD_WRITABLE's comment).
+    total: sumLines(lines),
+  };
+  for (const [k, v] of Object.entries(body)) {
+    if (k === 'customer_list_id' || k === 'txn_date' || k === 'lines' || k === 'total') continue; // handled above
+    if (HOLD_WRITABLE.has(k)) data[k] = v;
+  }
+  const row = await create(c.env, TABLE, data);
+  if (lines.length > 0) {
+    // lines is jsonb — create()'s generic INSERT has no per-column cast (see
+    // the PUT handler's same note), so it's set in a follow-up statement
+    // instead of the initial insert.
+    await execQuery(
+      c.env,
+      `UPDATE public.${TABLE} SET lines = $1::jsonb WHERE ${PK} = $2`,
+      [JSON.stringify(lines), row[PK]],
+      'orders.createLinesHold'
+    );
+    row.lines = lines;
+  }
+  return c.json({ success: true, data: row }, 201);
+});
+
+// A hold-for-release placeholder can be discarded outright; a real,
+// QB-synced order is managed by QuickBooks and deletion happens there.
+app.delete('/:id', requirePermission('order:delete'), async (c) => {
+  const id = c.req.param('id');
+  const existing = await findById(c.env, TABLE, PK, id);
+  if (!existing) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (existing.order_type !== HOLD_FOR_RELEASE) {
+    return c.json({ success: false, message: 'Orders are managed by the QuickBooks sync and cannot be deleted here.' }, 405);
+  }
+  const r = await execQuery(c.env, `DELETE FROM public.${TABLE} WHERE ${PK} = $1 RETURNING *`, [id], 'orders.deleteHold');
+  return c.json({ success: true, data: r.rows[0] });
+});
 
 export default app;

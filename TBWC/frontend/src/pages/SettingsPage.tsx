@@ -31,21 +31,29 @@ const COMMISSION_IMPORT_TAB_ENABLED = true;
 
 // Derived from the sidebar's own nav (components/layout/navConfig.ts), so a
 // new nav item with a requiredPermission just shows up here too — no second
-// place to hand-edit. `estimate` and `role` aren't gated by any nav item
-// (estimates is feature-flagged off; roles are managed from inside this same
-// Settings page) — both fall through to RolesForm's own catalog-order
-// fallback, appended after everything below.
+// place to hand-edit. Two manual overrides on top of that:
 //
-// QuickBooks is the one group NAV can't express this way: its sidebar
-// visibility collapses to a single permission (inventory:read, see
-// navConfig.ts) shared by three unrelated catalog modules, plus qbSync
-// (a separate top-level nav item) that belongs in this group in the roles
-// tree but not in the sidebar dropdown. Kept as a manual override.
-const ROLE_ORDER = roleOrderFromNav(NAV).map((node) =>
-  typeof node !== 'string' && node.label === 'QuickBooks'
-    ? { label: 'QuickBooks', modules: ['customer', 'inventory', 'payment', 'qbsync'] }
-    : node
-);
+// - QuickBooks: NAV can't express this group at all — its sidebar visibility
+//   collapses to a single permission (inventory:read, see navConfig.ts)
+//   shared by three unrelated catalog modules, plus qbSync (a separate
+//   top-level nav item) that belongs in this group in the roles tree but not
+//   in the sidebar dropdown.
+// - Utilities: `document` (generic order/quote/invoice/inventory file
+//   attachments, routes/documents.ts) has no nav item of its own — it's
+//   cross-cutting, not tied to any single module's page — so it'd otherwise
+//   fall through to RolesForm's catalog-order fallback at the very end.
+//   Nested here instead, alongside Resources (the separate rep resource
+//   library, `resource`), since both are attachment/library features.
+const ROLE_ORDER = roleOrderFromNav(NAV).map((node) => {
+  if (typeof node === 'string') return node;
+  if (node.label === 'QuickBooks') {
+    return { label: 'QuickBooks', modules: ['customer', 'inventory', 'payment', 'qbsync'] };
+  }
+  if (node.label === 'Utilities' && 'modules' in node) {
+    return { ...node, modules: [...node.modules, 'document'] };
+  }
+  return node;
+});
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
@@ -213,7 +221,7 @@ export default function SettingsPage() {
           key: 'roles',
           label: 'Roles',
           icon: <SecurityIcon fontSize="small" />,
-          description: 'What each role may do. Add a role and tick its permissions — no deploy needed.',
+          description: 'What each role may do. Add a role and tick its permissions.',
           content: (
             <RolesForm
               roles={roles}

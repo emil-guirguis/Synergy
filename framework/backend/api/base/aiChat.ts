@@ -23,6 +23,12 @@ export interface AiChatMessage {
   content: string | null;
   tool_calls?: AiChatToolCall[];
   tool_call_id?: string;
+  /** Provider-specific content the loop must hand back untouched on the next
+   *  call but has no business interpreting - Anthropic's thinking blocks,
+   *  which have to accompany the assistant turn they came from when tool
+   *  results follow it. Opaque here on purpose: this module stays
+   *  provider-agnostic, and the adapter that produced them consumes them. */
+  providerBlocks?: unknown[];
 }
 
 export interface AiChatTool {
@@ -86,18 +92,91 @@ export const AI_CHAT_SCOPE_GUARDRAIL =
   'know the answer. If the question cannot be answered with the tools available to you, respond with ' +
   `EXACTLY this text and nothing else, no punctuation or commentary: ${AI_CHAT_OUT_OF_SCOPE_MARKER}`;
 
+/**
+ * Cleans a client-supplied history into something a provider will accept,
+ * with the new message appended as the final user turn.
+ *
+ * Both rules exist because the client stores the conversation optimistically
+ * and the Anthropic Messages API is strict about the result:
+ *  - A turn that FAILED (network error, 502 from the model host) leaves the
+ *    user's question in the store with no assistant reply next to it. The
+ *    next send then posts two user turns in a row, which is rejected for
+ *    non-alternating roles - so one failed turn broke every later message in
+ *    that conversation until "New Chat". Consecutive same-role turns are
+ *    merged rather than dropped, so the unanswered question still reaches
+ *    the model.
+ *  - An assistant turn that produced no text at all is stored as "", and an
+ *    empty content block is likewise rejected. Those are dropped.
+ */
+/** How many past turns to resend. The whole conversation goes up with every
+ *  message, so an afternoon in one chat grows the bill and eventually the
+ *  context window without the user doing anything unusual. Ten exchanges is
+ *  well past what a follow-up question needs; "New Chat" is still the way to
+ *  start clean. Oldest turns are dropped, never the newest. */
+export const MAX_HISTORY_ENTRIES = 20;
+
+/** Cap on ONE tool result as fed back to the model. run_sql_query alone can
+ *  return 500 rows, and up to maxIterations of those accumulate in a single
+ *  request - the largest token cost in the loop by far, and a context-limit
+ *  failure waiting to happen. The caller still receives the untruncated
+ *  result for rendering (see AiChatLoopResult.toolResults), so the clickable
+ *  cards keep every row. */
+export const MAX_TOOL_RESULT_CHARS = 20_000;
+
+function truncateToolResult(result: string): string {
+  if (result.length <= MAX_TOOL_RESULT_CHARS) return result;
+  // Say so explicitly: silently cutting JSON mid-object invites the model to
+  // treat a severed row as the real data, or to report a total it can't see.
+  return (
+    `${result.slice(0, MAX_TOOL_RESULT_CHARS)}
+
+[truncated: this result was ${result.length} characters, ` +
+    `showing the first ${MAX_TOOL_RESULT_CHARS}. Narrow the query (fewer columns, a tighter filter, or a ` +
+    `smaller LIMIT) if you need the rest - do not report totals or counts from this partial output.]`
+  );
+}
+
+export function normaliseChatHistory(
+  history: AiChatHistoryEntry[],
+  message: string
+): AiChatHistoryEntry[] {
+  const allowedRoles = new Set(['user', 'assistant']);
+  const entries = [...history, { role: 'user' as const, content: message }]
+    .filter((h) => h && allowedRoles.has(h.role) && typeof h.content === 'string')
+    .map((h) => ({ role: h.role, content: h.content.trim() }))
+    .filter((h) => h.content.length > 0);
+
+  // A conversation has to open with the user; a leading assistant turn (only
+  // reachable from a malformed history) would be rejected outright.
+  while (entries.length > 0 && entries[0].role === 'assistant') entries.shift();
+
+  const merged: AiChatHistoryEntry[] = [];
+  for (const entry of entries) {
+    const previous = merged[merged.length - 1];
+    if (previous && previous.role === entry.role) {
+      previous.content = `${previous.content}
+
+${entry.content}`;
+    } else {
+      merged.push({ ...entry });
+    }
+  }
+
+  // Trim oldest-first, then re-drop any assistant turn left at the front so
+  // the trimmed conversation still opens with a user turn.
+  const trimmed = merged.slice(-MAX_HISTORY_ENTRIES);
+  while (trimmed.length > 0 && trimmed[0].role === 'assistant') trimmed.shift();
+  return trimmed;
+}
+
 export async function runAiChatLoop(
   message: string,
   history: AiChatHistoryEntry[],
   config: RunAiChatLoopConfig
 ): Promise<AiChatLoopResult> {
-  const allowedRoles = new Set(['user', 'assistant']);
   const messages: AiChatMessage[] = [
     { role: 'system', content: config.systemPrompt },
-    ...history
-      .filter((h) => allowedRoles.has(h.role) && typeof h.content === 'string')
-      .map((h) => ({ role: h.role, content: h.content })),
-    { role: 'user', content: message.trim() },
+    ...normaliseChatHistory(history, message),
   ];
 
   const toolsUsed: string[] = [];
@@ -146,7 +225,7 @@ export async function runAiChatLoop(
         }
         const result = await config.executeTool(toolCall.function.name, toolInput);
         toolResults.push({ tool: toolCall.function.name, result });
-        return { role: 'tool' as const, tool_call_id: toolCall.id, content: result };
+        return { role: 'tool' as const, tool_call_id: toolCall.id, content: truncateToolResult(result) };
       })
     );
 
