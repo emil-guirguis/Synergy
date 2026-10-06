@@ -174,13 +174,13 @@ function ownOnly(c: any): boolean {
 app.get('/', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const q = c.req.query();
-  // missingPo/notShipped/excludeZeroTotal are synthetic filters (dashboard alert
-  // cards), not real columns — keep them out of whereFromQuery's generic pass
-  // and apply as raw checks below instead. "Not invoiced" needs no such
+  // missingPo/notShipped/excludePackingSlip are synthetic filters (dashboard
+  // alert cards), not real columns — keep them out of whereFromQuery's generic
+  // pass and apply as raw checks below instead. "Not invoiced" needs no such
   // special-casing — is_fully_invoiced is a real column with its own
   // schema-generated filter, so ?is_fully_invoiced=false already flows through
   // whereFromQuery normally.
-  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped', 'excludeZeroTotal', 'chips'] });
+  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['missingPo', 'notShipped', 'excludePackingSlip', 'chips'] });
   // Field filters first, then the security scope below — sales_rep_list_id
   // always wins so a rep can't widen their own visibility via a crafted query
   // param. The scope itself is an IN-list (own rep + every managed user's rep),
@@ -193,6 +193,11 @@ app.get('/', requirePermission('order:read'), async (c) => {
   };
   if (q.missingPo === 'true') where.po_number = null;
   if (q.notShipped === 'true') where.shipped_date = null;
+  // A packing slip is a zero-total QB invoice linked to the order — a real
+  // $0 invoice is NOT a packing slip, so total>0 is the wrong test for this;
+  // has_packing_slip is the actual flag (migration 048, kept in sync by
+  // orderInvoiceStatus.ts off the linked invoice's own template).
+  if (q.excludePackingSlip === 'true') where.has_packing_slip = false;
   // chips=notInvoiced,notShipped — show only rows carrying ANY selected chip
   // (OR'd together in one clause); no chips selected means no filter (all rows).
   const selectedChips = (q.chips || '')
@@ -203,12 +208,6 @@ app.get('/', requirePermission('order:read'), async (c) => {
   if (selectedChips.length > 0) {
     whereRaw.push({ sql: `(${selectedChips.map((t) => `(${CHIP_CONDITIONS[t]})`).join(' OR ')})` });
   }
-  // Zero-total rows are packing slips (QB records these as zero-total invoices —
-  // see OrderInvoicesPanel.tsx), not real open orders, so exclude them here.
-  // findAll's `where` only does exact-match/IS NULL — a > comparison has to
-  // go through whereRaw instead (an object value here would get bound as a
-  // raw pg param and throw).
-  if (q.excludeZeroTotal === 'true') whereRaw.push({ sql: `"${TABLE}".total > 0` });
   if (ownOnly(c)) {
     const repIds = visibleRepListIds(user);
     whereRaw.push(

@@ -372,7 +372,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     if (searchParams.get('missingPo') === 'true') baseList.setFilter('missingPo', 'true');
     if (searchParams.get('notShipped') === 'true') baseList.setFilter('notShipped', 'true');
     if (searchParams.get('is_fully_invoiced') === 'false') baseList.setFilter('is_fully_invoiced', 'false');
-    if (searchParams.get('excludeZeroTotal') === 'true') baseList.setFilter('excludeZeroTotal', 'true');
+    if (searchParams.get('excludePackingSlip') === 'true') baseList.setFilter('excludePackingSlip', 'true');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, searchParams]);
 
