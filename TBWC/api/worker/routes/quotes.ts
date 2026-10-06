@@ -184,8 +184,8 @@ app.post('/', requirePermission('quote:write'), async (c) => {
   const quoteId = await withTransaction(c.env, async (q) => {
     const r = await q(
       `INSERT INTO public.quote
-         (customer_list_id, customer_name, txn_date, total, memo, sales_rep_list_id, sales_rep, status, ref_number)
-       VALUES ($1,$2,$3,0,$4,$5,$6,COALESCE($7, 'quote'),$8)
+         (customer_list_id, customer_name, txn_date, total, memo, sales_rep_list_id, sales_rep, status, ref_number, job_name)
+       VALUES ($1,$2,$3,0,$4,$5,$6,COALESCE($7, 'quote'),$8,$9)
        RETURNING quote_id`,
       [
         body.customer_list_id,
@@ -198,6 +198,7 @@ app.post('/', requirePermission('quote:write'), async (c) => {
         body.sales_rep ?? user.sales_rep_name ?? null,
         body.status ?? null,
         body.ref_number ?? null,
+        body.job_name ?? null,
       ]
     );
     const quoteId = r.rows[0].quote_id;
@@ -238,6 +239,7 @@ app.put('/:id', requirePermission('quote:write'), async (c) => {
   if ('memo' in body) cols.memo = body.memo;
   if ('status' in body) cols.status = body.status;
   if ('ref_number' in body) cols.ref_number = body.ref_number;
+  if ('job_name' in body) cols.job_name = body.job_name;
   const newLines = 'lines' in body ? (Array.isArray(body.lines) ? body.lines : []) : null;
   const keys = Object.keys(cols);
   if (keys.length === 0 && newLines === null) {

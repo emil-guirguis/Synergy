@@ -22,8 +22,8 @@
  * those questions would read every rep's orders plus the whole invoice/
  * customer set. A rep (scope 'own' — migration 073) gets a completely
  * different, narrow tool set instead: the quote-creation wizard
- * (search_customers/search_catalog/create_quote/add_quote_line/get_quote,
- * REP_TOOL_NAMES below), every call forced to their own identity and quote
+ * (search_customers/search_catalog/create_quote/set_quote_job_name/
+ * add_quote_line/get_quote, REP_TOOL_NAMES below), every call forced to their own identity and quote
  * ownership — see the scope branch in the route handler at the bottom of
  * this file.
  */
@@ -414,6 +414,23 @@ const TOOLS: AiChatTool[] = [
   {
     type: 'function',
     function: {
+      name: 'set_quote_job_name',
+      description:
+        "Sets a quote's job name — ask for this right after create_quote returns a quote_id, before asking about " +
+        "line items. Manually entered, no catalog/QuickBooks source; overwrites whatever job name the quote had.",
+      parameters: {
+        type: 'object',
+        properties: {
+          quoteId: { type: 'number', description: "The quote's quote_id, from create_quote" },
+          jobName: { type: 'string', description: 'The job name as the user dictated it' },
+        },
+        required: ['quoteId', 'jobName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_quote_line',
       description:
         'Adds one line item to a quote created by create_quote (or found via get_quote). Call once per item as ' +
@@ -497,7 +514,7 @@ const TOOLS: AiChatTool[] = [
 // The full-tool-set admin/employee caller is 'all'; a rep (scope 'own' —
 // migration 073) only ever sees these five, so an unscoped search/run_sql_query
 // tool can never surface another rep's orders/invoices/commission to them.
-const REP_TOOL_NAMES = new Set(['search_customers', 'search_catalog', 'create_quote', 'add_quote_line', 'get_quote']);
+const REP_TOOL_NAMES = new Set(['search_customers', 'search_catalog', 'create_quote', 'set_quote_job_name', 'add_quote_line', 'get_quote']);
 
 // --- Tool executor ------------------------------------------------------------
 
@@ -874,6 +891,33 @@ ${guard.statement}
         return JSON.stringify(result.rows[0]);
       }
 
+      case 'set_quote_job_name': {
+        const quoteId = Number(toolInput.quoteId);
+        if (!Number.isFinite(quoteId)) return JSON.stringify({ error: 'quoteId is required' });
+        const jobName = typeof toolInput.jobName === 'string' ? toolInput.jobName.trim() : '';
+        if (!jobName) return JSON.stringify({ error: 'jobName is required' });
+
+        const quoteRows = await execQuery(
+          env,
+          `SELECT quote_id, sales_rep_list_id FROM public.quote WHERE quote_id = $1`,
+          [quoteId],
+          'aiChat.set_quote_job_name.ownerCheck'
+        );
+        const quote = quoteRows.rows[0];
+        if (!quote) return JSON.stringify({ error: 'Quote not found' });
+        if (scope === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
+          return JSON.stringify({ error: 'Quote not found' });
+        }
+
+        const result = await execQuery(
+          env,
+          `UPDATE public.quote SET job_name = $2 WHERE quote_id = $1 RETURNING quote_id, job_name`,
+          [quoteId, jobName],
+          'aiChat.set_quote_job_name'
+        );
+        return JSON.stringify(result.rows[0]);
+      }
+
       case 'add_quote_line': {
         const quoteId = Number(toolInput.quoteId);
         if (!Number.isFinite(quoteId)) return JSON.stringify({ error: 'quoteId is required' });
@@ -935,7 +979,7 @@ ${guard.statement}
         if (!Number.isFinite(quoteId)) return JSON.stringify({ error: 'quoteId is required' });
         const quoteRows = await execQuery(
           env,
-          `SELECT quote_id, ref_number, customer_name, sales_rep, sales_rep_list_id, txn_date, status, total
+          `SELECT quote_id, ref_number, customer_name, sales_rep, sales_rep_list_id, txn_date, status, total, job_name
              FROM public.quote WHERE quote_id = $1`,
           [quoteId],
           'aiChat.get_quote'
@@ -999,13 +1043,14 @@ app.post('/', async (c) => {
   const claudeTools: Anthropic.ToolUnion[] = repScoped ? toClaudeTools(tools) : [...toClaudeTools(tools), AI_MEMORY_CLAUDE_TOOL];
 
   const systemPrompt = repScoped
-    ? `You are an AI assistant for the TBWC portal. This caller is a sales rep, and the ONLY thing you can do for them here is create a quote and add line items to it — a quote-creation wizard, nothing else. You have exactly five tools: search_customers, search_catalog, create_quote, add_quote_line, get_quote. You have NO access to orders, invoices, commission, other reps' quotes, or anything else in the system — if asked about any of that, say plainly that you can only help create quotes here.
+    ? `You are an AI assistant for the TBWC portal. This caller is a sales rep, and the ONLY thing you can do for them here is create a quote and add line items to it — a quote-creation wizard, nothing else. You have exactly six tools: search_customers, search_catalog, create_quote, set_quote_job_name, add_quote_line, get_quote. You have NO access to orders, invoices, commission, other reps' quotes, or anything else in the system — if asked about any of that, say plainly that you can only help create quotes here.
 
-Wizard flow:
-1. To start a quote: resolve the customer the user named with search_customers (confirm if more than one close match), then call create_quote. Remember the quote_id it returns for the rest of the conversation — call create_quote only once per quote.
-2. Then ask what to add. For each item the user dictates, resolve it with search_catalog to get its qb_item_id and current price (unless it's clearly a custom/non-catalog line), then call add_quote_line once per item with that quote_id. Never invent a price when a catalog match exists — let add_quote_line fill it in from the catalog.
-3. Keep asking "anything else?" until the user says they're done, confirming each add (item, quantity, running total) from add_quote_line's response. Use get_quote if the user asks what's on the quote so far.
-4. Be concise — your text is shown in a plain chat bubble, never markdown/tables.
+Wizard flow — follow this order, one question at a time:
+1. To start a quote: resolve the customer the user named with search_customers (confirm if more than one close match), then call create_quote right away. Remember the quote_id it returns for the rest of the conversation — call create_quote only once per quote.
+2. Immediately after, ask what the job name is. Once the user answers, call set_quote_job_name with that quote_id. Don't skip this or bundle it with the customer question — it's its own step, after the quote already exists.
+3. Then ask what to add. For each item the user dictates, resolve it with search_catalog to get its qb_item_id and current price (unless it's clearly a custom/non-catalog line), then call add_quote_line once per item with that quote_id. Never invent a price when a catalog match exists — let add_quote_line fill it in from the catalog.
+4. Keep asking "anything else?" until the user says they're done, confirming each add (item, quantity, running total) from add_quote_line's response. Use get_quote if the user asks what's on the quote so far.
+5. Be concise — your text is shown in a plain chat bubble, never markdown/tables.
 - Today's date: ${new Date().toISOString().split('T')[0]}
 
 ${AI_CHAT_SCOPE_GUARDRAIL}`

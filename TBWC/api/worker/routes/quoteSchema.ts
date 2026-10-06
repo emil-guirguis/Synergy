@@ -48,10 +48,13 @@ export const quoteSchema = defineSchema({
             field({ name: 'customer_name', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer', dbField: 'customer_name', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'ref_number', order: 3, type: FieldTypes.STRING, default: '', required: false, label: 'Quote #', dbField: 'ref_number', maxLength: 100, showOn: ['list', 'form'] }),
             field({ name: 'sales_rep', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep', maxLength: 200, showOn: ['list', 'form'] }),
+            // TBWC-owned, manually entered — no QB source, same as
+            // qb_sales_order.job_name (migration 020/076).
+            field({ name: 'job_name', order: 5, type: FieldTypes.STRING, default: '', required: false, label: 'Job Name', dbField: 'job_name', maxLength: 300, showOn: ['list', 'form'] }),
             // TBWC-owned lifecycle flag (migration 059) — written directly
             // via routes/quotes.ts's WRITABLE.
             field({
-              name: 'status', order: 5, type: FieldTypes.SELECT, default: 'quote', required: false,
+              name: 'status', order: 6, type: FieldTypes.SELECT, default: 'quote', required: false,
               label: 'Status', dbField: 'status', showOn: ['list', 'form'],
               enumValues: ['quote', 'on_hold', 'cancelled'],
               enumLabels: { quote: 'Quote', on_hold: 'On Hold', cancelled: 'Cancelled' },
