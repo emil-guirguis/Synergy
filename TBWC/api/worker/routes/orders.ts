@@ -193,9 +193,6 @@ app.get('/', requirePermission('order:read'), async (c) => {
   };
   if (q.missingPo === 'true') where.po_number = null;
   if (q.notShipped === 'true') where.shipped_date = null;
-  // Zero-total rows are packing slips (QB records these as zero-total invoices —
-  // see OrderInvoicesPanel.tsx), not real open orders, so exclude them here.
-  if (q.excludeZeroTotal === 'true') where.total = { gt: 0 };
   // chips=notInvoiced,notShipped — show only rows carrying ANY selected chip
   // (OR'd together in one clause); no chips selected means no filter (all rows).
   const selectedChips = (q.chips || '')
@@ -206,6 +203,12 @@ app.get('/', requirePermission('order:read'), async (c) => {
   if (selectedChips.length > 0) {
     whereRaw.push({ sql: `(${selectedChips.map((t) => `(${CHIP_CONDITIONS[t]})`).join(' OR ')})` });
   }
+  // Zero-total rows are packing slips (QB records these as zero-total invoices —
+  // see OrderInvoicesPanel.tsx), not real open orders, so exclude them here.
+  // findAll's `where` only does exact-match/IS NULL — a > comparison has to
+  // go through whereRaw instead (an object value here would get bound as a
+  // raw pg param and throw).
+  if (q.excludeZeroTotal === 'true') whereRaw.push({ sql: `"${TABLE}".total > 0` });
   if (ownOnly(c)) {
     const repIds = visibleRepListIds(user);
     whereRaw.push(
