@@ -33,12 +33,14 @@ function getOrderStatusChips(order: Order): ChipItem[] {
     });
   }
 
-  // Ship Date (actual_ship_date) entered but no invoice number yet.
-  if (order.actual_ship_date && !order.invoice_number) {
+  // invoice_status is QB-driven (see orderInvoiceStatus.ts) — 'Not Invoiced'
+  // is its true default/open state, distinct from Partially Invoiced/Closed/
+  // Paid, all of which also have no *full* invoice but aren't actually open.
+  if (order.invoice_status === 'Not Invoiced') {
     chips.push({
       label: 'Not Invoiced',
       variant: 'warning',
-      title: 'Ship Date is set but no Invoices created yet.',
+      title: 'No invoice created yet.',
     });
   }
 
@@ -356,22 +358,20 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     authContext: auth,
   });
 
-  // Dashboard alert cards link here with ?missingPo=true / ?notShipped=true —
-  // apply them as filters (server-side, via orders.ts's IS NULL checks) rather
-  // than a visible filter control, since they're a synthetic drill-down, not a
-  // real column filter. The "not invoiced" card instead drives the real
-  // is_fully_invoiced filter (?is_fully_invoiced=false) below, so the visible
-  // "Invoiced" dropdown lands on "No" instead of silently filtering underneath
-  // it. Gated on `schema` being loaded: useBaseList's own initial-fetch
-  // bookkeeping (the "hasActiveFilter" effect vs. the [filters] watcher's
-  // first-run skip) assumes filters are still empty the first time schema
-  // finishes loading — setting a filter before that race resolves gets
-  // silently swallowed by both effects and no fetch ever fires.
+  // Dashboard alert cards link here with ?missingPo=true / ?notShipped=true /
+  // ?invoice_status=Not Invoiced — apply them as filters (server-side, via
+  // orders.ts's IS NULL / column checks) rather than a visible filter control,
+  // since they're a synthetic drill-down, not a declared schema field. Gated
+  // on `schema` being loaded: useBaseList's own initial-fetch bookkeeping (the
+  // "hasActiveFilter" effect vs. the [filters] watcher's first-run skip)
+  // assumes filters are still empty the first time schema finishes loading —
+  // setting a filter before that race resolves gets silently swallowed by
+  // both effects and no fetch ever fires.
   useEffect(() => {
     if (!schema) return;
     if (searchParams.get('missingPo') === 'true') baseList.setFilter('missingPo', 'true');
     if (searchParams.get('notShipped') === 'true') baseList.setFilter('notShipped', 'true');
-    if (searchParams.get('is_fully_invoiced') === 'false') baseList.setFilter('is_fully_invoiced', 'false');
+    if (searchParams.get('invoice_status')) baseList.setFilter('invoice_status', searchParams.get('invoice_status'));
     if (searchParams.get('excludePackingSlip') === 'true') baseList.setFilter('excludePackingSlip', 'true');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, searchParams]);

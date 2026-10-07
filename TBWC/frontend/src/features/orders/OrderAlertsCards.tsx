@@ -1,6 +1,6 @@
 /**
- * Dashboard cards: 2026 orders not yet shipped, and all orders not yet
- * (fully) invoiced. Admin-only (mirrors RepInquiriesCard's slot on the
+ * Dashboard cards: 2026 orders not yet shipped, and 2026 orders whose
+ * invoice_status is still 'Not Invoiced'. Admin-only (mirrors RepInquiriesCard's slot on the
  * dashboard) — /orders is unscoped for admins so a plain fetch here covers
  * every order.
  * Fetches via ordersService directly (not the shared useOrders store) — that
@@ -19,7 +19,7 @@ import type { Order } from '../../types/order';
 const YEAR = '2026';
 const isIn2026 = (o: Order) => !!o.txn_date && o.txn_date.startsWith(YEAR);
 const notShipped = (o: Order) => isIn2026(o) && !o.shipped_date;
-const notInvoiced = (o: Order) => isIn2026(o) && !o.is_fully_invoiced && !o.has_packing_slip;
+const notInvoiced = (o: Order) => isIn2026(o) && o.invoice_status === 'Not Invoiced';
 
 export default function OrderAlertsCards() {
   const navigate = useNavigate();
@@ -58,7 +58,7 @@ export default function OrderAlertsCards() {
       </Card>
 
       <Card variant="outlined" sx={{ minWidth: 220, borderColor: notInvoicedCount > 0 ? 'warning.main' : 'divider' }}>
-        <CardActionArea onClick={() => navigate('/orders?is_fully_invoiced=false&excludePackingSlip=true')}>
+        <CardActionArea onClick={() => navigate('/orders?invoice_status=Not+Invoiced')}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <RequestQuoteIcon color={notInvoicedCount > 0 ? 'warning' : 'action'} />

@@ -156,7 +156,7 @@ async function resolveCustomer(env: Env, listId: string): Promise<{ full_name: s
 // are computed per-row client-side, but filtering by them has to happen
 // before pagination). Keep both in sync if the chip rules change.
 const CHIP_CONDITIONS: Record<string, string> = {
-  notInvoiced: `"${TABLE}".actual_ship_date IS NOT NULL AND "${TABLE}".invoice_number IS NULL`,
+  notInvoiced: `"${TABLE}".invoice_status = 'Not Invoiced'`,
   notShipped: `"${TABLE}".actual_ship_date IS NULL AND "${TABLE}".ship_no_later_than IS NOT NULL AND "${TABLE}".ship_no_later_than < CURRENT_DATE`,
   missingFinancials: `("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL)`,
   holdForRelease: `"${TABLE}".order_type = 'hold_for_release'`,
