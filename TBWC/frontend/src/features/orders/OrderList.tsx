@@ -56,12 +56,13 @@ function getOrderStatusChips(order: Order): ChipItem[] {
     });
   }
 
-  // Financials tab never filled in — any of its four core fields missing counts.
-  if (order.sold_for == null || order.commission == null || order.d_net_cost == null || order.overage == null) {
+  // Financials tab never filled in — any of its three core fields missing counts.
+  // Overage excluded on purpose — it's legitimately left blank often.
+  if (order.sold_for == null || order.commission == null || order.d_net_cost == null) {
     chips.push({
       label: 'Missing Financials',
       variant: 'warning',
-      title: 'Sold For, D Net Cost, Overage, or Commission has not been entered on the Financials tab.',
+      title: 'Sold For, D Net Cost, or Commission has not been entered on the Financials tab.',
     });
   }
 
@@ -92,7 +93,7 @@ const STATUS_LEGEND: { label: string; description: string }[] = [
   { label: 'Hold for Release', description: 'TBWC-only placeholder order — editable in full, never sent to QuickBooks.' },
   { label: 'Not Invoiced', description: 'Shipped, but no invoice created yet.' },
   { label: 'Closed', description: 'Manually closed in QuickBooks — no further invoicing expected.' },
-  { label: 'Missing Financials', description: 'Sold For, D Net Cost, Overage, or Commission has not been entered on the Financials tab.' },
+  { label: 'Missing Financials', description: 'Sold For, D Net Cost, or Commission has not been entered on the Financials tab.' },
   { label: 'Not Shipped', description: 'Ship NLT date has passed and Ship Date has not been entered yet.' },
 ];
 

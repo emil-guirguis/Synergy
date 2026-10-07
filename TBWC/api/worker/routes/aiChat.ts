@@ -97,7 +97,7 @@ const TOOLS: AiChatTool[] = [
         'number, e.g. by job site, customer address, or a note. Does NOT search line item text — a serial ' +
         "number, part number, or shipping tracking number lives inside a line's description, not these header " +
         'fields, so use search_order_lines for those instead. Set missingFinancials=true (text may be omitted) ' +
-        'to list orders whose Financials tab is incomplete (Sold For or Commission not entered) — this is the ' +
+        'to list orders whose Financials tab is incomplete (Sold For, D Net Cost, or Commission not entered) — this is the ' +
         '"Missing Financials" status chip on the Orders list.',
       parameters: {
         type: 'object',
@@ -667,7 +667,7 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         }
         // Mirrors the Orders list's "Missing Financials" chip (OrderList.tsx /
         // orders.ts CHIP_CONDITIONS.missingFinancials) — keep both in sync.
-        if (missingFinancials) conditions.push('(sold_for IS NULL OR commission IS NULL)');
+        if (missingFinancials) conditions.push('(sold_for IS NULL OR commission IS NULL OR d_net_cost IS NULL)');
         params.push(limit);
         const result = await execQuery(
           env,

@@ -161,7 +161,7 @@ const CHIP_CONDITIONS: Record<string, string> = {
   notInvoiced: `"${TABLE}".invoice_status = 'Not Invoiced' AND "${TABLE}".actual_ship_date IS NOT NULL`,
   closed: `"${TABLE}".invoice_status = 'Closed'`,
   notShipped: `"${TABLE}".actual_ship_date IS NULL AND "${TABLE}".ship_no_later_than IS NOT NULL AND "${TABLE}".ship_no_later_than < CURRENT_DATE`,
-  missingFinancials: `("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL OR "${TABLE}".d_net_cost IS NULL OR "${TABLE}".overage IS NULL)`,
+  missingFinancials: `("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL OR "${TABLE}".d_net_cost IS NULL)`,
   holdForRelease: `"${TABLE}".order_type = 'hold_for_release'`,
   // No chip/filter-dropdown option for this one — it's only a dashboard-card
   // link target (OrderAlertsCards.tsx's "YTD Open Sales Orders" ->
