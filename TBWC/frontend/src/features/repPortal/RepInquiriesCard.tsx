@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import { listLeads } from '../../services/repLeadsService';
+import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
 export default function RepInquiriesCard() {
   const navigate = useNavigate();
@@ -53,12 +54,14 @@ export default function RepInquiriesCard() {
       variant="outlined"
       sx={{
         mt: 3,
+        minWidth: 240,
         maxWidth: 480,
         borderColor: hasOutstanding ? 'warning.main' : 'divider',
       }}
     >
       <CardActionArea onClick={() => navigate('/rep-portal')}>
-        <CardContent>
+        <CardContent sx={{ position: 'relative', pr: 5 }}>
+          <CardInfoTooltip title="Total rep inquiries (public sign-up form). Outstanding = not yet invited. Ready to approve = outstanding and email verified." />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <PersonIcon color={hasOutstanding ? 'warning' : 'action'} />
             <Typography variant="h6" fontWeight={700}>

@@ -155,6 +155,11 @@ export interface ColumnDefinition<T> {
   className?: string;
   /** Native title attribute on the header cell — hover tooltip for abbreviated labels */
   tooltip?: string;
+  /** Extra content rendered after the label in the header cell (e.g. an info
+   *  icon opening a legend popover) — kept separate from `label`, which stays
+   *  a plain string because exportHelpers.ts reuses it as a literal CSV/Excel
+   *  header. */
+  headerExtra?: ReactNode;
 }
 
 export interface PaginationConfig {

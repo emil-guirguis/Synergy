@@ -9,8 +9,10 @@ import {
   generateFiltersFromSchema,
 } from '@meterit/framework-frontend/components/list/utils/schemaColumnGenerator';
 import { renderNumberCell, renderChipList, type ChipItem } from '@meterit/framework-frontend/components/list/utils/renderHelpers';
+import { Box, IconButton, Tooltip } from '@mui/material';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useOrdersEnhanced } from './ordersStore';
 import { useAuth } from '../../hooks/useAuth';
 import { Permission } from '../../types/auth';
@@ -36,20 +38,30 @@ function getOrderStatusChips(order: Order): ChipItem[] {
   // invoice_status is QB-driven (see orderInvoiceStatus.ts) — 'Not Invoiced'
   // is its true default/open state, distinct from Partially Invoiced/Closed/
   // Paid, all of which also have no *full* invoice but aren't actually open.
-  if (order.invoice_status === 'Not Invoiced') {
+  // "Not Invoiced" itself only applies once it's actually shipped (actual_ship_date,
+  // TBWC's manually-entered field) — unbilled AND unshipped is the complementary
+  // "Open Sales Order" dashboard case (orders.ts's CHIP_CONDITIONS.openSalesOrder),
+  // not this chip.
+  if (order.invoice_status === 'Not Invoiced' && order.actual_ship_date) {
     chips.push({
       label: 'Not Invoiced',
       variant: 'warning',
-      title: 'No invoice created yet.',
+      title: 'Shipped, but no invoice created yet.',
+    });
+  } else if (order.invoice_status === 'Closed') {
+    chips.push({
+      label: 'Closed',
+      variant: 'neutral',
+      title: 'Manually closed in QuickBooks — no further invoicing expected.',
     });
   }
 
-  // Financials tab never filled in (sold_for + commission are its core fields).
-  if (order.sold_for == null || order.commission == null) {
+  // Financials tab never filled in — any of its four core fields missing counts.
+  if (order.sold_for == null || order.commission == null || order.d_net_cost == null || order.overage == null) {
     chips.push({
       label: 'Missing Financials',
       variant: 'warning',
-      title: 'Sold For has not been entered on the Financials tab.',
+      title: 'Sold For, D Net Cost, Overage, or Commission has not been entered on the Financials tab.',
     });
   }
 
@@ -71,9 +83,52 @@ function getOrderStatusChips(order: Order): ChipItem[] {
   return chips;
 }
 
+// Static legend — the per-row chips above only ever show the ones that
+// apply to THAT order, so a row with none of these conditions shows no chip
+// at all and someone scanning the grid has no way to learn what's possible
+// ("Closed"? "Hold for Release"?) without asking. One explanation here,
+// mirroring each chip's own `title` text, beats hunting for an example row.
+const STATUS_LEGEND: { label: string; description: string }[] = [
+  { label: 'Hold for Release', description: 'TBWC-only placeholder order — editable in full, never sent to QuickBooks.' },
+  { label: 'Not Invoiced', description: 'Shipped, but no invoice created yet.' },
+  { label: 'Closed', description: 'Manually closed in QuickBooks — no further invoicing expected.' },
+  { label: 'Missing Financials', description: 'Sold For, D Net Cost, Overage, or Commission has not been entered on the Financials tab.' },
+  { label: 'Not Shipped', description: 'Ship NLT date has passed and Ship Date has not been entered yet.' },
+];
+
+function StatusColumnInfo() {
+  return (
+    <Tooltip
+      title={
+        <Box sx={{ p: 0.5 }}>
+          {STATUS_LEGEND.map((s) => (
+            <Box key={s.label} sx={{ mb: 0.75, fontSize: '0.8rem' }}>
+              <Box component="span" sx={{ fontWeight: 700 }}>{s.label}</Box>
+              {' — '}{s.description}
+            </Box>
+          ))}
+          <Box sx={{ mt: 0.75, fontSize: '0.8rem', fontStyle: 'italic' }}>
+            "Open Sales Order" (the dashboard card) isn't one of these chips — it's Not Invoiced orders with no Ship Date yet.
+          </Box>
+        </Box>
+      }
+    >
+      <IconButton
+        size="small"
+        onClick={(e) => e.stopPropagation()}
+        aria-label="What each status means"
+        sx={{ ml: 0.5, p: 0.25 }}
+      >
+        <InfoOutlinedIcon fontSize="inherit" />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
 const STATUS_CHIPS_COLUMN: ColumnDefinition<Order> = {
   key: 'status_chips',
   label: 'Statuses',
+  headerExtra: <StatusColumnInfo />,
   responsive: 'always-show',
   render: (_value, row) => renderChipList(getOrderStatusChips(row)),
 };
@@ -83,6 +138,7 @@ const STATUS_CHIPS_COLUMN: ColumnDefinition<Order> = {
 // pagination rather than only hiding/showing rows already on the current page.
 const CHIP_OPTIONS: { value: string; label: string }[] = [
   { value: 'notInvoiced', label: 'Not Invoiced' },
+  { value: 'closed', label: 'Closed' },
   { value: 'notShipped', label: 'Not Shipped' },
   { value: 'missingFinancials', label: 'Missing Financials' },
   { value: 'holdForRelease', label: 'Hold for Release' },
@@ -373,6 +429,9 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     if (searchParams.get('notShipped') === 'true') baseList.setFilter('notShipped', 'true');
     if (searchParams.get('invoice_status')) baseList.setFilter('invoice_status', searchParams.get('invoice_status'));
     if (searchParams.get('excludePackingSlip') === 'true') baseList.setFilter('excludePackingSlip', 'true');
+    // Statuses chip filter — e.g. the dashboard's "Open Sales Orders" card
+    // links to ?chips=openSalesOrder.
+    if (searchParams.get('chips')) baseList.setFilter('chips', searchParams.get('chips')!.split(','));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, searchParams]);
 

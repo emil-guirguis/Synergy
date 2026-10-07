@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardActionArea, CardContent, Box, Typography, Select, MenuItem } from '@mui/material';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import { invoiceService } from './invoiceStore';
+import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -44,8 +45,9 @@ export default function ReceivablesCard() {
   }, [year]);
 
   return (
-    <Card variant="outlined" sx={{ minWidth: 220, maxWidth: 480 }}>
-      <CardContent>
+    <Card variant="outlined" sx={{ minWidth: 240, maxWidth: 480 }}>
+      <CardContent sx={{ position: 'relative', pr: 5 }}>
+        <CardInfoTooltip title="Total outstanding balance (balance_remaining > 0) across unpaid invoices for the selected year." />
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <RequestQuoteIcon color="action" />

@@ -156,10 +156,19 @@ async function resolveCustomer(env: Env, listId: string): Promise<{ full_name: s
 // are computed per-row client-side, but filtering by them has to happen
 // before pagination). Keep both in sync if the chip rules change.
 const CHIP_CONDITIONS: Record<string, string> = {
-  notInvoiced: `"${TABLE}".invoice_status = 'Not Invoiced'`,
+  // Only applies once actually shipped — unbilled AND unshipped is
+  // openSalesOrder below, not this one.
+  notInvoiced: `"${TABLE}".invoice_status = 'Not Invoiced' AND "${TABLE}".actual_ship_date IS NOT NULL`,
+  closed: `"${TABLE}".invoice_status = 'Closed'`,
   notShipped: `"${TABLE}".actual_ship_date IS NULL AND "${TABLE}".ship_no_later_than IS NOT NULL AND "${TABLE}".ship_no_later_than < CURRENT_DATE`,
-  missingFinancials: `("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL)`,
+  missingFinancials: `("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL OR "${TABLE}".d_net_cost IS NULL OR "${TABLE}".overage IS NULL)`,
   holdForRelease: `"${TABLE}".order_type = 'hold_for_release'`,
+  // No chip/filter-dropdown option for this one — it's only a dashboard-card
+  // link target (OrderAlertsCards.tsx's "YTD Open Sales Orders" ->
+  // /orders?chips=openSalesOrder). invoice_status='Not Invoiced' already means
+  // not closed/paid/partially invoiced (see orderInvoiceStatus.ts's
+  // precedence), so this is just that plus nothing manually shipped yet.
+  openSalesOrder: `"${TABLE}".invoice_status = 'Not Invoiced' AND "${TABLE}".actual_ship_date IS NULL`,
 };
 
 /** True when this caller's order:read grant is limited to their own rows. */

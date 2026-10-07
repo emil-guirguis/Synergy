@@ -15,6 +15,7 @@ import { Box, Card, CardContent, Typography, Select, MenuItem, CardActionArea } 
 import PaidIcon from '@mui/icons-material/Paid';
 import { ordersService } from './ordersStore';
 import type { Order } from '../../types/order';
+import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
 const DEFAULT_YEAR = '2026';
 
@@ -54,8 +55,9 @@ export default function YearlyOrderTotalCard() {
   }, [orders, year]);
 
   return (
-    <Card variant="outlined" sx={{ maxWidth: 480 }}>
-      <CardContent>
+    <Card variant="outlined" sx={{ minWidth: 240, maxWidth: 480 }}>
+      <CardContent sx={{ position: 'relative', pr: 5 }}>
+        <CardInfoTooltip title="Sum of order total and order count for the selected year, based on txn_date (QB's order date)." />
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <PaidIcon color="action" />

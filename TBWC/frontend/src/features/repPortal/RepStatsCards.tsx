@@ -14,6 +14,7 @@ import PaidIcon from '@mui/icons-material/Paid';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { useQuotes } from '../quotes/quotesStore';
 import { useOrders } from '../orders/ordersStore';
+import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
 const YEAR = '2026';
 const isIn2026 = (o: any) => !!o.txn_date && o.txn_date.startsWith(YEAR);
@@ -39,9 +40,10 @@ export default function RepStatsCards() {
 
   return (
     <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 3 }}>
-      <Card variant="outlined" sx={{ minWidth: 220 }}>
+      <Card variant="outlined" sx={{ minWidth: 240 }}>
         <CardActionArea onClick={() => navigate('/quotes')}>
-          <CardContent>
+          <CardContent sx={{ position: 'relative', pr: 5 }}>
+            <CardInfoTooltip title="Count of all your quotes (all-time, no year filter)." />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <RequestQuoteIcon color="action" />
               <Typography variant="body2" color="text.secondary">
@@ -55,9 +57,10 @@ export default function RepStatsCards() {
         </CardActionArea>
       </Card>
 
-      <Card variant="outlined" sx={{ minWidth: 220 }}>
+      <Card variant="outlined" sx={{ minWidth: 240 }}>
         <CardActionArea onClick={() => navigate('/orders')}>
-          <CardContent>
+          <CardContent sx={{ position: 'relative', pr: 5 }}>
+            <CardInfoTooltip title="Count of all your orders (all-time, no year filter)." />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <ShoppingCartIcon color="action" />
               <Typography variant="body2" color="text.secondary">
@@ -71,9 +74,10 @@ export default function RepStatsCards() {
         </CardActionArea>
       </Card>
 
-      <Card variant="outlined" sx={{ minWidth: 220 }}>
+      <Card variant="outlined" sx={{ minWidth: 240 }}>
         <CardActionArea onClick={() => navigate('/orders')}>
-          <CardContent>
+          <CardContent sx={{ position: 'relative', pr: 5 }}>
+            <CardInfoTooltip title={`Sum of your order totals where txn_date starts with ${YEAR}.`} />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <PaidIcon color="action" />
               <Typography variant="body2" color="text.secondary">
@@ -87,9 +91,10 @@ export default function RepStatsCards() {
         </CardActionArea>
       </Card>
 
-      <Card variant="outlined" sx={{ minWidth: 220 }}>
+      <Card variant="outlined" sx={{ minWidth: 240 }}>
         <CardActionArea onClick={() => navigate('/orders')}>
-          <CardContent>
+          <CardContent sx={{ position: 'relative', pr: 5 }}>
+            <CardInfoTooltip title="Your orders where QuickBooks' own Ship Date (shipped_date) hasn't been set yet (all-time)." />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <LocalShippingIcon color="action" />
               <Typography variant="body2" color="text.secondary">

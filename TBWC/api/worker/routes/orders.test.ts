@@ -168,8 +168,8 @@ describe('GET / status chip filter', () => {
     await req('/?chips=notInvoiced');
     const opts = mockFindAll.mock.calls[0][1];
     expect(opts.whereRaw).toHaveLength(2);
+    expect(opts.whereRaw[0].sql).toContain("invoice_status = 'Not Invoiced'");
     expect(opts.whereRaw[0].sql).toContain('actual_ship_date IS NOT NULL');
-    expect(opts.whereRaw[0].sql).toContain('invoice_number IS NULL');
     expect(opts.whereRaw[0].sql).not.toContain('OR');
     expect(opts.whereRaw[1]).toEqual(DATE_FLOOR_CLAUSE);
   });

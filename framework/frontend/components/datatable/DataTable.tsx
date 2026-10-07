@@ -410,6 +410,7 @@ export function DataTable<T extends Record<string, any>>({
                 >
                   <span className="data-table__header-content">
                     {column.label}
+                    {column.headerExtra}
                     {column.sortable && sortConfig && sortConfig.key === column.key && (
                       <span className="data-table__sort-indicator">
                         {sortConfig.direction === 'asc' ? '↑' : '↓'}

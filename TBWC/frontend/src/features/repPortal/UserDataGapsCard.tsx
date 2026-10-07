@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { getUserRoleRepCounts } from '../users/usersStore';
+import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
 export default function UserDataGapsCard() {
   const navigate = useNavigate();
@@ -46,9 +47,10 @@ export default function UserDataGapsCard() {
   if (!loaded || (noRole === 0 && noQbRep === 0)) return null;
 
   return (
-    <Card variant="outlined" sx={{ mt: 3, maxWidth: 480, borderColor: 'error.main' }}>
+    <Card variant="outlined" sx={{ mt: 3, minWidth: 240, maxWidth: 480, borderColor: 'error.main' }}>
       <CardActionArea onClick={() => navigate('/users')}>
-        <CardContent>
+        <CardContent sx={{ position: 'relative', pr: 5 }}>
+          <CardInfoTooltip title="Users missing a role and/or a linked QB sales rep — both silently break permission checks and commission attribution." />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <WarningAmberIcon color="error" />
             <Typography variant="h6" fontWeight={700}>
