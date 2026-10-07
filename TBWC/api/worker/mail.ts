@@ -10,7 +10,16 @@ export interface SendMailPayload {
   type: string;
   email: string;
   firstName?: string | null;
-  link: string;
+  /** Required by the invite/reverify templates; the 'document' type below
+   *  doesn't use it. */
+  link?: string;
+  /** 'document' type only — caller (this Worker) renders its own subject/body
+   *  and the edge fn just brands+sends it, see TBWC's send-mail/index.ts. */
+  subject?: string;
+  bodyHtml?: string;
+  attachmentBase64?: string;
+  attachmentFilename?: string;
+  attachmentContentType?: string;
 }
 
 export async function sendMail(env: Env, payload: SendMailPayload): Promise<void> {

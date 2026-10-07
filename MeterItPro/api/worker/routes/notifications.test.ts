@@ -32,7 +32,8 @@ const TEST_ENV: Env = {
 };
 
 // authenticateToken sets user from JWT — no DB query unless requirePermission is used.
-// Notifications routes use only authenticateToken, so no user DB lookup needed.
+// POST / is the exception: it loads the full caller row (getCachedUser) to stamp
+// created_by_name, but only once notification_type/title are both present.
 function setupAuth() {
   mockVerify.mockResolvedValue({ userId: 1, tenant_id: 1 });
 }
@@ -152,7 +153,9 @@ describe('Notifications Routes', () => {
   // ── POST / ─────────────────────────────────────────────────────────────────
   describe('POST /', () => {
     it('creates a notification and returns 201', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [SAMPLE_NOTIFICATION] } as any);
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ users_id: 1, name: 'Emil Guirguis', email: 'emil@example.com' }] } as any) // getCachedUser
+        .mockResolvedValueOnce({ rows: [SAMPLE_NOTIFICATION] } as any); // insert
 
       const res = await notificationsApp.request('/', {
         method: 'POST',

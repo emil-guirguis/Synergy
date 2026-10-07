@@ -17,6 +17,9 @@ export interface NotificationRecord {
   /** Display name of whoever raised it. Null for system-raised rows (cron
    *  thresholds, sync failures), which show no From line. */
   created_by_name?: string | null;
+  /** Id of whoever raised it, so a reply knows who to address — same null
+   *  rule as created_by_name. */
+  created_by?: string | number | null;
 }
 
 export interface NotificationListResult {
@@ -35,4 +38,9 @@ export interface NotificationsApi {
   acknowledge(notificationId: string): Promise<void>;
   clear(notificationId: string): Promise<void>;
   clearAll(): Promise<number>;
+  /** Send a message back to whoever raised a notification. Optional — the
+   *  reply box only renders when both this and the notification's
+   *  created_by are present, so an app that hasn't wired this up is
+   *  unaffected. */
+  reply?(notification: NotificationRecord, message: string): Promise<void>;
 }

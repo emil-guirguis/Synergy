@@ -46,6 +46,19 @@ export const notificationService = {
   },
 
   /**
+   * Reply to whoever raised a notification — posts a new one back to them.
+   */
+  async replyToNotification(notification: { id: string; notification_type: string; title: string; created_by?: string | number | null }, message: string): Promise<void> {
+    await apiClient.post('/notifications', {
+      notification_type: notification.notification_type,
+      title: `Re: ${notification.title}`,
+      description: message,
+      severity: 'info',
+      user_id: notification.created_by,
+    });
+  },
+
+  /**
    * Acknowledge a notification — stops re-notify emails, keeps the alert visible
    */
   async acknowledgeNotification(notificationId: string): Promise<void> {

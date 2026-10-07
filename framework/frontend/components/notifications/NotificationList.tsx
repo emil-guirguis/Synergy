@@ -1,7 +1,7 @@
 /**
  * Renders a list of notifications with ack/clear actions.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import {
   List,
   ListItem,
@@ -12,15 +12,21 @@ import {
   Box,
   Typography,
   Divider,
+  TextField,
+  Button,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import ReplyIcon from '@mui/icons-material/Reply';
 import type { NotificationRecord, NotificationSeverity } from './types';
 
 interface NotificationListProps {
   notifications: NotificationRecord[];
   onClear: (notificationId: string) => void;
   onAcknowledge?: (notificationId: string) => void;
+  /** Present only when the host app wired NotificationsApi.reply — see
+   *  NotificationBell, which only passes this through when that's true. */
+  onReply?: (notification: NotificationRecord, message: string) => Promise<void> | void;
 }
 
 function getSeverityColor(severity: NotificationSeverity): 'error' | 'warning' | 'info' {
@@ -50,10 +56,77 @@ function formatTimestamp(timestamp: string): string {
   return `${days}d ago`;
 }
 
+/** Reply textbox shown under a notification that has someone to write back
+ *  to. Owns its own draft text so typing in one row never re-renders the
+ *  rest of the list. */
+const ReplyBox: React.FC<{
+  notification: NotificationRecord;
+  onReply: (notification: NotificationRecord, message: string) => Promise<void> | void;
+}> = ({ notification, onReply }) => {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const send = async () => {
+    const message = text.trim();
+    if (!message || sending) return;
+    setSending(true);
+    try {
+      await onReply(notification, message);
+      setText('');
+      setSent(true);
+    } catch {
+      // Already surfaced via the bell's error Alert — leave the draft in
+      // place so the user can retry instead of losing what they typed.
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (sent) {
+    return (
+      <Typography variant="caption" display="block" color="success.main" sx={{ mt: 0.75 }}>
+        Reply sent
+      </Typography>
+    );
+  }
+
+  return (
+    <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75 }} onClick={(e) => e.stopPropagation()}>
+      <TextField
+        size="small"
+        fullWidth
+        placeholder="Reply…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        }}
+        disabled={sending}
+        inputProps={{ 'data-testid': `notification-reply-input-${notification.id}` }}
+      />
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={<ReplyIcon fontSize="small" />}
+        onClick={send}
+        disabled={sending || !text.trim()}
+        data-testid={`notification-reply-send-${notification.id}`}
+      >
+        Send
+      </Button>
+    </Box>
+  );
+};
+
 export const NotificationList: React.FC<NotificationListProps> = ({
   notifications,
   onClear,
   onAcknowledge,
+  onReply,
 }) => {
   return (
     <List sx={{ width: '100%', maxHeight: 400, overflow: 'auto' }}>
@@ -69,15 +142,25 @@ export const NotificationList: React.FC<NotificationListProps> = ({
               secondaryTypographyProps={{ component: 'div' }}
               primary={
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  {notification.created_by_name ? (
+                    <Chip
+                      label={notification.created_by_name}
+                      size="small"
+                      color={getSeverityColor(notification.severity)}
+                      variant="outlined"
+                      data-testid={`notification-sender-chip-${notification.id}`}
+                    />
+                  ) : (
+                    <Chip
+                      label={getTypeLabel(notification.notification_type)}
+                      size="small"
+                      color={getSeverityColor(notification.severity)}
+                      variant="outlined"
+                    />
+                  )}
                   <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                     {notification.title}
                   </Typography>
-                  <Chip
-                    label={getTypeLabel(notification.notification_type)}
-                    size="small"
-                    color={getSeverityColor(notification.severity)}
-                    variant="outlined"
-                  />
                   {notification.status === 'acknowledged' && (
                     <Chip
                       label="Acked"
@@ -96,20 +179,12 @@ export const NotificationList: React.FC<NotificationListProps> = ({
                       {notification.description}
                     </Typography>
                   )}
-                  {notification.created_by_name && (
-                    <Typography
-                      variant="caption"
-                      display="block"
-                      color="textSecondary"
-                      sx={{ fontWeight: 600 }}
-                      data-testid={`notification-sender-${notification.id}`}
-                    >
-                      From {notification.created_by_name}
-                    </Typography>
-                  )}
                   <Typography variant="caption" display="block" color="textSecondary">
                     {formatTimestamp(notification.created_at)}
                   </Typography>
+                  {onReply && notification.created_by != null && (
+                    <ReplyBox notification={notification} onReply={onReply} />
+                  )}
                 </Box>
               }
             />

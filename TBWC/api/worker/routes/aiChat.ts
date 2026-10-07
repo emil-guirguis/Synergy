@@ -48,7 +48,9 @@ import {
   AI_MEMORY_GUIDELINE,
 } from '@meterit/framework-backend/api/base/aiMemory';
 import { searchDocumentsMetadata, searchDocumentsContent } from '@meterit/framework-backend/api/base/aiSearch';
-import { createNotification } from '@meterit/framework-backend/api/base/notifications';
+import { createNotification, senderDisplayName } from '@meterit/framework-backend/api/base/notifications';
+import { sendMail } from '../mail';
+import { buildDocumentPdf, money, type DocumentHeader, type DocumentLine } from '../pdf/documentPdf';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -509,6 +511,46 @@ const TOOLS: AiChatTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'email_order',
+      description:
+        'Emails a PDF of an order to its customer (or an explicit address) — a real, external email that ' +
+        "can't be recalled. Resolve the order first with search_orders and pass its qb_sales_order_id here; " +
+        'never guess an id. Confirm the recipient (name/email) with the caller before calling this, unless ' +
+        "they already stated it explicitly. If recipientEmail is omitted, the customer's email on file is used " +
+        "— if there isn't one, this returns an error asking for an address.",
+      parameters: {
+        type: 'object',
+        properties: {
+          qbSalesOrderId: { type: 'number', description: 'From a search_orders result' },
+          recipientEmail: { type: 'string', description: "Override — omit to use the customer's email on file" },
+        },
+        required: ['qbSalesOrderId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'email_invoice',
+      description:
+        'Emails a PDF of an invoice to its customer (or an explicit address) — a real, external email that ' +
+        "can't be recalled. Resolve the invoice first with search_invoices and pass its qb_invoice_id here; " +
+        'never guess an id. Confirm the recipient (name/email) with the caller before calling this, unless ' +
+        "they already stated it explicitly. If recipientEmail is omitted, the customer's email on file is used " +
+        "— if there isn't one, this returns an error asking for an address.",
+      parameters: {
+        type: 'object',
+        properties: {
+          qbInvoiceId: { type: 'number', description: 'From a search_invoices result' },
+          recipientEmail: { type: 'string', description: "Override — omit to use the customer's email on file" },
+        },
+        required: ['qbInvoiceId'],
+      },
+    },
+  },
 ];
 
 // The full-tool-set admin/employee caller is 'all'; a rep (scope 'own' —
@@ -516,15 +558,88 @@ const TOOLS: AiChatTool[] = [
 // tool can never surface another rep's orders/invoices/commission to them.
 const REP_TOOL_NAMES = new Set(['search_customers', 'search_catalog', 'create_quote', 'set_quote_job_name', 'add_quote_line', 'get_quote']);
 
-// --- Tool executor ------------------------------------------------------------
-
-/** Display name for the person a notification is sent on behalf of. Falls back
- *  to the e-mail when the profile has no name on it, so the bell never shows a
- *  message from nobody. */
-function senderName(user: any): string | null {
-  const full = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
-  return full || user?.email || null;
+/** One-line caller identity for the system prompt, built server-side from the
+ *  authenticated profile — never from anything in the chat message, so a
+ *  caller can't impersonate someone else by typing a different name/id.
+ *  Lets "me"/"my"/"I" resolve (my orders, notify me) without a search_users
+ *  round trip, and answers "who am I"/"what's my rep id" directly. */
+function describeCaller(user: any): string {
+  const parts = [`Current user: ${senderDisplayName(user) ?? 'unknown'} (user id ${user?.id ?? 'unknown'}, email ${user?.email ?? 'unknown'})`];
+  if (user?.sales_rep_name) {
+    parts.push(`their sales rep identity is "${user.sales_rep_name}" (rep list id ${user.sales_rep_list_id})`);
+  }
+  if (Array.isArray(user?.managed_sales_rep_list_ids) && user.managed_sales_rep_list_ids.length > 0) {
+    parts.push(`they manage rep list ids: ${user.managed_sales_rep_list_ids.join(', ')}`);
+  }
+  return `${parts.join('; ')}. When the caller refers to themselves ("me"/"my"/"I"), use these values directly — don't ask who they are or look themselves up.`;
 }
+
+// --- email_order / email_invoice helpers ----------------------------------
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+}
+
+/** pg returns `date` columns as JS Date objects — PDFs/emails need plain text. */
+function dateStr(v: unknown): string | null {
+  if (v == null) return null;
+  return v instanceof Date ? v.toISOString().split('T')[0] : String(v);
+}
+
+function toDocumentLines(raw: unknown): DocumentLine[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((l: any) => ({
+    item: l?.item ?? null,
+    description: l?.desc ?? null,
+    quantity: l?.quantity != null ? Number(l.quantity) : null,
+    rate: l?.rate != null ? Number(l.rate) : null,
+    amount: l?.amount != null ? Number(l.amount) : null,
+  }));
+}
+
+/** Invoices have no bill_address_block column (unlike orders) — build one
+ *  from qb_customer.bill_addr (migration 001's {addr1,addr2,city,state,postal}). */
+function formatInvoiceBillTo(customerName: string | null, billAddr: any): string | null {
+  if (!billAddr) return customerName ?? null;
+  const cityLine = [billAddr.city, billAddr.state, billAddr.postal].filter(Boolean).join(', ');
+  const lines = [customerName, billAddr.addr1, billAddr.addr2, cityLine].filter(Boolean);
+  return lines.length ? lines.join('\n') : customerName ?? null;
+}
+
+/** No Buffer in the Workers runtime — chunked to stay well under engines'
+ *  per-call argument limit for String.fromCharCode(...bytes). */
+function uint8ToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+async function sendDocumentEmail(env: Env, header: DocumentHeader, lines: DocumentLine[], recipientEmail: string): Promise<string> {
+  const pdfBytes = await buildDocumentPdf(header, lines);
+  const refNumber = header.refNumber ?? '';
+  const subject = `${header.kind} ${refNumber} from TBWC Technology`.trim();
+  const bodyHtml =
+    `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#4b4e57;">Hi,</p>` +
+    `<p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#4b4e57;">Please find your ${header.kind.toLowerCase()} ` +
+    `${escapeHtml(refNumber)} attached${header.total != null ? ` — total ${money(header.total)}` : ''}.</p>` +
+    `<p style="margin:0;font-size:13px;color:#7c7f89;">TBWC Technology</p>`;
+
+  await sendMail(env, {
+    type: 'document',
+    email: recipientEmail,
+    subject,
+    bodyHtml,
+    attachmentBase64: uint8ToBase64(pdfBytes),
+    attachmentFilename: `${header.kind}-${refNumber || 'document'}.pdf`,
+    attachmentContentType: 'application/pdf',
+  });
+  return JSON.stringify({ sent: true, recipient: recipientEmail, refNumber: header.refNumber });
+}
+
+// --- Tool executor ------------------------------------------------------------
 
 async function executeTool(env: Env, user: any, scope: string | null, toolName: string, toolInput: Record<string, any>): Promise<string> {
   try {
@@ -825,11 +940,80 @@ ${guard.statement}
             // Stamp the caller as the sender: the bell shows "From <name>", and
             // without it an AI-sent message arrives with no idea who it is from.
             createdBy: user?.id ?? null,
-            createdByName: senderName(user),
+            createdByName: senderDisplayName(user),
           },
           NOTIFICATION_OPTIONS
         );
         return JSON.stringify({ sent: true, notification_id: row.notification_id });
+      }
+
+      case 'email_order': {
+        const qbSalesOrderId = Number(toolInput.qbSalesOrderId);
+        if (!Number.isFinite(qbSalesOrderId)) return JSON.stringify({ error: 'qbSalesOrderId is required — resolve it with search_orders first' });
+        const explicitEmail = typeof toolInput.recipientEmail === 'string' ? toolInput.recipientEmail.trim() : '';
+
+        const result = await execQuery(
+          env,
+          `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.total,
+                  o.bill_address_block, o.lines, c.email AS customer_email
+             FROM public.qb_sales_order o
+             LEFT JOIN public.qb_customer c ON c.list_id = o.customer_list_id AND c.qb_deleted_at IS NULL
+            WHERE o.qb_sales_order_id = $1 AND o.qb_deleted_at IS NULL`,
+          [qbSalesOrderId],
+          'aiChat.email_order'
+        );
+        if (result.rows.length === 0) return JSON.stringify({ error: 'Order not found' });
+        const row = result.rows[0];
+        const recipientEmail = explicitEmail || row.customer_email;
+        if (!recipientEmail) {
+          return JSON.stringify({ error: 'No email on file for this customer — ask the caller for an address to send it to.' });
+        }
+
+        const header: DocumentHeader = {
+          kind: 'Order',
+          refNumber: row.ref_number,
+          customerName: row.customer_name,
+          billTo: row.bill_address_block,
+          date: dateStr(row.txn_date),
+          poNumber: row.po_number,
+          jobName: row.job_name,
+          total: row.total != null ? Number(row.total) : null,
+        };
+        return sendDocumentEmail(env, header, toDocumentLines(row.lines), recipientEmail);
+      }
+
+      case 'email_invoice': {
+        const qbInvoiceId = Number(toolInput.qbInvoiceId);
+        if (!Number.isFinite(qbInvoiceId)) return JSON.stringify({ error: 'qbInvoiceId is required — resolve it with search_invoices first' });
+        const explicitEmail = typeof toolInput.recipientEmail === 'string' ? toolInput.recipientEmail.trim() : '';
+
+        const result = await execQuery(
+          env,
+          `SELECT i.ref_number, i.customer_name, i.txn_date, i.due_date, i.total, i.lines,
+                  c.email AS customer_email, c.bill_addr
+             FROM public.qb_invoice i
+             LEFT JOIN public.qb_customer c ON c.list_id = i.customer_list_id AND c.qb_deleted_at IS NULL
+            WHERE i.qb_invoice_id = $1 AND i.qb_deleted_at IS NULL`,
+          [qbInvoiceId],
+          'aiChat.email_invoice'
+        );
+        if (result.rows.length === 0) return JSON.stringify({ error: 'Invoice not found' });
+        const row = result.rows[0];
+        const recipientEmail = explicitEmail || row.customer_email;
+        if (!recipientEmail) {
+          return JSON.stringify({ error: 'No email on file for this customer — ask the caller for an address to send it to.' });
+        }
+
+        const header: DocumentHeader = {
+          kind: 'Invoice',
+          refNumber: row.ref_number,
+          customerName: row.customer_name,
+          billTo: formatInvoiceBillTo(row.customer_name, row.bill_addr),
+          date: dateStr(row.txn_date),
+          secondaryDate: { label: 'Due', value: dateStr(row.due_date) },
+          total: row.total != null ? Number(row.total) : null,
+        };
+        return sendDocumentEmail(env, header, toDocumentLines(row.lines), recipientEmail);
       }
 
       case 'search_customers': {
@@ -1045,6 +1229,8 @@ app.post('/', async (c) => {
   const systemPrompt = repScoped
     ? `You are an AI assistant for the TBWC portal. This caller is a sales rep, and the ONLY thing you can do for them here is create a quote and add line items to it — a quote-creation wizard, nothing else. You have exactly six tools: search_customers, search_catalog, create_quote, set_quote_job_name, add_quote_line, get_quote. You have NO access to orders, invoices, commission, other reps' quotes, or anything else in the system — if asked about any of that, say plainly that you can only help create quotes here.
 
+${describeCaller(user)}
+
 Wizard flow — follow this order, one question at a time:
 1. To start a quote: resolve the customer the user named with search_customers (confirm if more than one close match), then call create_quote right away. Remember the quote_id it returns for the rest of the conversation — call create_quote only once per quote.
 2. Immediately after, ask what the job name is. Once the user answers, call set_quote_job_name with that quote_id. Don't skip this or bundle it with the customer question — it's its own step, after the quote already exists.
@@ -1056,6 +1242,8 @@ Wizard flow — follow this order, one question at a time:
 ${AI_CHAT_SCOPE_GUARDRAIL}`
     : `You are an AI assistant for the TBWC portal, a QuickBooks-backed sales/orders/inventory system for TBWC reps.
 You have access to tools that query the live database. Use them to answer questions accurately rather than guessing.
+
+${describeCaller(user)}
 
 Guidelines:
 - Be concise. Your text is shown in a plain chat bubble (no markdown rendering) — never use tables, pipe characters, or markdown syntax of any kind.
@@ -1072,7 +1260,9 @@ Guidelines:
 - If nothing matches, say so plainly rather than inventing results.
 - Any question needing computed/aggregated data across many rows (counts, totals, "orders not invoiced in the last N days", averages, breakdowns by rep/date/etc.) is NOT a job for the search_* tools — use run_sql_query. Never tell the user you can't answer a data question before trying run_sql_query.
 - Before telling the user a figure isn't tracked/doesn't exist, you MUST have run an information_schema.columns keyword search (see run_sql_query's description) and gotten nothing back — not just checked whether it's one of the topics named in that tool's description. Those are examples, not an exhaustive list; something absent from them is very often still in the database under a name you haven't guessed yet.
+- If the caller asks you to notify/alert/remind themselves ("notify me", "remind me when..."), use their own user id from "Current user" above directly — never call search_users for the caller's own name.
 - If the caller asks you to notify, alert, or message another user, ALWAYS call search_users first — a bare first name (e.g. "Emil") is a complete, valid query by itself, never a reason to skip the call or assume no match. Only after calling it: if it returns exactly one person, proceed straight to send_notification with their id — don't ask for confirmation on a single unambiguous match. If it returns more than one, ask which one. If it returns zero, say so. Never tell the caller a user "can't be found" without having actually called search_users for that name. It posts to that user's in-app notification bell — it does not send an email or SMS, so say "notified" rather than "emailed"/"texted".
+- If the caller asks you to email/send an order or invoice to someone, resolve it first with search_orders/search_invoices, then call email_order/email_invoice. This sends a real email with a PDF attached to an external address — it cannot be recalled — so confirm who it's going to (name or email address) before calling the tool, unless the caller already stated an explicit address themselves. If the tool reports no email on file, ask the caller for an address rather than guessing one or giving up.
 - Today's date: ${new Date().toISOString().split('T')[0]}
 
 ${AI_MEMORY_GUIDELINE} Saving or recalling memory is always in scope.

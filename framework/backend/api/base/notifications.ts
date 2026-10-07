@@ -69,6 +69,16 @@ export interface NotificationsOptions {
 const DEFAULT_TABLE = 'notification';
 const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+/** Best-effort display name for whoever is creating a notification, for the
+ *  `createdByName` input below. Shaped loosely because TBWC's users table
+ *  splits first_name/last_name while MeterItPro's has one `name` column —
+ *  falls back to email so the bell never shows a message from nobody. */
+export function senderDisplayName(user: any): string | null {
+  if (!user) return null;
+  const full = [user.first_name, user.last_name].filter(Boolean).join(' ').trim();
+  return full || (typeof user.name === 'string' && user.name.trim()) || (typeof user.email === 'string' && user.email.trim()) || null;
+}
+
 function columnsOf(options?: NotificationsOptions): string {
   const tenantCol = tenantColumnOf(options);
   return `notification_id, ${tenantCol ? `${tenantCol}, ` : ''}users_id, notification_type, severity, title,

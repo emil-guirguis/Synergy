@@ -13,6 +13,7 @@ const api: NotificationsApi = {
   acknowledge: (id) => notificationService.acknowledgeNotification(id),
   clear: (id) => notificationService.clearNotification(id),
   clearAll: () => notificationService.clearAllNotifications(),
+  reply: (notification, message) => notificationService.replyToNotification(notification, message),
 };
 
 export const NotificationBell: React.FC = () => <FrameworkNotificationBell api={api} />;

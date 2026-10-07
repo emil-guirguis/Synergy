@@ -4,7 +4,7 @@
  */
 import { API_BASE_URL } from '../config/api';
 import { tokenStorage } from '../utils/tokenStorage';
-import type { NotificationListResult, NotificationsApi } from '@meterit/framework-frontend/components/notifications';
+import type { NotificationListResult, NotificationRecord, NotificationsApi } from '@meterit/framework-frontend/components/notifications';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -53,5 +53,19 @@ export const notificationsService: NotificationsApi = {
       headers: authHeaders(),
     }));
     return data.data.deleted_count;
+  },
+
+  async reply(notification: NotificationRecord, message: string): Promise<void> {
+    await parse(await fetch(`${API_BASE_URL}/notifications`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        notification_type: notification.notification_type,
+        title: `Re: ${notification.title}`,
+        description: message,
+        severity: 'info',
+        users_id: notification.created_by,
+      }),
+    }));
   },
 };

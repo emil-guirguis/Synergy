@@ -18,6 +18,7 @@ import {
   acknowledgeNotification,
   deleteNotification,
   deleteAllNotifications,
+  senderDisplayName,
   NotificationValidationError,
   type NotificationsOptions,
 } from '@meterit/framework-backend/api/base/notifications';
@@ -69,6 +70,10 @@ app.post('/', requirePermission('notification:write'), async (c) => {
       severity: body.severity,
       description: body.description,
       usersId: body.users_id,
+      // Stamp the caller as the sender (same as the AI chat send_notification
+      // tool) so a reply has someone to go back to and the bell shows "From".
+      createdBy: c.get('userId'),
+      createdByName: senderDisplayName(c.get('user')),
     }, OPTIONS);
     return c.json({ success: true, data: { notification: { ...row, id: String(row.notification_id) } } }, 201);
   } catch (e) {

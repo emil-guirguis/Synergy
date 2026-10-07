@@ -14,7 +14,7 @@
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 
-import { authenticateToken, AuthVariables } from '../middleware';
+import { authenticateToken, getCachedUser, AuthVariables } from '../middleware';
 import { logError } from '../errorHandler';
 import {
   listNotifications,
@@ -23,6 +23,7 @@ import {
   acknowledgeNotification,
   deleteNotification,
   deleteAllNotifications,
+  senderDisplayName,
   NotificationValidationError,
 } from '@meterit/framework-backend/api/base/notifications';
 
@@ -74,12 +75,22 @@ app.post('/', async (c) => {
     const tenantId = c.get('tenantId');
     const body = await c.req.json();
 
+    // authenticateToken only sets the JWT-claim user (no name/email) — load
+    // the full row so the bell can show who actually sent this. Skipped when
+    // the body is already missing required fields so the validation error
+    // below still fires without a wasted lookup.
+    const caller = body.notification_type && body.title
+      ? await getCachedUser(c.env, String(c.get('user').users_id))
+      : null;
+
     const row = await createNotification(execQuery, c.env, tenantId, {
       notificationType: body.notification_type,
       title: body.title,
       severity: body.severity,
       description: body.description,
       usersId: body.users_id,
+      createdBy: caller?.users_id ?? null,
+      createdByName: senderDisplayName(caller),
     });
 
     // meter_id/meter_element_id aren't part of the generic module — set them

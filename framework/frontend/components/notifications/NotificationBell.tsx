@@ -162,6 +162,18 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     }
   };
 
+  const handleReply = api.reply
+    ? async (notification: NotificationRecord, message: string) => {
+        try {
+          await api.reply!(notification, message);
+        } catch (err) {
+          console.error('[NotificationBell] Error sending reply:', err);
+          setError('Failed to send reply');
+          throw err;
+        }
+      }
+    : undefined;
+
   const handleClearAll = async () => {
     try {
       await api.clearAll();
@@ -227,6 +239,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                 notifications={notifications}
                 onClear={handleClearNotification}
                 onAcknowledge={handleAcknowledge}
+                onReply={handleReply}
               />
             ))}
         </Box>
