@@ -45,7 +45,7 @@ export const usersSchema = defineSchema({
             field({ name: 'role_id', order: 5, type: FieldTypes.SELECT, default: null, required: true, label: 'Role', dbField: 'role_id', enumValues: [], showOn: ['list', 'form'] }),
             // enumValues/enumLabels are injected at serve time from public.qb_sales_rep
             // (see schema route). Stores the qb_sales_rep_id FK; blank = not linked.
-            field({ name: 'qb_sales_rep_id', order: 6, type: FieldTypes.SELECT, default: null, required: false, label: 'QB Sales Rep', dbField: 'qb_sales_rep_id', enumValues: [], placeholder: '— Not linked —', showOn: ['form'] }),
+            field({ name: 'qb_sales_rep_id', order: 6, type: FieldTypes.SELECT, default: null, required: false, label: 'QB Sales Rep', dbField: 'qb_sales_rep_id', enumValues: [], placeholder: '— Not linked —', showOn: ['list','form'] }),
           ],
         }),
         section({

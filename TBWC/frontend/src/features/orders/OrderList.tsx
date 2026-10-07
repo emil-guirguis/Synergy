@@ -419,7 +419,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
           isAdmin && onOrderCreate ? (
             <button
               type="button"
-              className="base-list__toolbar-btn"
+              className="base-list__toolbar-btn base-list__toolbar-btn--new"
               title="Create a TBWC-only placeholder order, editable in full, that is never sent to QuickBooks"
               onClick={() => onOrderCreate({
                 order_type: 'hold_for_release',
