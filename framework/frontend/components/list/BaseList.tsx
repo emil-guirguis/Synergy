@@ -30,6 +30,8 @@ export interface BaseListProps<T> {
   onPreview?: (item: T) => void;
   onEdit?: (item: T) => void;
   onDelete?: (item: T) => void;
+  /** Share icon in the row actions cell — omit to leave it off this list. */
+  onShare?: (item: T) => void;
   onSelect?: (selected: T[]) => void;
   /** Click handler for the whole row — opens record without showing an action button */
   onRowClick?: (item: T) => void;
@@ -77,6 +79,7 @@ export function BaseList<T extends Record<string, any>>({
   onPreview,
   onEdit,
   onDelete,
+  onShare,
   onSelect,
   onRowClick,
   bulkActions,
@@ -193,6 +196,7 @@ export function BaseList<T extends Record<string, any>>({
         onPreview={onPreview}
         onEdit={onEdit}
         onDelete={onDelete}
+        onShare={onShare}
         onSelect={onSelect}
         onRowClick={onRowClick}
         bulkActions={bulkActions}

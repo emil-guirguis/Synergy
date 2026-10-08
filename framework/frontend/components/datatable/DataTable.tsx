@@ -13,6 +13,7 @@ export function DataTable<T extends Record<string, any>>({
   onDelete,
   onView,
   onPreview,
+  onShare,
   onRowClick,
   onSelect,
   pagination,
@@ -156,10 +157,10 @@ export function DataTable<T extends Record<string, any>>({
 
   // Render action buttons
   const renderActions = useCallback((item: T) => {
-    const hasActions = onView || onPreview || onEdit || onDelete;
+    const hasActions = onView || onPreview || onEdit || onShare || onDelete;
     if (!hasActions) return null;
 
-    console.log('[DataTable] Rendering actions for item:', item, { onView: !!onView, onPreview: !!onPreview, onEdit: !!onEdit, onDelete: !!onDelete });
+    console.log('[DataTable] Rendering actions for item:', item, { onView: !!onView, onPreview: !!onPreview, onEdit: !!onEdit, onShare: !!onShare, onDelete: !!onDelete });
 
     return (
       <div className="data-table__actions">
@@ -202,6 +203,19 @@ export function DataTable<T extends Record<string, any>>({
             <span className="material-symbols-outlined" aria-hidden="true">edit</span>
           </button>
         )}
+        {onShare && (
+          <button
+            type="button"
+            className="data-table__action-btn data-table__action-btn--share"
+            onClick={(e) => {
+              e.stopPropagation();
+              onShare(item);
+            }}
+            title="Share"
+          >
+            <span className="material-symbols-outlined" aria-hidden="true">share</span>
+          </button>
+        )}
         {onDelete && (
           <button
             type="button"
@@ -217,7 +231,7 @@ export function DataTable<T extends Record<string, any>>({
         )}
       </div>
     );
-  }, [onView, onPreview, onEdit, onDelete]);
+  }, [onView, onPreview, onEdit, onShare, onDelete]);
 
   // Error state
   if (error) {
@@ -420,7 +434,7 @@ export function DataTable<T extends Record<string, any>>({
                 </th>
               ))}
               
-              {(onView || onEdit || onDelete) && (
+              {(onView || onEdit || onShare || onDelete) && (
                 <th className="data-table__header data-table__header--actions">
                   {/* Empty header for actions column */}
                 </th>
@@ -438,7 +452,7 @@ export function DataTable<T extends Record<string, any>>({
                       <div className="data-table__skeleton-cell" />
                     </td>
                   ))}
-                  {(onView || onEdit || onDelete) && <td className="data-table__cell data-table__cell--actions"><div className="data-table__skeleton-cell" /></td>}
+                  {(onView || onEdit || onShare || onDelete) && <td className="data-table__cell data-table__cell--actions"><div className="data-table__skeleton-cell" /></td>}
                 </tr>
               ))
             ) : isEmpty ? (
@@ -447,7 +461,7 @@ export function DataTable<T extends Record<string, any>>({
                   colSpan={
                     (onSelect ? 1 : 0) +
                     visibleColumns.length +
-                    (onView || onEdit || onDelete ? 1 : 0)
+                    (onView || onEdit || onShare || onDelete ? 1 : 0)
                   }
                   className="data-table__cell data-table__cell--empty"
                 >
@@ -485,7 +499,7 @@ export function DataTable<T extends Record<string, any>>({
                   </td>
                 ))}
                 
-                {(onView || onEdit || onDelete) && (
+                {(onView || onEdit || onShare || onDelete) && (
                   <td className="data-table__cell data-table__cell--actions">
                     {renderActions(item)}
                   </td>

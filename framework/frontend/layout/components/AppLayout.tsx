@@ -31,6 +31,14 @@ export interface AppLayoutConfig {
   getPageTitle?: (pathname: string) => string;
   sidebarContent?: React.ReactNode;
   sidebarDefaultExpanded?: string[];
+  /** Self-service display preference override (Settings > System Config's
+   *  per-user override). Omit to hide the "Preferences" user-menu item. */
+  onSavePreferences?: (updates: {
+    timezone?: string | null;
+    date_format?: string | null;
+    time_format?: '12h' | '24h' | null;
+    default_page_size?: number | null;
+  }) => Promise<void>;
 }
 
 export interface AppLayoutProps extends LayoutProps {
@@ -58,6 +66,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     getPageTitle,
     sidebarContent,
     sidebarDefaultExpanded,
+    onSavePreferences,
   } = config;
 
   const { isMobile, isTablet, isDesktop } = responsive;
@@ -106,6 +115,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         showSidebarElements={true}
         sidebarBrand={sidebarBrand}
         sidebarCollapsed={sidebarCollapsed}
+        onSavePreferences={onSavePreferences}
       />
 
       {/* Body: Sidebar + Content */}

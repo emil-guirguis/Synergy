@@ -1,9 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type { HeaderProps } from '../types';
 import { HamburgerIcon } from './HamburgerIcon';
 import { getIconElement } from '../../utils/iconHelper';
 import { getAppVersion, formatVersion } from '../../utils/version';
+import { useSystemConfig } from '../../utils/systemConfig';
+import { FormModal } from '../../components/modal';
+import UserPreferencesForm, { type UserPreferencesValues } from '../../components/settings/UserPreferencesForm';
 
 import './Header.css';
 
@@ -55,9 +59,15 @@ export const Header: React.FC<HeaderProps> = ({
   showSidebarElements = false,
   sidebarBrand,
   onToggleSidebar,
-  sidebarCollapsed = false
+  sidebarCollapsed = false,
+  onSavePreferences
 }) => {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [preferencesValues, setPreferencesValues] = useState<UserPreferencesValues>({});
+  const [preferencesSaving, setPreferencesSaving] = useState(false);
+  const [preferencesError, setPreferencesError] = useState<string | null>(null);
+  const systemConfig = useSystemConfig();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -96,6 +106,36 @@ export const Header: React.FC<HeaderProps> = ({
   }, [userMenuOpen, notificationsOpen, isListening]);
 
   const unreadNotifications = notifications.filter(n => !n.id.includes('read')).length;
+
+  const openPreferences = () => {
+    setUserMenuOpen(false);
+    setPreferencesError(null);
+    setPreferencesValues({
+      timezone: systemConfig.timezone ?? null,
+      date_format: systemConfig.date_format ?? null,
+      time_format: systemConfig.time_format ?? null,
+      default_page_size: systemConfig.default_page_size ?? null,
+    });
+    setPreferencesOpen(true);
+  };
+
+  const handlePreferencesChange = (field: keyof UserPreferencesValues, value: any) => {
+    setPreferencesValues((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const savePreferences = async () => {
+    if (!onSavePreferences) return;
+    setPreferencesSaving(true);
+    setPreferencesError(null);
+    try {
+      await onSavePreferences(preferencesValues);
+      setPreferencesOpen(false);
+    } catch (err) {
+      setPreferencesError(err instanceof Error ? err.message : 'Failed to save preferences');
+    } finally {
+      setPreferencesSaving(false);
+    }
+  };
 
   // Initialize speech recognition
   useEffect(() => {
@@ -354,14 +394,12 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
                 <div className="user-menu-divider"></div>
                 <div className="user-menu-items" role="menu">
-                  <button className="user-menu-item" type="button" role="menuitem">
-                    {getIconElement('person', 'icon')}
-                    Profile
-                  </button>
-                  <button className="user-menu-item" type="button" role="menuitem">
-                    {getIconElement('settings', 'icon')}
-                    Settings
-                  </button>
+                  {onSavePreferences && (
+                    <button className="user-menu-item" type="button" role="menuitem" onClick={openPreferences}>
+                      {getIconElement('person', 'icon')}
+                      Preferences
+                    </button>
+                  )}
                   <button className="user-menu-item" type="button" role="menuitem">
                     {getIconElement('info', 'icon')}
                     Help
@@ -388,6 +426,32 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
       </div>
+
+      {/* Portaled to document.body — this header has an ancestor with `transform`
+          (translateZ(0), for sidebar-collapse performance), which makes the
+          modal's `position: fixed` resolve against the header's own box
+          instead of the viewport, and it opens clipped near the top of the
+          page instead of centered over it. */}
+      {onSavePreferences && preferencesOpen && createPortal(
+        <FormModal
+          isOpen={preferencesOpen}
+          title="Preferences"
+          size="sm"
+          loading={preferencesSaving}
+          error={preferencesError ?? undefined}
+          onClose={() => setPreferencesOpen(false)}
+        >
+          <UserPreferencesForm
+            values={preferencesValues}
+            onChange={handlePreferencesChange}
+            onSubmit={savePreferences}
+            onCancel={() => setPreferencesOpen(false)}
+            loading={preferencesSaving}
+            error={preferencesError}
+          />
+        </FormModal>,
+        document.body
+      )}
     </header>
   );
 };

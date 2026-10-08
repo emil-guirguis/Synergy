@@ -20,6 +20,8 @@ export interface FormModalProps<T = any> {
   crumb?: string;
   /** Module/schema name — auto-resolves icon from the app icon registry */
   moduleIcon?: string;
+  /** Share icon shown to the left of Cancel/Close — omit to hide it. */
+  onShare?: () => void;
 }
 
 /**
@@ -41,6 +43,7 @@ export function FormModal<T = any>({
   titleIcon,
   crumb,
   moduleIcon,
+  onShare,
 }: FormModalProps<T>) {
   const resolvedIcon = titleIcon ?? (moduleIcon ? getIconElement(moduleIcon) : undefined);
   // Wrapper to handle form submission from modal save button
@@ -67,6 +70,7 @@ export function FormModal<T = any>({
       saveLabel={saveLabel}
       titleIcon={resolvedIcon}
       crumb={crumb}
+      onShare={onShare}
     >
       {children}
     </Modal>

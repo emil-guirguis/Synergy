@@ -5,6 +5,8 @@
  */
 
 import React from 'react';
+import { formatDate as formatDateConfigured, formatDateTime as formatDateTimeConfigured } from '../../../utils/dateHelpers';
+import { formatCurrency as formatCurrencyConfigured } from '../../../utils/numberHelpers';
 
 /**
  * Badge color variants for general use.
@@ -116,21 +118,11 @@ export const renderDateCell = (
         });
         break;
       case 'datetime':
-        formattedDate = dateObj.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        });
+        formattedDate = formatDateTimeConfigured(dateObj);
         break;
       case 'short':
       default:
-        formattedDate = dateObj.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-        });
+        formattedDate = formatDateConfigured(dateObj);
         break;
     }
     
@@ -341,7 +333,29 @@ export const renderNumberCell = (
   }
   
   const formatted = new Intl.NumberFormat('en-US', options).format(value);
-  
+
+  return <span className="table-cell__number">{formatted}</span>;
+};
+
+/**
+ * Render a money value using System Config's currency (Settings > System Config).
+ *
+ * @example
+ * renderCurrencyCell(1234.56) // "$1,234.56" (or configured currency's symbol)
+ */
+export const renderCurrencyCell = (
+  value: number | string | undefined | null,
+  fallback: string = 'N/A'
+): React.ReactElement => {
+  if (value === undefined || value === null || value === '') {
+    return <span className="table-cell__empty">{fallback}</span>;
+  }
+
+  const formatted = formatCurrencyConfigured(value);
+  if (!formatted) {
+    return <span className="table-cell__empty">{fallback}</span>;
+  }
+
   return <span className="table-cell__number">{formatted}</span>;
 };
 

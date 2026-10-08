@@ -8,3 +8,5 @@ export { default as SettingsPageShell } from './SettingsPageShell';
 export type { SettingsSection, SettingsPageShellProps } from './SettingsPageShell';
 export { default as AiMemoryPanel } from './AiMemoryPanel';
 export type { AiMemoryPanelProps, AiMemoryFile } from './AiMemoryPanel';
+export { default as UserPreferencesForm } from './UserPreferencesForm';
+export type { UserPreferencesFormProps, UserPreferencesValues } from './UserPreferencesForm';

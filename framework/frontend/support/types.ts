@@ -19,12 +19,26 @@ export interface SupportTicket {
   type: TicketType;
   status: TicketStatus;
   priority: TicketPriority;
+  serial_number: string | null;
   resolved_at: string | null;
   created_at: string;
   updated_at: string;
   client_tenant_name?: string;
   created_by_name?: string;
   assigned_to_name?: string;
+  csat_rating?: number | null;
+  csat_submitted_at?: string | null;
+}
+
+/** Support Tickets admin summary (GET .../support/analytics) — ticket volume, avg resolution time, CSAT. */
+export interface SupportAnalytics {
+  total: number;
+  last_7_days: number;
+  last_30_days: number;
+  avg_resolution_hours: number | null;
+  avg_csat: number | null;
+  csat_count: number;
+  by_status: Record<string, number>;
 }
 
 export interface CreateTicketPayload {
@@ -32,6 +46,8 @@ export interface CreateTicketPayload {
   description?: string;
   type?: TicketType;
   priority?: TicketPriority;
+  status?: TicketStatus;
+  serial_number?: string;
 }
 
 export interface UpdateTicketPayload {
@@ -42,9 +58,16 @@ export interface UpdateTicketPayload {
   priority?: TicketPriority;
   assigned_to_users_id?: number | string | null;
   client_tenant_id?: number | null;
+  serial_number?: string | null;
 }
 
 import type { EnhancedStore } from '../components/list/types';
+
+/** Minimal shape TicketDetailPage needs to populate its "Assigned To" dropdown. */
+export interface AssignableUser {
+  id: string;
+  name: string;
+}
 
 /**
  * Both apps' entity-store hooks (createEntityHook) support bypassing the
@@ -61,4 +84,8 @@ export interface SupportTicketService {
   getById(id: number): Promise<SupportTicket>;
   create(payload: CreateTicketPayload): Promise<SupportTicket>;
   update(id: number, payload: UpdateTicketPayload): Promise<SupportTicket>;
+  /** Filer rates their own resolved/closed ticket 1-5. */
+  submitCsat(id: number, rating: number): Promise<SupportTicket>;
+  /** Admin-only summary powering the Support Tickets page's analytics tiles. Omit to hide them. */
+  getAnalytics?(): Promise<SupportAnalytics>;
 }

@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { FormModal } from '../modal/FormModal';
 import { useSchema } from '../form/utils/schemaLoader';
+import { ShareMenu, useShareTarget, type SharePerson } from '../share';
 
 export interface EntityManagementPageProps<T = any> {
   title: string;
@@ -45,6 +46,16 @@ export interface EntityManagementPageProps<T = any> {
    * prop type for the entity it actually receives.
    */
   renderForm: (props: { entity: T | undefined; onCancel: () => void; isNew: boolean }) => React.ReactNode;
+  /**
+   * Share feature: when set (together with searchPeople/onShare), the form
+   * modal gets a Share icon next to Cancel. Omit any of the three to leave
+   * Share off for this entity — e.g. one with no deep-link route yet.
+   */
+  shareUrl?: (entity: T) => string;
+  /** Defaults to the same title used for the modal crumb. */
+  shareTitle?: string | ((entity: T) => string);
+  searchPeople?: (query: string) => Promise<SharePerson[]>;
+  onShare?: (params: { recipient: SharePerson; note: string; url: string; title: string }) => Promise<void>;
 }
 
 /**
@@ -80,11 +91,16 @@ export function EntityManagementPage<T = any>({
   showSaveButton = true,
   renderList,
   renderForm,
+  shareUrl,
+  shareTitle,
+  searchPeople,
+  onShare: onShareSubmit,
 }: EntityManagementPageProps<T>) {
   const [selected, setSelected] = useState<T | null>(null);
   const [createDefaults, setCreateDefaults] = useState<Partial<T> | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [formKey, setFormKey] = useState(0);
+  const { shareTarget, openShare, closeShare } = useShareTarget();
 
   const handleEdit = useCallback((entity: T) => {
     setSelected(entity);
@@ -118,6 +134,13 @@ export function EntityManagementPage<T = any>({
         : (editLabel ?? (titleFieldValue ? `Edit ${title} ${titleFieldValue}` : `Edit ${title}`)))
     : (newLabel ?? `New ${title}`);
 
+  const canShare = !!(shareUrl && searchPeople && onShareSubmit);
+  const handleShareClick = useCallback(() => {
+    if (!selected || !shareUrl) return;
+    const resolvedTitle = typeof shareTitle === 'function' ? shareTitle(selected) : (shareTitle ?? crumb);
+    openShare({ url: shareUrl(selected), title: resolvedTitle });
+  }, [selected, shareUrl, shareTitle, crumb, openShare]);
+
   return (
     <div className="entity-management-page">
       {renderList({ onEdit: handleEdit, onCreate: handleCreate })}
@@ -131,6 +154,7 @@ export function EntityManagementPage<T = any>({
         showSaveButton={showSaveButton}
         saveLabel={saveLabel}
         size={modalSize}
+        onShare={canShare && selected ? handleShareClick : undefined}
       >
         {showForm && (
           <React.Fragment key={formKey}>
@@ -146,6 +170,19 @@ export function EntityManagementPage<T = any>({
           </React.Fragment>
         )}
       </FormModal>
+
+      {canShare && shareTarget && (
+        <ShareMenu
+          open={!!shareTarget}
+          onClose={closeShare}
+          title={shareTarget.title}
+          url={shareTarget.url}
+          searchPeople={searchPeople!}
+          onShare={({ recipient, note }) =>
+            onShareSubmit!({ recipient, note, url: shareTarget.url, title: shareTarget.title })
+          }
+        />
+      )}
     </div>
   );
 }

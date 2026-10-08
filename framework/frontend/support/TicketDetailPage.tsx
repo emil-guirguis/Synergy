@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress,
-  Divider, FormControl, Grid, InputLabel, MenuItem, Select,
-  TextField, Typography,
+  Divider, FormControl, Grid, InputLabel, MenuItem, Rating, Select,
+  Tab, Tabs, TextField, Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SaveIcon from '@mui/icons-material/Save';
-import type { SupportTicket, TicketType, UpdateTicketPayload, SupportTicketService } from './types';
+import type { SupportTicket, TicketType, UpdateTicketPayload, SupportTicketService, AssignableUser } from './types';
 
 const TICKET_TYPE_LABELS: Record<TicketType, string> = {
   bug:             'Bug',
@@ -31,9 +31,14 @@ export interface TicketDetailPageProps {
   isAdminSupport: boolean;
   /** Route prefix the "Back to Tickets" button returns to. */
   basePath?: string;
+  /** Users the ticket can be assigned to (admin only — ignored otherwise). */
+  assignableUsers?: AssignableUser[];
+  /** Renders the Documents tab's content (the app wires its own DocumentsGrid
+   *  instance — this module stays storage/API-agnostic). Omit to hide the tab. */
+  renderDocuments?: (ticketId: number) => React.ReactNode;
 }
 
-export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketService, isAdminSupport, basePath = '/support/tickets' }) => {
+export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketService, isAdminSupport, basePath = '/support/tickets', assignableUsers = [], renderDocuments }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -43,6 +48,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
   const [error, setError]     = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm]       = useState<UpdateTicketPayload>({ title: '' });
+  const [tab, setTab]         = useState(0);
+  const [csatSubmitting, setCsatSubmitting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -58,6 +65,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
           priority: t.priority,
           assigned_to_users_id: t.assigned_to_users_id ?? undefined,
           client_tenant_id: t.client_tenant_id ?? undefined,
+          serial_number: t.serial_number ?? '',
         });
       })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load ticket'))
@@ -77,6 +85,19 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
       setError(e instanceof Error ? e.message : 'Failed to update ticket');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCsat = async (value: number) => {
+    if (!ticket) return;
+    setCsatSubmitting(true);
+    setError('');
+    try {
+      setTicket(await ticketService.submitCsat(ticket.support_ticket_id, value));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to submit rating');
+    } finally {
+      setCsatSubmitting(false);
     }
   };
 
@@ -115,6 +136,17 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
       {error   && <Alert severity="error"   sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
+      {renderDocuments && (
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+          <Tab label="General" />
+          <Tab label="Documents" />
+        </Tabs>
+      )}
+
+      {tab !== 0 ? (
+        renderDocuments?.(ticket.support_ticket_id)
+      ) : (
+      <>
       <Card>
         <CardContent>
           <Grid container spacing={3}>
@@ -125,6 +157,15 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
                 onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
                 fullWidth
                 required
+                disabled={!isAdminSupport}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                label="Serial Number"
+                value={form.serial_number ?? ''}
+                onChange={e => setForm(f => ({ ...f, serial_number: e.target.value }))}
+                fullWidth
                 disabled={!isAdminSupport}
               />
             </Grid>
@@ -142,7 +183,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
 
             {isAdminSupport && (
               <>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
                   <FormControl fullWidth>
                     <InputLabel>Type</InputLabel>
                     <Select
@@ -159,7 +200,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
                   <FormControl fullWidth>
                     <InputLabel>Status</InputLabel>
                     <Select
@@ -174,7 +215,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid item xs={12} sm={4}>
+                <Grid item xs={12} sm={3}>
                   <FormControl fullWidth>
                     <InputLabel>Priority</InputLabel>
                     <Select
@@ -186,6 +227,21 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
                       <MenuItem value="medium">Medium</MenuItem>
                       <MenuItem value="high">High</MenuItem>
                       <MenuItem value="urgent">Urgent</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <FormControl fullWidth>
+                    <InputLabel>Assigned To</InputLabel>
+                    <Select
+                      value={form.assigned_to_users_id ?? ''}
+                      label="Assigned To"
+                      onChange={e => setForm(f => ({ ...f, assigned_to_users_id: e.target.value || null }))}
+                    >
+                      <MenuItem value="">Unassigned</MenuItem>
+                      {assignableUsers.map(u => (
+                        <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                 </Grid>
@@ -203,6 +259,28 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
           )}
         </CardContent>
       </Card>
+
+      {!isAdminSupport && ['resolved', 'closed'].includes(ticket.status) && (
+        <Card sx={{ mt: 2 }}>
+          <CardContent>
+            {ticket.csat_rating ? (
+              <>
+                <Typography variant="subtitle2" gutterBottom>Thanks for your feedback</Typography>
+                <Rating value={ticket.csat_rating} readOnly />
+              </>
+            ) : (
+              <>
+                <Typography variant="subtitle2" gutterBottom>How did we do?</Typography>
+                <Rating
+                  value={null}
+                  disabled={csatSubmitting}
+                  onChange={(_, value) => { if (value) void handleCsat(value); }}
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Metadata row */}
       <Card sx={{ mt: 2 }}>
@@ -245,6 +323,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketServic
             Save Changes
           </Button>
         </Box>
+      )}
+      </>
       )}
     </Box>
   );

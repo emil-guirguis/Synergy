@@ -6,11 +6,14 @@ import {
 } from '@mui/material';
 import { SupportTicketList } from './SupportTicketList';
 import type { SupportTicketListProps } from './SupportTicketList';
+import { SupportAnalyticsSummary } from './SupportAnalyticsSummary';
 import type { CreateTicketPayload, SupportTicketService } from './types';
 
 export interface SupportTicketsPageProps extends Pick<SupportTicketListProps, 'useStore' | 'isAdminSupport' | 'showClientColumn' | 'basePath'> {
   ticketService: SupportTicketService;
 }
+
+const EMPTY_FORM: CreateTicketPayload = { title: '', description: '', type: 'general', priority: 'medium', serial_number: '' };
 
 export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({ useStore, isAdminSupport, showClientColumn, basePath, ticketService }) => {
   const store = useStore();
@@ -18,9 +21,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({ useStore
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating]     = useState(false);
   const [createError, setCreateError] = useState('');
-  const [form, setForm] = useState<CreateTicketPayload>({
-    title: '', description: '', type: 'general', priority: 'medium',
-  });
+  const [form, setForm] = useState<CreateTicketPayload>(EMPTY_FORM);
 
   const handleCreate = async () => {
     if (!form.title.trim()) { setCreateError('Title is required'); return; }
@@ -29,7 +30,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({ useStore
     try {
       await ticketService.create(form);
       setCreateOpen(false);
-      setForm({ title: '', description: '', type: 'general', priority: 'medium' });
+      setForm(EMPTY_FORM);
       store.fetchItems({ _bypassCache: true });
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : 'Failed to create ticket');
@@ -39,13 +40,14 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({ useStore
   };
 
   const openCreate = () => {
-    setForm({ title: '', description: '', type: 'general', priority: 'medium' });
+    setForm(EMPTY_FORM);
     setCreateError('');
     setCreateOpen(true);
   };
 
   return (
     <Box p={3}>
+      {isAdminSupport && <SupportAnalyticsSummary ticketService={ticketService} />}
       <SupportTicketList useStore={useStore} isAdminSupport={isAdminSupport} showClientColumn={showClientColumn} basePath={basePath} onCreate={openCreate} />
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
@@ -57,6 +59,12 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({ useStore
             value={form.title}
             onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
             fullWidth required margin="normal" autoFocus
+          />
+          <TextField
+            label="Serial Number"
+            value={form.serial_number ?? ''}
+            onChange={e => setForm(f => ({ ...f, serial_number: e.target.value }))}
+            fullWidth margin="normal"
           />
           <TextField
             label="Description"
@@ -92,6 +100,21 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({ useStore
               <MenuItem value="urgent">Urgent</MenuItem>
             </Select>
           </FormControl>
+          {isAdminSupport && (
+            <FormControl fullWidth margin="normal">
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={form.status ?? 'open'}
+                label="Status"
+                onChange={e => setForm(f => ({ ...f, status: e.target.value as CreateTicketPayload['status'] }))}
+              >
+                <MenuItem value="open">Open</MenuItem>
+                <MenuItem value="in_progress">In Progress</MenuItem>
+                <MenuItem value="resolved">Resolved</MenuItem>
+                <MenuItem value="closed">Closed</MenuItem>
+              </Select>
+            </FormControl>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreateOpen(false)} disabled={creating}>Cancel</Button>

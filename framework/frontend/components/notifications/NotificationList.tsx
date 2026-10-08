@@ -11,6 +11,7 @@ import {
   Chip,
   Box,
   Typography,
+  Link,
   Divider,
   TextField,
   Button,
@@ -158,9 +159,20 @@ export const NotificationList: React.FC<NotificationListProps> = ({
                       variant="outlined"
                     />
                   )}
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                    {notification.title}
-                  </Typography>
+                  {notification.link_url ? (
+                    <Link
+                      href={notification.link_url}
+                      variant="subtitle2"
+                      sx={{ fontWeight: 600 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {notification.title}
+                    </Link>
+                  ) : (
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                      {notification.title}
+                    </Typography>
+                  )}
                   {notification.status === 'acknowledged' && (
                     <Chip
                       label="Acked"

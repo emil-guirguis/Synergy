@@ -144,16 +144,6 @@ export function pluralize(word: string, count: number, plural?: string): string 
 }
 
 /**
- * Format a number with commas as thousands separators
- */
-export function formatNumber(num: number, decimals?: number): string {
-  if (decimals !== undefined) {
-    num = parseFloat(num.toFixed(decimals));
-  }
-  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-
-/**
  * Format a file size in bytes to a human-readable string
  */
 export function formatFileSize(bytes: number): string {

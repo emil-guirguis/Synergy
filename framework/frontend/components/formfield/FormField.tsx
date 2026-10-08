@@ -320,7 +320,12 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
           }
           return (
             <FormControl fullWidth required={required} error={showError} disabled={disabled} variant="outlined" data-field={name} data-component="select">
-              <InputLabel id={`${fieldId}-label`}>{label}</InputLabel>
+              {/* shrink: displayEmpty below means the box always shows *something*
+                  (a real value or a placeholder like "(system default)"), but MUI
+                  only auto-floats this label based on value truthiness — without
+                  it, a "" value leaves the label resting in the middle, overlapping
+                  the placeholder text instead of floating to the outline notch. */}
+              <InputLabel id={`${fieldId}-label`} shrink>{label}</InputLabel>
               <Select
                 labelId={`${fieldId}-label`}
                 id={fieldId}
@@ -330,6 +335,12 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
                 onBlur={onBlur}
                 label={label}
                 required={required}
+                notched
+                // Without this, MUI renders nothing for a selected value="" item
+                // (e.g. a "(system default)" placeholder option) even though a
+                // matching MenuItem with real label text exists — it looks like
+                // the selection got blanked out instead of showing that label.
+                displayEmpty
               >
                 {placeholder && <MenuItem key="__placeholder__" value="">{placeholder}</MenuItem>}
                 {options?.map((option: FormFieldOption, index: number) => (

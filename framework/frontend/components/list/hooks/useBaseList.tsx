@@ -57,6 +57,13 @@ const defaultAuthContext: AuthContextProvider = {
   user: undefined,
 };
 
+// Entities whose org-configured default page size (Settings > System Config)
+// has already been applied this browser session. Module-level (not component
+// state) so a list that unmounts/remounts via navigation doesn't re-seed the
+// page size and clobber a value the user picked in between — only a full
+// reload clears it.
+const appliedDefaultPageSizeFor = new Set<string>();
+
 // Create a React Context for auth (optional fallback)
 const AuthContext = createContext<AuthContextProvider>(defaultAuthContext);
 
@@ -992,6 +999,25 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
       },
     };
   }, [allowPagination, store.list, store.setPage, store.setPageSize, store.fetchItems]);
+
+  // Seed pageSize from the org's configured default (System Config >
+  // defaultPageSize, carried on the authenticated user via /auth/me or
+  // /auth/verify) the first time this entity's list mounts this session —
+  // the store itself can't know this at creation time since it's a module
+  // singleton built before the user is loaded.
+  useEffect(() => {
+    if (!allowPagination || !store.list || !store.setPageSize) return;
+    if (appliedDefaultPageSizeFor.has(entityNamePlural)) return;
+
+    const configuredDefault = authContext.user?.default_page_size;
+    if (typeof configuredDefault !== 'number' || configuredDefault <= 0) return;
+
+    appliedDefaultPageSizeFor.add(entityNamePlural);
+    if (store.list.pageSize !== configuredDefault) {
+      store.setPageSize(configuredDefault);
+      if (store.fetchItems) (store.fetchItems as any)({ _bypassCache: true });
+    }
+  }, [allowPagination, authContext.user, entityNamePlural, store]);
 
   // Memoize data to prevent unnecessary re-renders
   const memoizedData = useMemo(() => store.items || [], [store.items]);

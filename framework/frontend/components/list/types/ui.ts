@@ -127,6 +127,8 @@ export interface DataTableProps<T> {
   onDelete?: (item: T) => void;
   onView?: (item: T) => void;
   onPreview?: (item: T) => void;
+  /** Share icon in the row actions cell — omit to leave it off this list. */
+  onShare?: (item: T) => void;
   onRowClick?: (item: T) => void;
   onSelect?: (selectedItems: T[]) => void;
   pagination?: PaginationConfig;

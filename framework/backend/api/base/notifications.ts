@@ -40,6 +40,9 @@ export interface NotificationRow {
   /** Sender's display name as it read when sent - denormalised rather than
    *  joined, since each app's users table has a different key type. */
   created_by_name: string | null;
+  /** Deep link to the record this notification is about (e.g. the Share
+   *  feature) — null for an ordinary notification with nothing to jump to. */
+  link_url: string | null;
 }
 
 export interface CreateNotificationInput {
@@ -53,6 +56,8 @@ export interface CreateNotificationInput {
    *  alone leaves the bell with nothing to show. */
   createdBy?: string | number | null;
   createdByName?: string | null;
+  /** See NotificationRow.link_url. */
+  linkUrl?: string | null;
 }
 
 export interface NotificationsOptions {
@@ -83,7 +88,7 @@ function columnsOf(options?: NotificationsOptions): string {
   const tenantCol = tenantColumnOf(options);
   return `notification_id, ${tenantCol ? `${tenantCol}, ` : ''}users_id, notification_type, severity, title,
           description, created_at, status, first_detected_at, acknowledged_at, acknowledged_by,
-          created_by, created_by_name`;
+          created_by, created_by_name, link_url`;
 }
 
 /** Thrown for bad client input; app routes map this to a 400. */
@@ -185,7 +190,7 @@ export async function createNotification(
     throw new NotificationValidationError('notificationType and title are required');
   }
   const tenantCol = tenantColumnOf(options);
-  const cols = ['users_id', 'notification_type', 'severity', 'title', 'description', 'created_by', 'created_by_name'];
+  const cols = ['users_id', 'notification_type', 'severity', 'title', 'description', 'created_by', 'created_by_name', 'link_url'];
   const vals: any[] = [
     input.usersId ?? null,
     input.notificationType,
@@ -194,6 +199,7 @@ export async function createNotification(
     input.description ?? null,
     input.createdBy ?? null,
     input.createdByName?.trim() || null,
+    input.linkUrl ?? null,
   ];
   if (tenantCol) {
     cols.unshift(tenantCol);

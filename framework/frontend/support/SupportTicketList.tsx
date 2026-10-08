@@ -30,12 +30,21 @@ export const SupportTicketList: React.FC<SupportTicketListProps> = ({
     const fieldOrder = isAdminSupport
       ? ['title', ...(showClientColumn ? ['client_tenant_name'] : []), 'type', 'status', 'priority', 'assigned_to_name', 'created_at']
       : ['title', 'type', 'status', 'priority', 'created_at'];
-    return generateColumnsFromSchema<SupportTicket>(schema.formFields, { fieldOrder, responsive: 'hide-mobile' });
+    const cols = generateColumnsFromSchema<SupportTicket>(schema.formFields, { fieldOrder, responsive: 'hide-mobile' });
+    // generateColumnsFromSchema uses fieldOrder only to sort — every
+    // showOn:['list'] schema field still gets a column regardless, so
+    // admin-only fields (assigned_to_name, client_tenant_name) need an
+    // explicit filter too, same pattern as OrderList.tsx's REP_FIELD_ORDER.
+    return cols.filter((col) => fieldOrder.includes(col.key as string));
   }, [schema, isAdminSupport, showClientColumn]);
 
   const filters = useMemo(() => {
     if (!schema) return [];
-    return generateFiltersFromSchema(schema.formFields, {
+    // Exclude assigned_to_name/created_by_name: they're joined display
+    // columns (routes/support.ts), not real support_ticket columns, so a
+    // free-text filter on them would try to query a nonexistent column.
+    const { assigned_to_name, created_by_name, client_tenant_name, ...filterableFields } = schema.formFields;
+    return generateFiltersFromSchema(filterableFields, {
       fieldOrder: ['status', 'priority', 'type'],
     });
   }, [schema]);
@@ -46,8 +55,14 @@ export const SupportTicketList: React.FC<SupportTicketListProps> = ({
     useStore,
     features: {
       allowCreate: true,
-      allowEdit: false,
-      allowDelete: false,
+      // Edit/delete both go through PUT/DELETE /api/support/:id, which are
+      // support:write (admin-only) server-side — gating the buttons on
+      // isAdminSupport here just keeps a non-admin from seeing a button that
+      // would 403 anyway. No `permissions` object needed: these booleans are
+      // the only gate authContext's always-true checkPermission stub doesn't
+      // already short-circuit past (see hooks.ts's canEdit/canDelete).
+      allowEdit: isAdminSupport,
+      allowDelete: isAdminSupport,
       allowBulkActions: false,
       allowExport: false,
       allowSearch: true,
@@ -61,18 +76,23 @@ export const SupportTicketList: React.FC<SupportTicketListProps> = ({
   });
 
   return (
-    <BaseList
-      title="Support Tickets"
-      filters={baseList.renderFilters()}
-      onCreateClick={onCreate}
-      data={baseList.data}
-      columns={baseList.columns}
-      loading={baseList.loading}
-      error={baseList.error}
-      emptyMessage="No tickets found."
-      onRowClick={(ticket) => navigate(`${basePath}/${ticket.support_ticket_id}`)}
-      pagination={baseList.pagination}
-    />
+    <>
+      <BaseList
+        title="Support Tickets"
+        filters={baseList.renderFilters()}
+        onCreateClick={onCreate}
+        data={baseList.data}
+        columns={baseList.columns}
+        loading={baseList.loading}
+        error={baseList.error}
+        emptyMessage="No tickets found."
+        onEdit={baseList.canUpdate ? baseList.handleEdit : undefined}
+        onDelete={baseList.canDelete ? baseList.handleDelete : undefined}
+        onRowClick={(ticket) => navigate(`${basePath}/${ticket.support_ticket_id}`)}
+        pagination={baseList.pagination}
+      />
+      {baseList.renderDeleteConfirmation()}
+    </>
   );
 };
 

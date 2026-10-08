@@ -1,6 +1,9 @@
 import React, { useEffect } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
+import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
 import './Modal.css';
 
 export interface ModalProps {
@@ -20,6 +23,8 @@ export interface ModalProps {
   titleIcon?: React.ReactNode;
   /** Optional muted breadcrumb after the title, e.g. "Edit Meter" */
   crumb?: string;
+  /** Share icon shown to the left of Cancel/Close — omit to hide it. */
+  onShare?: () => void;
 }
 
 /**
@@ -54,6 +59,7 @@ export const Modal: React.FC<ModalProps> = ({
   showSaveButton = false,
   titleIcon,
   crumb,
+  onShare,
 }) => {
   const { isMobile } = useResponsive();
 
@@ -119,6 +125,20 @@ export const Modal: React.FC<ModalProps> = ({
             </h2>
           </div>
           <div className="modal__header-actions">
+            {onShare && (
+              <Tooltip title="Share">
+                <IconButton
+                  type="button"
+                  className="modal__share-btn"
+                  onClick={onShare}
+                  disabled={loading}
+                  size="small"
+                  aria-label="Share"
+                >
+                  <ShareRoundedIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            )}
             {showSaveButton && (
               <button
                 type="button"

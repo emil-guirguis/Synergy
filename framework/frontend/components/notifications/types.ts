@@ -20,6 +20,9 @@ export interface NotificationRecord {
   /** Id of whoever raised it, so a reply knows who to address — same null
    *  rule as created_by_name. */
   created_by?: string | number | null;
+  /** Deep link to the record this is about (e.g. Share) — renders the title
+   *  as a link when present, null otherwise. */
+  link_url?: string | null;
 }
 
 export interface NotificationListResult {

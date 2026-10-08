@@ -1,7 +1,7 @@
 import React from 'react';
 import { FormField } from '../formfield/FormField';
 import { FormActions } from '../formactions/FormActions';
-import { TIMEZONE_OPTIONS, CURRENCY_OPTIONS, LANGUAGE_OPTIONS } from '../formfield/fieldOptions';
+import { TIMEZONE_OPTIONS, CURRENCY_OPTIONS, LANGUAGE_OPTIONS, DATE_FORMAT_OPTIONS, PAGE_SIZE_OPTIONS, withCurrentValue } from '../formfield/fieldOptions';
 import './SettingsForm.css';
 
 export interface SystemConfigFormProps {
@@ -35,12 +35,12 @@ const SystemConfigForm: React.FC<SystemConfigFormProps> = ({ values, onChange, o
           <div className="settings-form__field">
             <FormField
               name="dateFormat"
-              type="text"
+              type="select"
               label="Date Format"
               value={values.dateFormat || ''}
+              options={withCurrentValue(DATE_FORMAT_OPTIONS, values.dateFormat)}
               onChange={(e: any) => onChange('dateFormat', e.target.value)}
               disabled={loading}
-              placeholder="e.g. MM/DD/YYYY"
             />
           </div>
         </div>
@@ -88,14 +88,12 @@ const SystemConfigForm: React.FC<SystemConfigFormProps> = ({ values, onChange, o
           <div className="settings-form__field">
             <FormField
               name="defaultPageSize"
-              type="number"
+              type="select"
               label="Default Page Size"
-              value={values.defaultPageSize ?? 20}
+              value={values.defaultPageSize ?? 25}
+              options={withCurrentValue(PAGE_SIZE_OPTIONS, values.defaultPageSize)}
               onChange={(e: any) => onChange('defaultPageSize', Number(e.target.value))}
               disabled={loading}
-              min={1}
-              max={100}
-              placeholder="20"
             />
           </div>
         </div>

@@ -12,6 +12,8 @@
 import React from 'react';
 import type { ColumnDefinition } from '../types/ui';
 import type { FieldDefinition } from '../../form/utils/formSchema';
+import { formatDate } from '../../../utils/dateHelpers';
+import { formatCurrency, formatNumber } from '../../../utils/numberHelpers';
 
 /**
  * Extended field definition with additional properties from backend schema
@@ -97,8 +99,27 @@ export function generateColumnsFromSchema<T extends Record<string, any>>(
         column.render = (_value: any, row: T) => {
           const val = row[fieldName as keyof T];
           if (!val) return '';
-          const date = new Date(val as any);
-          return date.toLocaleDateString();
+          return formatDate(val as any);
+        };
+        break;
+
+      // Backend FieldTypes.CURRENCY/NUMBER ('currency'/'number') aren't in
+      // FieldDefinition's type union but do reach here as literal strings —
+      // see schemaLoader.ts's `type: backendField.type as any` passthrough.
+      case 'currency' as any:
+        column.align = 'right';
+        column.render = (_value: any, row: T) => {
+          const val = row[fieldName as keyof T];
+          return formatCurrency(val as any);
+        };
+        break;
+
+      case 'number':
+        column.align = 'right';
+        column.render = (_value: any, row: T) => {
+          const val = row[fieldName as keyof T];
+          if (val === null || val === undefined || val === '') return '';
+          return formatNumber(val as any);
         };
         break;
 

@@ -41,6 +41,14 @@ export interface HeaderProps {
     logoUrl?: string;
   };
   sidebarCollapsed?: boolean;
+  /** Self-service display preference override (Settings > System Config's
+   *  per-user override). Omit to hide the "Preferences" user-menu item. */
+  onSavePreferences?: (updates: {
+    timezone?: string | null;
+    date_format?: string | null;
+    time_format?: '12h' | '24h' | null;
+    default_page_size?: number | null;
+  }) => Promise<void>;
 }
 
 export interface SidebarProps {

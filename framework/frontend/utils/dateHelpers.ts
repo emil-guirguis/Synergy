@@ -1,33 +1,69 @@
 /**
  * Date Helper Utilities
- * 
+ *
  * Common date formatting and manipulation functions.
  */
+import { getSystemConfig, type SystemConfigFields } from './systemConfig';
 
-/**
- * Format a date to a localized string
- */
-export function formatDate(date: Date | string | number, locale: string = 'en-US'): string {
-  const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
-  
-  if (isNaN(dateObj.getTime())) {
-    return 'Invalid Date';
-  }
-  
-  return dateObj.toLocaleDateString(locale || 'en-US');
+/** Renders Date parts in `timeZone` (default: browser-local) as a dateFormat-pattern string.
+ *  Tokens: yyyy/yy, mmmm (full month name)/mmm (abbreviated)/mm/m, dd/d — case-insensitive,
+ *  since stored dateFormat values vary ("MM/DD/YYYY" vs "mm/dd/yyyy"). Longer tokens are
+ *  matched first so e.g. "mmmm" isn't partially consumed by the "mm" replacement. */
+function formatDatePattern(dateObj: Date, pattern: string, timeZone?: string | null): string {
+  const tz = timeZone || undefined;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: tz,
+  }).formatToParts(dateObj);
+  const map: Record<string, string> = {};
+  parts.forEach((p) => { map[p.type] = p.value; });
+
+  const yyyy = map.year;
+  const mm = map.month;
+  const dd = map.day;
+  const monthLong = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: tz }).format(dateObj);
+  const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: tz }).format(dateObj);
+
+  return pattern
+    .replace(/yyyy/gi, yyyy)
+    .replace(/yy/gi, yyyy.slice(-2))
+    .replace(/mmmm/gi, monthLong)
+    .replace(/mmm/gi, monthShort)
+    .replace(/mm/gi, mm)
+    .replace(/m(?!m)/gi, String(Number(mm)))
+    .replace(/dd/gi, dd)
+    .replace(/d(?!d)/gi, String(Number(dd)));
 }
 
 /**
- * Format a date and time to a localized string
+ * Format a date using System Config's dateFormat + timezone (Settings > System Config).
+ * Pass `config` to override (e.g. in a context not yet wired to the live settings);
+ * otherwise reads the current org settings.
  */
-export function formatDateTime(date: Date | string | number, locale: string = 'en-US'): string {
+export function formatDate(date: Date | string | number, config?: SystemConfigFields): string {
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
-  
+
   if (isNaN(dateObj.getTime())) {
     return 'Invalid Date';
   }
-  
-  return dateObj.toLocaleString(locale || 'en-US');
+
+  const { date_format, timezone } = config ?? getSystemConfig();
+  return formatDatePattern(dateObj, date_format || 'MM/DD/YYYY', timezone);
+}
+
+/**
+ * Format a date and time using System Config's dateFormat + timeFormat + timezone.
+ */
+export function formatDateTime(date: Date | string | number, config?: SystemConfigFields): string {
+  const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
+
+  if (isNaN(dateObj.getTime())) {
+    return 'Invalid Date';
+  }
+
+  return `${formatDate(dateObj, config)} ${formatTime(dateObj, config)}`;
 }
 
 /**
@@ -44,16 +80,22 @@ export function formatDateISO(date: Date | string | number): string {
 }
 
 /**
- * Format a time to a localized string
+ * Format a time using System Config's timeFormat (12h/24h) + timezone.
  */
-export function formatTime(date: Date | string | number, locale: string = 'en-US'): string {
+export function formatTime(date: Date | string | number, config?: SystemConfigFields): string {
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
-  
+
   if (isNaN(dateObj.getTime())) {
     return 'Invalid Time';
   }
-  
-  return dateObj.toLocaleTimeString(locale || 'en-US');
+
+  const { time_format, timezone } = config ?? getSystemConfig();
+  return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: (time_format || '12h') === '12h',
+    timeZone: timezone || undefined,
+  }).format(dateObj);
 }
 
 /**

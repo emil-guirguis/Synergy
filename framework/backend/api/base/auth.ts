@@ -76,6 +76,8 @@ export function ipRateLimit(maxRequests: number, windowMs: number) {
 // firing several parallel API calls).
 export interface EntityCache<T> {
   get(key: string, fetch: () => Promise<T | null>): Promise<T | null>;
+  /** Evict one key — use after a self-service update so the next `get()` re-fetches just that row. */
+  delete(key: string): void;
   clear(): void;
 }
 
@@ -113,6 +115,10 @@ export function createEntityCache<T>(ttlMs: number, maxKeys = 1000): EntityCache
         });
       inFlight.set(key, promise);
       return promise;
+    },
+    delete(key) {
+      cache.delete(key);
+      inFlight.delete(key);
     },
     clear() {
       cache.clear();
