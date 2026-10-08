@@ -88,6 +88,18 @@ export interface User {
   adminViewTenantName?: string;
   is_super_admin?: boolean;
   is_support_admin?: boolean;
+  /** Settings > System Config default, overridable per-user via PUT /auth/preferences
+   *  (null on this user row = inherits the tenant default) — resolved onto
+   *  /auth/verify, /auth/login, /auth/verify-2fa, /auth/refresh. */
+  default_page_size?: number | null;
+  /** Same override-or-tenant-default resolution as default_page_size. */
+  timezone?: string | null;
+  /** Same override-or-tenant-default resolution as default_page_size. Free-text pattern, e.g. "MM/DD/YYYY". */
+  date_format?: string | null;
+  /** Same override-or-tenant-default resolution as default_page_size. */
+  time_format?: '12h' | '24h' | null;
+  /** Tenant-only (no per-user override) — Settings > System Config's currency, ISO 4217 e.g. "USD". */
+  currency?: string | null;
 }
 
 export interface LoginCredentials {
@@ -120,6 +132,8 @@ export interface AuthContextType extends AuthState {
   login: (credentials: LoginCredentials) => Promise<AuthResponse>;
   logout: () => void;
   refreshToken: () => Promise<void>;
+  /** Self-service display preference override — see authService.updatePreferences. */
+  updatePreferences: (updates: Partial<Pick<User, 'timezone' | 'date_format' | 'time_format' | 'default_page_size'>>) => Promise<void>;
   checkPermission: (permission?: string) => boolean;
   hasRole: (role: UserRole) => boolean;
   getLocationsByTenant: (tenantId: string) => any[];

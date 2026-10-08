@@ -227,6 +227,17 @@ app.put('/:id', requirePermission('user:update'), async (c) => {
     const body = await c.req.json();
     const updateData: Record<string, any> = { ...body };
 
+    // The Preferences tab's '(system default)' selects post '' when cleared;
+    // the matching column needs null, not ''.
+    if (updateData.timezone === '') updateData.timezone = null;
+    if (updateData.date_format === '') updateData.date_format = null;
+    if (updateData.time_format === '') updateData.time_format = null;
+    if (updateData.default_page_size === '' || updateData.default_page_size === null) {
+      updateData.default_page_size = null;
+    } else if (updateData.default_page_size !== undefined) {
+      updateData.default_page_size = Number(updateData.default_page_size);
+    }
+
     // Remove protected/read-only fields
     delete updateData.password;
     delete updateData.tenant_id;

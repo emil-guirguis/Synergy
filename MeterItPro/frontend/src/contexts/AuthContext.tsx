@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { AuthContextType, AuthState, AuthResponse, LoginCredentials, User, UserRole } from '../types/auth';
 import { ROLE_PERMISSIONS } from '../types/auth';
 import { authService } from '../services/authService';
+import { setSystemConfig } from '@meterit/framework-frontend/utils';
 
 // Initial state
 const initialState: AuthState = {
@@ -119,6 +120,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     window.addEventListener('auth:force-logout', handleForceLogout);
     return () => window.removeEventListener('auth:force-logout', handleForceLogout);
   }, []);
+
+  // Mirror the authenticated user's resolved display preferences (tenant
+  // default, overridden per-user — see getCachedUser()'s COALESCE) onto the
+  // framework's System Config store, so formatDate/formatCurrency/etc. pick
+  // them up anywhere in the app without drilling the user object through
+  // every call site. Runs on the sparse JWT-decoded "fast path" user too
+  // (fields undefined there) — harmless, formatters fall back to defaults
+  // until the background /auth/verify resolves and this re-fires.
+  useEffect(() => {
+    const u: any = state.user;
+    setSystemConfig({
+      timezone: u?.timezone ?? null,
+      date_format: u?.date_format ?? null,
+      time_format: u?.time_format ?? null,
+      currency: u?.currency ?? null,
+      default_page_size: u?.default_page_size ?? null,
+    });
+  }, [state.user]);
 
   // Initialize authentication state on app load
   useEffect(() => {
@@ -414,6 +433,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  // Self-service display preference override (Settings > System Config's
+  // per-user override). Reuses REFRESH_TOKEN_SUCCESS — same "replace the
+  // cached user, keep locations" shape.
+  const updatePreferences = async (
+    updates: Partial<Pick<User, 'timezone' | 'date_format' | 'time_format' | 'default_page_size'>>
+  ): Promise<void> => {
+    const updated = await authService.updatePreferences(updates);
+
+    const normalizePermissions = (perms: any) => {
+      if (!perms) return [];
+      if (Array.isArray(perms)) return perms;
+      if (typeof perms === 'object') {
+        const result: string[] = [];
+        Object.entries(perms).forEach(([moduleName, actions]) => {
+          if (typeof actions === 'object' && actions !== null) {
+            Object.entries(actions).forEach(([actionName, allowed]) => {
+              if (allowed) result.push(`${moduleName}:${actionName}`);
+            });
+          }
+        });
+        return result;
+      }
+      return [];
+    };
+
+    dispatch({
+      type: 'REFRESH_TOKEN_SUCCESS',
+      payload: {
+        user: { ...updated, permissions: normalizePermissions(updated.permissions) },
+        locations: state.locations,
+      },
+    });
+  };
+
   // Check if user has specific permission
   const checkPermission = (permission?: string): boolean => {
     if (!permission) return true;
@@ -577,6 +630,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     logout,
     refreshToken,
+    updatePreferences,
     checkPermission,
     hasRole,
     getLocationsByTenant,

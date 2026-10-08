@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import speakeasy from 'speakeasy';
 import { transaction, Env, execQuery } from '../db';
 
-import { authenticateToken, getCachedUser, ipRateLimit, AuthVariables } from '../middleware';
+import { authenticateToken, getCachedUser, invalidateUser, ipRateLimit, AuthVariables } from '../middleware';
 import { logError } from '../errorHandler';
 
 const auth = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -624,12 +624,12 @@ auth.post('/login', ipRateLimit(10, 60 * 1000), async (c) => {
     }
 
     // Fetch tenant information
-    let tenantInfo = null;
+    let tenantInfo: any = null;
     if (user.tenant_id) {
       try {
         const tenantResult = await execQuery(
           env(c),
-          'SELECT tenant_id, name, url, street, street2, city, state, zip, country, active, created_at, updated_at, api_key FROM tenant WHERE tenant_id = $1',
+          'SELECT tenant_id, name, url, street, street2, city, state, zip, country, active, created_at, updated_at, api_key, default_page_size, timezone, date_format, time_format, currency FROM tenant WHERE tenant_id = $1',
           [user.tenant_id]
         );
         if (tenantResult.rows && tenantResult.rows.length > 0) {
@@ -654,6 +654,14 @@ auth.post('/login', ipRateLimit(10, 60 * 1000), async (c) => {
           status: user.active ? 'active' : 'inactive',
           is_super_admin: user.is_super_admin || false,
           is_support_admin: user.is_support_admin || false,
+          // Settings > System Config's tenant default, overridable per-user
+          // (users.* columns added by migration 059, NULL = inherit). currency
+          // stays tenant-only — see numberHelpers.ts's formatCurrency.
+          default_page_size: user.default_page_size ?? tenantInfo?.default_page_size ?? null,
+          timezone: user.timezone ?? tenantInfo?.timezone ?? null,
+          date_format: user.date_format ?? tenantInfo?.date_format ?? null,
+          time_format: user.time_format ?? tenantInfo?.time_format ?? null,
+          currency: tenantInfo?.currency ?? null,
         },
         tenant: tenantInfo,
         token,
@@ -794,12 +802,12 @@ auth.post('/verify-2fa', async (c) => {
     }
 
     // Fetch tenant information
-    let tenantInfo = null;
+    let tenantInfo: any = null;
     if (tenantId) {
       try {
         const tenantResult = await execQuery(
           env(c),
-          'SELECT tenant_id, name, url, street, street2, city, state, zip, country, active, created_at, updated_at FROM tenant WHERE tenant_id = $1',
+          'SELECT tenant_id, name, url, street, street2, city, state, zip, country, active, created_at, updated_at, default_page_size, timezone, date_format, time_format, currency FROM tenant WHERE tenant_id = $1',
           [tenantId]
         );
         if (tenantResult.rows && tenantResult.rows.length > 0) {
@@ -824,6 +832,11 @@ auth.post('/verify-2fa', async (c) => {
           status: user.active ? 'active' : 'inactive',
           is_super_admin: user.is_super_admin || false,
           is_support_admin: user.is_support_admin || false,
+          default_page_size: user.default_page_size ?? tenantInfo?.default_page_size ?? null,
+          timezone: user.timezone ?? tenantInfo?.timezone ?? null,
+          date_format: user.date_format ?? tenantInfo?.date_format ?? null,
+          time_format: user.time_format ?? tenantInfo?.time_format ?? null,
+          currency: tenantInfo?.currency ?? null,
         },
         tenant: tenantInfo,
         token,
@@ -1048,6 +1061,7 @@ auth.use('/change-password', authenticateToken);
 auth.use('/2fa/*', authenticateToken);
 auth.use('/verify', authenticateToken);
 auth.use('/logout', authenticateToken);
+auth.use('/preferences', authenticateToken);
 
 /**
  * POST /logout
@@ -1067,6 +1081,87 @@ auth.post('/logout', async (c) => {
   } catch (error: any) {
     logError('Logout error:', error);
     return c.json({ success: true, message: 'Logged out' });
+  }
+});
+
+/**
+ * PUT /preferences
+ * Self-service display preference overrides (Settings > System Config sets
+ * the tenant default; this lets any authenticated user override it for
+ * themselves — e.g. a technician in a different timezone than HQ). `null`
+ * clears the override back to the tenant default. currency is not here —
+ * it's deliberately tenant-only, not a per-viewer preference.
+ */
+const TIME_FORMATS = new Set(['12h', '24h']);
+auth.put('/preferences', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const updates: Record<string, string | number | null> = {};
+
+    if ('timezone' in body) updates.timezone = body.timezone || null;
+    if ('date_format' in body) updates.date_format = body.date_format || null;
+    if ('time_format' in body) {
+      if (body.time_format !== null && !TIME_FORMATS.has(body.time_format)) {
+        return c.json({ success: false, message: "time_format must be '12h', '24h', or null" }, 400);
+      }
+      updates.time_format = body.time_format || null;
+    }
+    if ('default_page_size' in body) {
+      const n = body.default_page_size === null ? null : Number(body.default_page_size);
+      if (n !== null && (!Number.isInteger(n) || n < 1 || n > 100)) {
+        return c.json({ success: false, message: 'default_page_size must be an integer between 1 and 100, or null' }, 400);
+      }
+      updates.default_page_size = n;
+    }
+
+    const fields = Object.keys(updates);
+    if (fields.length === 0) {
+      return c.json({ success: false, message: 'No fields to update' }, 400);
+    }
+
+    const userId = c.get('user').users_id;
+    const setClause = fields.map((key, i) => `${key} = $${i + 1}`).join(', ');
+    await execQuery(
+      env(c),
+      `UPDATE users SET ${setClause} WHERE users_id = $${fields.length + 1}`,
+      [...fields.map((key) => updates[key]), userId]
+    );
+
+    invalidateUser(String(userId));
+    const updated = await getCachedUser(env(c), String(userId));
+    if (!updated) return c.json({ success: false, message: 'User not found' }, 404);
+
+    // Same normalized shape as /login, /verify-2fa, /refresh, /verify — the
+    // frontend replaces its whole cached user object with this response.
+    const userRole = (updated.role || 'viewer').toLowerCase();
+    let permissions = getPermissionsByRole(userRole);
+    if (updated.permissions && typeof updated.permissions === 'object' && !Array.isArray(updated.permissions)) {
+      permissions = updated.permissions;
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        users_id: updated.users_id,
+        tenant_id: updated.tenant_id,
+        client: updated.tenant_id,
+        email: updated.email,
+        name: updated.name,
+        role: updated.role,
+        permissions,
+        status: updated.active ? 'active' : 'inactive',
+        is_super_admin: updated.is_super_admin || false,
+        is_support_admin: updated.is_support_admin || false,
+        default_page_size: updated.default_page_size ?? null,
+        timezone: updated.timezone ?? null,
+        date_format: updated.date_format ?? null,
+        time_format: updated.time_format ?? null,
+        currency: updated.currency ?? null,
+      },
+    });
+  } catch (error: any) {
+    logError('Update preferences error:', error);
+    return c.json({ success: false, message: 'Failed to update preferences' }, 500);
   }
 });
 
@@ -1653,6 +1748,23 @@ auth.post('/refresh', async (c) => {
       permissions = user.permissions;
     }
 
+    // Fetch tenant's System Config defaults — the frontend replaces its whole
+    // cached user object with this response (see AuthContext.refreshToken()),
+    // so omitting these here would silently drop them every ~14 minutes.
+    let tenantInfo: any = null;
+    if (tenantId) {
+      try {
+        const tenantResult = await execQuery(
+          env(c),
+          'SELECT default_page_size, timezone, date_format, time_format, currency FROM tenant WHERE tenant_id = $1',
+          [tenantId]
+        );
+        tenantInfo = tenantResult.rows?.[0] ?? null;
+      } catch (tenantErr) {
+        console.error('Error fetching tenant System Config:', tenantErr);
+      }
+    }
+
     return c.json({
       success: true,
       data: {
@@ -1667,6 +1779,12 @@ auth.post('/refresh', async (c) => {
           status: user.active ? 'active' : 'inactive',
           is_super_admin: user.is_super_admin || false,
           is_support_admin: user.is_support_admin || false,
+          // Per-user override (users.* columns, NULL = inherit) over the tenant default.
+          default_page_size: user.default_page_size ?? tenantInfo?.default_page_size ?? null,
+          timezone: user.timezone ?? tenantInfo?.timezone ?? null,
+          date_format: user.date_format ?? tenantInfo?.date_format ?? null,
+          time_format: user.time_format ?? tenantInfo?.time_format ?? null,
+          currency: tenantInfo?.currency ?? null,
         },
         token: newToken,
         refreshToken: newRefreshToken,

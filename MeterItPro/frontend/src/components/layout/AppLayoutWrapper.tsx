@@ -181,7 +181,7 @@ const staticMenuItems: MenuItem[] = [
  */
 export const AppLayoutWrapper: React.FC<LayoutProps> = (props) => {
   // Use real authentication data
-  const { user, logout: authLogout, checkPermission } = useAuth();
+  const { user, logout: authLogout, checkPermission, updatePreferences } = useAuth();
 
   // Use meter selection context
   const { setSelectedMeter, setSelectedElement } = useMeterSelection();
@@ -353,6 +353,7 @@ export const AppLayoutWrapper: React.FC<LayoutProps> = (props) => {
     } : undefined,
     notificationComponent: <NotificationBell />,
     onLogout: logout,
+    onSavePreferences: updatePreferences,
     checkPermission: (permission?: string) => permission ? checkPermission(permission) : true,
     responsive,
     uiState,

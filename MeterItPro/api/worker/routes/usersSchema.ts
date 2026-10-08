@@ -84,6 +84,46 @@ export const userSchema = defineSchema({
         }),
       ],
     }),
+    tab({
+      name: 'Preferences',
+      order: 3,
+      sections: [
+        section({
+          name: 'Preferences',
+          order: 1,
+          fields: [
+            // Admin-editable per-user override of the same columns the header's
+            // self-service Preferences form writes (public.users, migration
+            // 059). Blank = inherit the system default from Settings > System
+            // Config. Real columns on this form's own row, so the form's
+            // ordinary Save/Cancel covers them — no separate save needed.
+            field({ name: 'timezone', order: 1, type: FieldTypes.TIMEZONE, default: null, required: false, label: 'Timezone', dbField: 'timezone', placeholder: '(system default)', showOn: ['form'] }),
+            field({
+              name: 'date_format', order: 2, type: FieldTypes.SELECT, default: null, required: false,
+              label: 'Date Format', dbField: 'date_format', placeholder: '(system default)', showOn: ['form'],
+              enumValues: ['mm/dd/yyyy', 'dd/mm/yyyy', 'yyyy-mm-dd', 'dd-mm-yyyy', 'mm-dd-yyyy', 'dd.mm.yyyy', 'mmmm d, yyyy'],
+              enumLabels: {
+                'mm/dd/yyyy': 'MM/DD/YYYY', 'dd/mm/yyyy': 'DD/MM/YYYY', 'yyyy-mm-dd': 'YYYY-MM-DD',
+                'dd-mm-yyyy': 'DD-MM-YYYY', 'mm-dd-yyyy': 'MM-DD-YYYY', 'dd.mm.yyyy': 'DD.MM.YYYY — European',
+                'mmmm d, yyyy': 'Month D, YYYY',
+              },
+            }),
+            field({
+              name: 'time_format', order: 3, type: FieldTypes.SELECT, default: null, required: false,
+              label: 'Time Format', dbField: 'time_format', placeholder: '(system default)', showOn: ['form'],
+              enumValues: ['12h', '24h'],
+              enumLabels: { '12h': '12-hour', '24h': '24-hour' },
+            }),
+            field({
+              name: 'default_page_size', order: 4, type: FieldTypes.SELECT, default: null, required: false,
+              label: 'Default Page Size', dbField: 'default_page_size', placeholder: '(system default)', showOn: ['form'],
+              enumValues: [10, 25, 50, 100],
+              enumLabels: { 10: '10', 25: '25', 50: '50', 100: '100' },
+            }),
+          ],
+        }),
+      ],
+    }),
   ],
 
   entityFields: {

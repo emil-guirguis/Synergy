@@ -26,6 +26,11 @@ export function clearUserCache(): void {
   userCache.clear();
 }
 
+/** Call after a self-service preferences update so the next getCachedUser() re-fetches. */
+export function invalidateUser(userId: string): void {
+  userCache.delete(userId);
+}
+
 export async function getCachedUser(env: Env, userId: string): Promise<any | null> {
   return userCache.get(userId, async () => {
     const result = await execQuery(
@@ -38,7 +43,16 @@ export async function getCachedUser(env: Env, userId: string): Promise<any | nul
                    AND r.code = CASE WHEN users.role IN ('admin', 'manager', 'technician', 'viewer',
                                                          'user', 'superadmin', 'supersupport')
                                      THEN users.role ELSE 'viewer' END
-              )) AS role_id
+              )) AS role_id,
+              -- Settings > System Config's tenant-wide defaults, overridable per-user
+              -- (users.timezone/date_format/time_format/default_page_size, NULL =
+              -- inherit). currency is deliberately tenant-only (no per-user override —
+              -- see numberHelpers.ts's formatCurrency).
+              COALESCE(users.default_page_size, (SELECT t.default_page_size FROM tenant t WHERE t.tenant_id = users.tenant_id)) AS default_page_size,
+              COALESCE(users.timezone, (SELECT t.timezone FROM tenant t WHERE t.tenant_id = users.tenant_id)) AS timezone,
+              COALESCE(users.date_format, (SELECT t.date_format FROM tenant t WHERE t.tenant_id = users.tenant_id)) AS date_format,
+              COALESCE(users.time_format, (SELECT t.time_format FROM tenant t WHERE t.tenant_id = users.tenant_id)) AS time_format,
+              (SELECT t.currency FROM tenant t WHERE t.tenant_id = users.tenant_id) AS currency
        FROM users WHERE users_id = $1`,
       [userId],
       'getCachedUser'

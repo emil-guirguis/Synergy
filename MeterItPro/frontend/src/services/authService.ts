@@ -305,6 +305,22 @@ class AuthService {
     return tokenStorage.getUserFromToken();
   }
 
+  // Self-service display preference override (Settings > System Config's
+  // per-user override — see worker/routes/auth.ts's PUT /preferences). `null`
+  // for a field clears that override back to the tenant default.
+  async updatePreferences(updates: Partial<Pick<User, 'timezone' | 'date_format' | 'time_format' | 'default_page_size'>>): Promise<User> {
+    try {
+      const response: AxiosResponse<{ success: boolean; data: User }> = await this.apiClient.put('/auth/preferences', updates);
+      return response.data.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const message = error.response?.data?.message || 'Failed to update preferences';
+        throw new Error(message);
+      }
+      throw new Error('Network error occurred');
+    }
+  }
+
   // Change password
   async changePassword(currentPassword: string, newPassword: string, confirmPassword: string): Promise<{ message: string }> {
     try {
