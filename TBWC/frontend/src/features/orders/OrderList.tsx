@@ -272,7 +272,7 @@ function NewOrderButton({ onCreate }: { onCreate: (initial?: Partial<Order>) => 
         aria-expanded={open}
         title="Create a TBWC-only placeholder order, editable in full, that is never sent to QuickBooks"
       >
-        New
+        + New
         <i className="material-symbols-outlined">arrow_drop_down</i>
       </button>
       {open && (
