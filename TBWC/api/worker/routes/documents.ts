@@ -1,7 +1,7 @@
 /**
  * Documents — per-record attachments for any TBWC module (orders, invoices,
- * inventory today). Table public.document, PK document_id; see
- * migrations/026-documents.sql.
+ * inventory, quotes, support tickets today). Table public.document, PK
+ * document_id; see migrations/026-documents.sql.
  *
  * Thin Hono wrapper over the framework module
  * (@meterit/framework-backend/api/base/documents) — this file owns only what is
@@ -26,7 +26,7 @@ app.use('*', authenticateToken);
 
 // Modules allowed to own documents. A new module adds its key here (and a
 // Documents tab in its schema) — no migration needed.
-const ENTITY_TYPES = ['order', 'quote', 'invoice', 'inventory'] as const;
+const ENTITY_TYPES = ['order', 'quote', 'invoice', 'inventory', 'support_ticket'] as const;
 
 function isEntityType(v: unknown): v is (typeof ENTITY_TYPES)[number] {
   return typeof v === 'string' && (ENTITY_TYPES as readonly string[]).includes(v);
@@ -88,7 +88,20 @@ function canAccessQuoteDocs(c: any, action: 'quote:read' | 'quote:write'): boole
  * employee holds document:write 'all' (migration 040) same as admin, so
  * either one is unrestricted; is_admin would wrongly restrict the employee.
  */
-async function resolveWriteAccess(c: any, entityType: string): Promise<{ allowed: boolean; restrictedOrderDocs: boolean }> {
+/** True when `entityId` is a support_ticket row the caller themselves filed. */
+async function ownsSupportTicket(c: any, entityId: string): Promise<boolean> {
+  const userId = c.get('user')?.id;
+  if (!userId) return false;
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT 1 FROM public.support_ticket WHERE support_ticket_id = $1 AND users_id = $2`,
+    [entityId, userId],
+    'documents.ownsSupportTicket'
+  );
+  return rows.length > 0;
+}
+
+async function resolveWriteAccess(c: any, entityType: string, entityId?: string): Promise<{ allowed: boolean; restrictedOrderDocs: boolean }> {
   const user = c.get('user');
   let permissions = c.get('permissions');
   if (!permissions) {
@@ -97,8 +110,14 @@ async function resolveWriteAccess(c: any, entityType: string): Promise<{ allowed
   }
   const hasDocumentWrite = !!permissions.has('document:write');
   const isManagingRepOrder = entityType === 'order' && (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
+  // A rep/customer has no document:write grant at all (see comment above), but
+  // they should still be able to attach their own files to a ticket they
+  // filed (e.g. a photo for an RMA) — scoped to exactly that ticket via
+  // support_ticket.users_id, unlike isManagingRepOrder's broader carve-out.
+  const isOwnSupportTicket =
+    entityType === 'support_ticket' && !!entityId && !hasDocumentWrite && (await ownsSupportTicket(c, entityId));
   return {
-    allowed: hasDocumentWrite || isManagingRepOrder,
+    allowed: hasDocumentWrite || isManagingRepOrder || isOwnSupportTicket,
     restrictedOrderDocs: entityType === 'order' && !hasDocumentWrite,
   };
 }
@@ -131,7 +150,7 @@ app.post('/', async (c) => {
   if (body.storageBucket !== 'record-docs') {
     return c.json({ success: false, message: 'Unknown storage bucket' }, 400);
   }
-  const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType);
+  const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType, body.entityId);
   if (!allowed) return forbidden(c);
   if (body.entityType === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
   if (restrictedOrderDocs && !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)) {
@@ -162,7 +181,7 @@ app.put('/:id', async (c) => {
     // regardless of which fields changed), so fetched unconditionally rather
     // than only when docType is set.
     const existing = await getDocument(execQuery, c.env, c.req.param('id'));
-    const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '');
+    const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '', existing?.entity_id);
     if (!allowed) return forbidden(c);
     if (existing?.entity_type === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
     if (
@@ -191,7 +210,7 @@ app.delete('/:id', async (c) => {
   // to check.
   const existing = await getDocument(execQuery, c.env, c.req.param('id'));
   if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
-  const { allowed } = await resolveWriteAccess(c, existing.entity_type);
+  const { allowed } = await resolveWriteAccess(c, existing.entity_type, existing.entity_id);
   if (!allowed) return forbidden(c);
   if (existing.entity_type === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
   const row = await deleteDocument(execQuery, c.env, c.req.param('id'));

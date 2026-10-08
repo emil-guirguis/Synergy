@@ -62,13 +62,13 @@ import CalculateIcon from '@mui/icons-material/Calculate';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import PaymentsIcon from '@mui/icons-material/Payments';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 import { ordersService } from './ordersStore';
 import InvoiceForm from '../invoices/InvoiceForm';
 import type { LinkedInvoice, LinkedPayment, Order } from '../../types/order';
 import type { Invoice } from '../../types/invoice';
 
-const currency = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
+const currency = (n: number) => formatCurrency(n);
 
 /** QB dates arrive as plain 'YYYY-MM-DD' — format without a timezone shift. */
 const shortDate = (d: string | null) => {

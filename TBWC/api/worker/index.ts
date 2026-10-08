@@ -11,6 +11,7 @@ import { AuthVariables } from './middleware';
 import authRoutes from './routes/auth';
 import schemaRoutes from './routes/schema';
 import userRoutes from './routes/users';
+import peopleRoutes from './routes/people';
 import userManagerRoutes from './routes/userManagers';
 import orderRoutes from './routes/orders';
 import inventoryRoutes from './routes/inventory';
@@ -33,7 +34,9 @@ import aiChatRoutes from './routes/aiChat';
 import aiSearchRoutes from './routes/aiSearch';
 import aiMemoryRoutes from './routes/aiMemory';
 import supportRoutes from './routes/support';
+import contactRoutes from './routes/contact';
 import { lockStaleReps } from './reverification';
+import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -42,9 +45,21 @@ function allowedOrigins(env: Env): string[] {
   return fe.split(',').map((s) => s.trim());
 }
 
+// tbwc-site (the public marketing site, not the portal) posts here anonymously
+// — a different origin than FRONTEND_URL, and this is the single cors()
+// middleware for the whole Worker (Hono's cors() answers an OPTIONS preflight
+// itself and never calls next(), so a second cors() mounted only on
+// routes/contact.ts would never even run for the preflight — the outer one
+// always owns it). Path-gated here instead of broadening the main allowlist.
+function publicSiteOrigins(env: Env): string[] {
+  // tbwc-site's `npm run dev` (scripts/dev.js) always serves on :3000.
+  const site = env.PUBLIC_SITE_URL || 'http://localhost:3000';
+  return site.split(',').map((s) => s.trim());
+}
+
 app.use('*', cors({
   origin: (origin, c) => {
-    const allowed = allowedOrigins(c.env);
+    const allowed = c.req.path.startsWith('/api/contact') ? publicSiteOrigins(c.env) : allowedOrigins(c.env);
     if (!origin) return allowed[0];
     return allowed.includes(origin) ? origin : allowed[0];
   },
@@ -70,6 +85,7 @@ app.get('/api/health', async (c) => {
 app.route('/api/auth', authRoutes);
 app.route('/api/schema', schemaRoutes);
 app.route('/api/users', userRoutes);
+app.route('/api/people', peopleRoutes);
 app.route('/api/user-managers', userManagerRoutes);
 app.route('/api/orders', orderRoutes);
 app.route('/api/inventory', inventoryRoutes);
@@ -86,6 +102,8 @@ app.route('/api/doc-types', docTypeRoutes);
 app.route('/api/documents', documentRoutes);
 app.route('/api/notifications', notificationRoutes);
 app.route('/api/support', supportRoutes);
+// Public, unauthenticated — see routes/contact.ts's header comment.
+app.route('/api/contact', contactRoutes);
 app.route('/api/qb-sync', qbSyncRoutes);
 app.route('/api/ai/chat', aiChatRoutes);
 app.route('/api/ai/search', aiSearchRoutes);
@@ -107,5 +125,11 @@ export default {
         console.error('[cron] lockStaleReps failed:', err instanceof Error ? err.message : err)
       )
     );
+  },
+  // Cloudflare Email Routing -> "Send to a Worker" for
+  // support@tickets.tbwctechnology.com (set up in the CF dashboard, not here).
+  // See emailToTicket.ts's header comment for the full setup note.
+  async email(message: InboundEmailMessage, env: Env) {
+    await handleInboundEmail(message, env);
   },
 };

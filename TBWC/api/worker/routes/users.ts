@@ -22,9 +22,20 @@ const SEARCH = ['first_name', 'last_name', 'email', 'agency_name'];
 // fields with no enumValues — e.g. 'role_id' is excluded, it's an exact-match select).
 const LIKE_FIELDS = likeFieldsFromSchema(usersSchema);
 
-/** The QB sales-rep dropdown posts '' when unset; a bigint FK needs null, not ''. */
+/**
+ * '(system default)' selects post '' when cleared; the matching column needs
+ * null, not ''. Same reasoning as qb_sales_rep_id's FK below.
+ */
 function normalize(body: Record<string, any>): Record<string, any> {
   if (body.qb_sales_rep_id === '') body.qb_sales_rep_id = null;
+  if (body.timezone === '') body.timezone = null;
+  if (body.date_format === '') body.date_format = null;
+  if (body.time_format === '') body.time_format = null;
+  if (body.default_page_size === '' || body.default_page_size === null) {
+    body.default_page_size = null;
+  } else if (body.default_page_size !== undefined) {
+    body.default_page_size = Number(body.default_page_size);
+  }
   return body;
 }
 

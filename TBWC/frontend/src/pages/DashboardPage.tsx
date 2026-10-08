@@ -5,6 +5,7 @@ import UserDataGapsCard from '../features/repPortal/UserDataGapsCard';
 import RepStatsCards from '../features/repPortal/RepStatsCards';
 import OrderAlertsCards from '../features/orders/OrderAlertsCards';
 import YearlyOrderTotalCard from '../features/orders/YearlyOrderTotalCard';
+import RevenueBacklogCard from '../features/orders/RevenueBacklogCard';
 import ReceivablesCard from '../features/invoices/ReceivablesCard';
 
 export default function DashboardPage() {
@@ -28,6 +29,7 @@ export default function DashboardPage() {
           <UserDataGapsCard />
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             <YearlyOrderTotalCard />
+            <RevenueBacklogCard />
             <ReceivablesCard />
           </Box>
           <OrderAlertsCards />

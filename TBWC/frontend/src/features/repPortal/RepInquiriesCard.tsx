@@ -16,6 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
+import { formatNumber } from '@meterit/framework-frontend/utils';
 import { listLeads } from '../../services/repLeadsService';
 import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
@@ -65,7 +66,7 @@ export default function RepInquiriesCard() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <PersonIcon color={hasOutstanding ? 'warning' : 'action'} />
             <Typography variant="h6" fontWeight={700}>
-              {total} rep {total === 1 ? 'inquiry' : 'inquiries'}
+              {formatNumber(total)} rep {total === 1 ? 'inquiry' : 'inquiries'}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -75,9 +76,9 @@ export default function RepInquiriesCard() {
               </Typography>
             ) : hasOutstanding ? (
               <>
-                <Chip label={`${outstanding} outstanding`} color="warning" size="small" />
+                <Chip label={`${formatNumber(outstanding)} outstanding`} color="warning" size="small" />
                 {readyToApprove > 0 && (
-                  <Chip label={`${readyToApprove} ready to approve`} color="success" size="small" />
+                  <Chip label={`${formatNumber(readyToApprove)} ready to approve`} color="success" size="small" />
                 )}
               </>
             ) : (

@@ -7,6 +7,12 @@
  * backfill in migration 048 (invoice_number/status/has_packing_slip), 049
  * (freight) and 050 (shipping_tracking).
  *
+ * Serial numbers (hand-typed into the invoice's own Memo field — this QB
+ * company file has no serial/lot tracking) are deliberately NOT denormalised
+ * here: routes/orders.ts's GET /:id reads qb_invoice.memo live off the same
+ * "latest linked real invoice" instead, so there's no second copy to keep in
+ * sync or backfill (migration 081).
+ *
  * Invoices deleted in QB (qb_deleted_at, see qbwc/objects/txnDeleted.ts) are
  * excluded, so a deleted invoice drops back off the order it was quoted on
  * instead of leaving a stale number behind — txnDeleted.ts re-runs this after

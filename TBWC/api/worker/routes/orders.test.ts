@@ -90,7 +90,7 @@ describe('permission gate', () => {
 // Every GET / carries this trailing whereRaw clause regardless of scope —
 // see 'GET / default date floor' below — so scope/chip assertions elsewhere
 // check for it explicitly rather than asserting an exhaustive array without it.
-const DATE_FLOOR_CLAUSE = { sql: "(order_type = 'hold_for_release' OR txn_date >= '2022-07-01')" };
+const DATE_FLOOR_CLAUSE = { sql: "(order_type IN ('hold_for_release', 'consignment') OR txn_date >= '2022-07-01')" };
 
 describe('GET / scoping', () => {
   it('admin (all scope) sees every order, no sales_rep_list_id filter', async () => {
@@ -236,6 +236,7 @@ describe('GET /:id', () => {
     mockFindById.mockResolvedValue({
       qb_sales_order_id: 1, sales_rep_list_id: 'REP-123', qb_deleted_at: null, sold_for: 900,
     });
+    mockExecQuery.mockResolvedValue({ rows: [] }); // latestInvoiceSerialNumbers
     const res = await req('/1');
     expect(res.status).toBe(200);
     expect((await res.json()).data.sold_for).toBeUndefined();
@@ -414,6 +415,22 @@ describe('POST / creates a Hold for Release order', () => {
     // Resolved server-side, not the (hacked) client-supplied name.
     expect(values[columns.indexOf('customer_name')]).toBe('Acme Corp');
     expect(values[columns.indexOf('txn_date')]).toBe(new Date().toISOString().slice(0, 10));
+  });
+
+  it('creates a consignment order when order_type is given, same insert shape otherwise', async () => {
+    mockExecQuery.mockResolvedValueOnce({ rows: [{ full_name: 'Acme Corp' }] }); // resolveCustomer
+    mockExecQuery.mockResolvedValueOnce({ rows: [{ qb_sales_order_id: 43, order_type: 'consignment' }] }); // create()
+    const res = await req('/', json('POST', { customer_list_id: 'CUST-1', order_type: 'consignment' }));
+    expect(res.status).toBe(201);
+    const [, sql, values] = mockExecQuery.mock.calls[1];
+    const columns = sql.match(/INSERT INTO "qb_sales_order" \(([^)]+)\)/)[1].split(', ');
+    expect(values[columns.indexOf('order_type')]).toBe('consignment');
+  });
+
+  it('400s an order_type outside the creatable placeholder set, before ever resolving the customer', async () => {
+    const res = await req('/', json('POST', { customer_list_id: 'CUST-1', order_type: 'order' }));
+    expect(res.status).toBe(400);
+    expect(mockExecQuery).not.toHaveBeenCalled();
   });
 
   it('honours an explicit txn_date instead of defaulting to today', async () => {

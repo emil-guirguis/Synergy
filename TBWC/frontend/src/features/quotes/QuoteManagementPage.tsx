@@ -3,6 +3,8 @@ import { EntityManagementPage } from '@meterit/framework-frontend/components/ent
 import { QuoteList } from './QuoteList';
 import { QuoteForm } from './QuoteForm';
 import { useAuth } from '../../hooks/useAuth';
+import { searchPeople, shareRecord } from '../../services/shareService';
+import { quoteShareUrl, quoteShareTitle } from './quoteShare';
 import type { Quote } from '../../types/quote';
 
 export const QuoteManagementPage: React.FC = () => {
@@ -21,6 +23,10 @@ export const QuoteManagementPage: React.FC = () => {
       editLabel={isAdmin ? undefined : 'View Quote'}
       renderList={({ onEdit, onCreate }) => <QuoteList onQuoteEdit={onEdit} onQuoteCreate={onCreate} />}
       renderForm={({ entity, onCancel }) => <QuoteForm quote={entity} onCancel={onCancel} />}
+      shareUrl={quoteShareUrl}
+      shareTitle={quoteShareTitle}
+      searchPeople={searchPeople}
+      onShare={({ recipient, note, url, title }) => shareRecord({ recipientUserId: recipient.id, title, linkUrl: url, note })}
     />
   );
 };

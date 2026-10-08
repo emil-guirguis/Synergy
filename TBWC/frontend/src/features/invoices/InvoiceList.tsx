@@ -7,8 +7,11 @@ import {
   generateColumnsFromSchema,
   generateFiltersFromSchema,
 } from '@meterit/framework-frontend/components/list/utils/schemaColumnGenerator';
+import { ShareMenu, useShareTarget } from '@meterit/framework-frontend/components/share';
 import { useInvoices } from './invoiceStore';
 import { useAuth } from '../../hooks/useAuth';
+import { searchPeople, shareRecord } from '../../services/shareService';
+import { invoiceShareUrl, invoiceShareTitle } from './invoiceShare';
 import type { Invoice } from '../../types/invoice';
 
 interface InvoiceListProps {
@@ -34,6 +37,8 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
     if (!schema) return [];
     return generateFiltersFromSchema(schema.formFields);
   }, [schema]);
+
+  const { shareTarget, openShare, closeShare } = useShareTarget();
 
   const baseList = useBaseList<Invoice, any>({
     entityName: 'invoice',
@@ -117,10 +122,23 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
         emptyMessage="No invoices found. Run a QuickBooks sync to pull invoices."
         onView={onInvoiceView}
         onExportClick={baseList.canExport ? baseList.handleExportAll : undefined}
+        onShare={(invoice) => openShare({ url: invoiceShareUrl(invoice), title: invoiceShareTitle(invoice) })}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}
       />
+      {shareTarget && (
+        <ShareMenu
+          open={!!shareTarget}
+          onClose={closeShare}
+          title={shareTarget.title}
+          url={shareTarget.url}
+          searchPeople={searchPeople}
+          onShare={({ recipient, note }) =>
+            shareRecord({ recipientUserId: recipient.id, title: shareTarget.title, linkUrl: shareTarget.url, note })
+          }
+        />
+      )}
     </div>
   );
 };

@@ -37,6 +37,18 @@ export interface User {
    *  tab / public.user_manager), joined onto /auth/me by loadProfile(). Empty
    *  array when this user manages no one. */
   managed_sales_rep_list_ids: string[];
+  /** Settings > System Config default, overridable per-user via PUT /auth/me/preferences
+   *  (null on this user row = inherits the org default) — joined/resolved onto /auth/me
+   *  by loadProfile()'s COALESCE. */
+  default_page_size: number | null;
+  /** Same override-or-org-default resolution as default_page_size. */
+  timezone: string | null;
+  /** Same override-or-org-default resolution as default_page_size. Free-text pattern, e.g. "MM/DD/YYYY". */
+  date_format: string | null;
+  /** Same override-or-org-default resolution as default_page_size. */
+  time_format: '12h' | '24h' | null;
+  /** Org-only (no per-user override) — Settings > System Config's currency, ISO 4217 e.g. "USD". */
+  currency: string | null;
   /** This caller's resolved role grants, joined onto /auth/me. Field names
    *  are camelCase here — this is PermissionSet.list()'s Grant shape
    *  (framework permissions.ts) serialized as-is, not the hidden_fields/

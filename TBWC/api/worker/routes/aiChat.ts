@@ -49,8 +49,8 @@ import {
 } from '@meterit/framework-backend/api/base/aiMemory';
 import { searchDocumentsMetadata, searchDocumentsContent } from '@meterit/framework-backend/api/base/aiSearch';
 import { createNotification, senderDisplayName } from '@meterit/framework-backend/api/base/notifications';
-import { sendMail } from '../mail';
-import { buildDocumentPdf, money, type DocumentHeader, type DocumentLine } from '../pdf/documentPdf';
+import { type DocumentHeader, type DocumentLine } from '../pdf/documentPdf';
+import { dateStr, toDocumentLines, sendDocumentEmail } from '../pdf/documentEmail';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -575,27 +575,8 @@ function describeCaller(user: any): string {
 }
 
 // --- email_order / email_invoice helpers ----------------------------------
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
-}
-
-/** pg returns `date` columns as JS Date objects — PDFs/emails need plain text. */
-function dateStr(v: unknown): string | null {
-  if (v == null) return null;
-  return v instanceof Date ? v.toISOString().split('T')[0] : String(v);
-}
-
-function toDocumentLines(raw: unknown): DocumentLine[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((l: any) => ({
-    item: l?.item ?? null,
-    description: l?.desc ?? null,
-    quantity: l?.quantity != null ? Number(l.quantity) : null,
-    rate: l?.rate != null ? Number(l.rate) : null,
-    amount: l?.amount != null ? Number(l.amount) : null,
-  }));
-}
+// escapeHtml/dateStr/toDocumentLines/uint8ToBase64/sendDocumentEmail moved to
+// ../pdf/documentEmail.ts so orders.ts's POST /:id/email can reuse them too.
 
 /** Invoices have no bill_address_block column (unlike orders) — build one
  *  from qb_customer.bill_addr (migration 001's {addr1,addr2,city,state,postal}). */
@@ -604,39 +585,6 @@ function formatInvoiceBillTo(customerName: string | null, billAddr: any): string
   const cityLine = [billAddr.city, billAddr.state, billAddr.postal].filter(Boolean).join(', ');
   const lines = [customerName, billAddr.addr1, billAddr.addr2, cityLine].filter(Boolean);
   return lines.length ? lines.join('\n') : customerName ?? null;
-}
-
-/** No Buffer in the Workers runtime — chunked to stay well under engines'
- *  per-call argument limit for String.fromCharCode(...bytes). */
-function uint8ToBase64(bytes: Uint8Array): string {
-  const CHUNK = 8192;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
-
-async function sendDocumentEmail(env: Env, header: DocumentHeader, lines: DocumentLine[], recipientEmail: string): Promise<string> {
-  const pdfBytes = await buildDocumentPdf(header, lines);
-  const refNumber = header.refNumber ?? '';
-  const subject = `${header.kind} ${refNumber} from TBWC Technology`.trim();
-  const bodyHtml =
-    `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#4b4e57;">Hi,</p>` +
-    `<p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#4b4e57;">Please find your ${header.kind.toLowerCase()} ` +
-    `${escapeHtml(refNumber)} attached${header.total != null ? ` — total ${money(header.total)}` : ''}.</p>` +
-    `<p style="margin:0;font-size:13px;color:#7c7f89;">TBWC Technology</p>`;
-
-  await sendMail(env, {
-    type: 'document',
-    email: recipientEmail,
-    subject,
-    bodyHtml,
-    attachmentBase64: uint8ToBase64(pdfBytes),
-    attachmentFilename: `${header.kind}-${refNumber || 'document'}.pdf`,
-    attachmentContentType: 'application/pdf',
-  });
-  return JSON.stringify({ sent: true, recipient: recipientEmail, refNumber: header.refNumber });
 }
 
 // --- Tool executor ------------------------------------------------------------

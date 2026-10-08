@@ -13,14 +13,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, Card, CardContent, Typography, Select, MenuItem, CardActionArea } from '@mui/material';
 import PaidIcon from '@mui/icons-material/Paid';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 import { ordersService } from './ordersStore';
 import type { Order } from '../../types/order';
 import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
 const DEFAULT_YEAR = '2026';
 
-const currency = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const currency = (n: number) => formatCurrency(n, { maximumFractionDigits: 0 });
 
 export default function YearlyOrderTotalCard() {
   const navigate = useNavigate();

@@ -16,6 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import { formatNumber } from '@meterit/framework-frontend/utils';
 import { getUserRoleRepCounts } from '../users/usersStore';
 import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
@@ -59,10 +60,10 @@ export default function UserDataGapsCard() {
           </Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {noRole > 0 && (
-              <Chip label={`${noRole} ${noRole === 1 ? 'user' : 'users'} missing role`} color="error" size="small" />
+              <Chip label={`${formatNumber(noRole)} ${noRole === 1 ? 'user' : 'users'} missing role`} color="error" size="small" />
             )}
             {noQbRep > 0 && (
-              <Chip label={`${noQbRep} ${noQbRep === 1 ? 'user' : 'users'} missing QB sales rep`} color="error" size="small" />
+              <Chip label={`${formatNumber(noQbRep)} ${noQbRep === 1 ? 'user' : 'users'} missing QB sales rep`} color="error" size="small" />
             )}
           </Box>
         </CardContent>

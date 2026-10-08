@@ -12,6 +12,7 @@ import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import PaidIcon from '@mui/icons-material/Paid';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import { formatCurrency, formatNumber } from '@meterit/framework-frontend/utils';
 import { useQuotes } from '../quotes/quotesStore';
 import { useOrders } from '../orders/ordersStore';
 import CardInfoTooltip from '../../components/common/CardInfoTooltip';
@@ -19,8 +20,7 @@ import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 const YEAR = '2026';
 const isIn2026 = (o: any) => !!o.txn_date && o.txn_date.startsWith(YEAR);
 
-const currency = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const currency = (n: number) => formatCurrency(n, { maximumFractionDigits: 0 });
 
 export default function RepStatsCards() {
   const navigate = useNavigate();
@@ -51,7 +51,7 @@ export default function RepStatsCards() {
               </Typography>
             </Box>
             <Typography variant="h4" fontWeight={700}>
-              {quotesLoading ? '…' : quoteCount}
+              {quotesLoading ? '…' : formatNumber(quoteCount)}
             </Typography>
           </CardContent>
         </CardActionArea>
@@ -68,7 +68,7 @@ export default function RepStatsCards() {
               </Typography>
             </Box>
             <Typography variant="h4" fontWeight={700}>
-              {ordersLoading ? '…' : orderCount}
+              {ordersLoading ? '…' : formatNumber(orderCount)}
             </Typography>
           </CardContent>
         </CardActionArea>
@@ -102,7 +102,7 @@ export default function RepStatsCards() {
               </Typography>
             </Box>
             <Typography variant="h4" fontWeight={700}>
-              {ordersLoading ? '…' : openOrderCount}
+              {ordersLoading ? '…' : formatNumber(openOrderCount)}
             </Typography>
           </CardContent>
         </CardActionArea>

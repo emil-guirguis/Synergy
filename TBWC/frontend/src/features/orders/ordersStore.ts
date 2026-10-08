@@ -84,6 +84,45 @@ export const ordersService = {
     const r = await parse(await fetch(`${API_BASE_URL}/orders/${id}`, { method: 'DELETE', headers: authHeaders() }));
     return r.data;
   },
+  /** Default recipient/sender/subject for the Email dialog — see
+   *  routes/orders.ts's GET /:id/email. */
+  async getEmailPreview(id: string | number) {
+    const data = await parse(await fetch(`${API_BASE_URL}/orders/${id}/email`, { headers: authHeaders() }));
+    return data.data as {
+      customerEmail: string | null;
+      refNumber: string | null;
+      customerName: string | null;
+      jobName: string | null;
+      repEmail: string | null;
+      repName: string | null;
+    };
+  },
+  /** Builds a PDF of the order and emails it. recipientEmail omitted falls
+   *  back to the customer's email on file (and 400s if there isn't one);
+   *  subject/message omitted fall back to the standard template; replyTo
+   *  omitted falls back to the order's assigned sales rep. */
+  async sendEmail(id: string | number, params: { recipientEmail?: string; subject?: string; message?: string; replyTo?: string }) {
+    const r = await parse(
+      await fetch(`${API_BASE_URL}/orders/${id}/email`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(params),
+      })
+    );
+    return r.data as { sent: boolean; recipient: string; refNumber: string | null };
+  },
+  /** The exact PDF the email will attach — see routes/orders.ts's GET /:id/email/pdf. */
+  async getEmailPdf(id: string | number): Promise<Blob> {
+    const res = await fetch(`${API_BASE_URL}/orders/${id}/email/pdf`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`Failed to load PDF preview (${res.status})`);
+    return res.blob();
+  },
+  /** Open order value minus what's already invoiced against it — see
+   *  routes/orders.ts's GET /reports/backlog. */
+  async getBacklogReport() {
+    const data = await parse(await fetch(`${API_BASE_URL}/orders/reports/backlog`, { headers: authHeaders() }));
+    return data.data as { backlogTotal: number; orderCount: number };
+  },
 };
 
 export const useOrdersStore = createEntityStore<Order & { id: string }>(ordersService as any, {

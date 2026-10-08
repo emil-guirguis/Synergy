@@ -42,15 +42,15 @@ export const orderSchema = defineSchema({
           gridRow: '1 / 3',
           fields: [
             // Always readOnly in the form itself -- the type is decided once,
-            // by which button created the row (the normal QB sync, or the
-            // list's "+ Hold for Release" button; see orders.ts POST /), and
-            // is immutable after (no route ever writes this column again).
-            // There's deliberately no in-form control to change it.
+            // by what created the row (the normal QB sync, or which option the
+            // list's New menu picked; see orders.ts POST /), and is immutable
+            // after (no route ever writes this column again). There's
+            // deliberately no in-form control to change it.
             field({
               name: 'order_type', order: 0, type: FieldTypes.SELECT, default: 'order', required: false,
               readOnly: true, label: 'Type', dbField: 'order_type', showOn: ['list', 'form'], visibleFor: ['admin'],
-              enumValues: ['order', 'hold_for_release'],
-              enumLabels: { order: 'Order', hold_for_release: 'Hold for Release' },
+              enumValues: ['order', 'hold_for_release', 'consignment'],
+              enumLabels: { order: 'Order', hold_for_release: 'Hold for Release', consignment: 'Consignment' },
             }),
             field({ name: 'customer_name', order: 1, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer', dbField: 'customer_name', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'ref_number', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'SO #', description: 'Sales Order Number', dbField: 'ref_number', maxLength: 100, showOn: ['list', 'form'] }),
@@ -251,8 +251,30 @@ export const orderSchema = defineSchema({
       ],
     }),
     tab({
-      name: 'Documents',
+      name: 'Serial Numbers',
       order: 6,
+      visibleFor: ['admin'],
+      sections: [
+        section({
+          name: 'Serial Numbers',
+          order: 1,
+          fields: [
+            // This company's QB file has no serial/lot tracking, so staff type
+            // serial numbers straight into a line's Desc by hand (mixed in
+            // with the rest of that line's product description — e.g. "METER
+            // SERIAL # P032608004"). No dbField — not a real column: GET /:id
+            // reads it live off the latest linked real invoice's line items
+            // (orders.ts's latestInvoiceSerialNumbers), same match rule as
+            // the Invoices panel. Nothing is written to the invoice or stored
+            // on the order for this.
+            field({ name: 'serial_numbers', order: 1, type: FieldTypes.TEXTAREA, default: '', required: false, readOnly: true, label: 'Serial Numbers', description: 'Line-item descriptions from the latest linked invoice', showOn: ['form'], rows: 6 }),
+          ],
+        }),
+      ],
+    }),
+    tab({
+      name: 'Documents',
+      order: 7,
       // Reps get a cut-down Documents tab: OrderForm passes them a readOnly
       // (unless granted document:write) grid scoped to customer-visible types
       // only (see DocumentsGrid's visibleDocTypes prop in OrderForm.tsx).

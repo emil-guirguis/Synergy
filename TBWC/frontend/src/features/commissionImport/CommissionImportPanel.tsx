@@ -48,6 +48,7 @@ import {
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DownloadIcon from '@mui/icons-material/Download';
 import { ImportPanel, StatusChip, downloadCsv as downloadCsvFile, type ImportColumn, type ImportFacet } from '@meterit/framework-frontend/import';
+import { formatCurrency as formatCurrencyConfigured } from '@meterit/framework-frontend/utils';
 import { ordersService } from '../orders/ordersStore';
 import type { Order, OrderImportIndexRow } from '../../types/order';
 
@@ -145,7 +146,7 @@ const STATUS_COLOR: Record<RowStatus, 'success' | 'default' | 'error' | 'warning
 };
 
 const formatCurrency = (n: number | null | undefined): string =>
-  n == null ? '' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
+  n == null ? '' : formatCurrencyConfigured(n);
 
 /** Strip punctuation/casing/extra spaces for a lenient customer-name compare. */
 function normalizeName(s: string): string {

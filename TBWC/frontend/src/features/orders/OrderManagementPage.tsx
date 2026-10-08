@@ -3,6 +3,8 @@ import { EntityManagementPage } from '@meterit/framework-frontend/components/ent
 import { OrderList } from './OrderList';
 import { OrderForm } from './OrderForm';
 import { useAuth } from '../../hooks/useAuth';
+import { searchPeople, shareRecord } from '../../services/shareService';
+import { orderShareUrl, orderShareTitle } from './orderShare';
 import type { Order } from '../../types/order';
 
 export const OrderManagementPage: React.FC = () => {
@@ -22,6 +24,10 @@ export const OrderManagementPage: React.FC = () => {
         <OrderList onOrderEdit={onEdit} onOrderCreate={onCreate} />
       )}
       renderForm={({ entity, onCancel }) => <OrderForm order={entity} onCancel={onCancel} />}
+      shareUrl={orderShareUrl}
+      shareTitle={orderShareTitle}
+      searchPeople={searchPeople}
+      onShare={({ recipient, note, url, title }) => shareRecord({ recipientUserId: recipient.id, title, linkUrl: url, note })}
     />
   );
 };

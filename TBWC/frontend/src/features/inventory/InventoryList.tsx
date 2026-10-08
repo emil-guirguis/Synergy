@@ -7,9 +7,12 @@ import {
   generateColumnsFromSchema,
   generateFiltersFromSchema,
 } from '@meterit/framework-frontend/components/list/utils/schemaColumnGenerator';
+import { ShareMenu, useShareTarget } from '@meterit/framework-frontend/components/share';
 import { useInventoryEnhanced } from './inventoryStore';
 import { useAuth } from '../../hooks/useAuth';
 import { Permission } from '../../types/auth';
+import { searchPeople, shareRecord } from '../../services/shareService';
+import { inventoryShareUrl, inventoryShareTitle } from './inventoryShare';
 import type { Inventory } from '../../types/inventory';
 
 interface InventoryListProps {
@@ -168,6 +171,8 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onInventoryEdit, o
     ];
   }, [schema]);
 
+  const { shareTarget, openShare, closeShare } = useShareTarget();
+
   const baseList = useBaseList<Inventory, any>({
     entityName: 'inventory',
     entityNamePlural: 'inventory',
@@ -235,10 +240,23 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onInventoryEdit, o
         error={baseList.error}
         emptyMessage="No inventory items found."
         onEdit={baseList.handleEdit}
+        onShare={(item) => openShare({ url: inventoryShareUrl(item), title: inventoryShareTitle(item) })}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}
       />
+      {shareTarget && (
+        <ShareMenu
+          open={!!shareTarget}
+          onClose={closeShare}
+          title={shareTarget.title}
+          url={shareTarget.url}
+          searchPeople={searchPeople}
+          onShare={({ recipient, note }) =>
+            shareRecord({ recipientUserId: recipient.id, title: shareTarget.title, linkUrl: shareTarget.url, note })
+          }
+        />
+      )}
     </div>
   );
 };

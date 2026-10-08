@@ -10,6 +10,7 @@ import { tokenStorage } from '../../utils/tokenStorage';
 import { withAuthRetry } from '../../utils/authRetry';
 import { documentsStorage } from '../../services/documentsClient';
 import { useAuth } from '../../hooks/useAuth';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 
 /** Signs the stored path and opens it in a new tab — same call DocumentsGrid's
  *  own "open" action makes, just triggered from a chat result instead of a row. */
@@ -88,7 +89,7 @@ function formatDate(value: unknown): string | null {
 function formatPrice(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
-  return Number.isNaN(n) ? null : `$${n.toFixed(2)}`;
+  return Number.isNaN(n) ? null : formatCurrency(n);
 }
 
 // AI search tools return the record's real PK (qb_sales_order_id /

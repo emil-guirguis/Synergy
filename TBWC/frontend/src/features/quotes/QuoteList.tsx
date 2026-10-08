@@ -7,9 +7,12 @@ import {
   generateColumnsFromSchema,
   generateFiltersFromSchema,
 } from '@meterit/framework-frontend/components/list/utils/schemaColumnGenerator';
+import { ShareMenu, useShareTarget } from '@meterit/framework-frontend/components/share';
 import { useQuotes } from './quotesStore';
 import { useAuth } from '../../hooks/useAuth';
 import { Permission } from '../../types/auth';
+import { searchPeople, shareRecord } from '../../services/shareService';
+import { quoteShareUrl, quoteShareTitle } from './quoteShare';
 import type { Quote } from '../../types/quote';
 
 interface QuoteListProps {
@@ -38,6 +41,8 @@ export const QuoteList: React.FC<QuoteListProps> = ({ onQuoteEdit, onQuoteCreate
     if (!schema) return [];
     return generateFiltersFromSchema(schema.formFields);
   }, [schema]);
+
+  const { shareTarget, openShare, closeShare } = useShareTarget();
 
   const baseList = useBaseList<Quote, any>({
     entityName: 'quote',
@@ -107,11 +112,24 @@ export const QuoteList: React.FC<QuoteListProps> = ({ onQuoteEdit, onQuoteCreate
         onEdit={baseList.canUpdate ? baseList.handleEdit : undefined}
         onView={!baseList.canUpdate ? baseList.handleView : undefined}
         onDelete={baseList.canDelete ? baseList.handleDelete : undefined}
+        onShare={(quote) => openShare({ url: quoteShareUrl(quote), title: quoteShareTitle(quote) })}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}
       />
       {baseList.renderDeleteConfirmation()}
+      {shareTarget && (
+        <ShareMenu
+          open={!!shareTarget}
+          onClose={closeShare}
+          title={shareTarget.title}
+          url={shareTarget.url}
+          searchPeople={searchPeople}
+          onShare={({ recipient, note }) =>
+            shareRecord({ recipientUserId: recipient.id, title: shareTarget.title, linkUrl: shareTarget.url, note })
+          }
+        />
+      )}
     </div>
   );
 };

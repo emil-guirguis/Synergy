@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
+import { formatCurrency as formatCurrencyConfigured } from '@meterit/framework-frontend/utils';
 import { usePayments } from './paymentStore';
 import type { Payment } from '../../types/payment';
 
@@ -11,7 +12,7 @@ interface PaymentFormProps {
 
 function formatCurrency(value: number | null): string {
   if (value === null || value === undefined) return '';
-  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  return formatCurrencyConfigured(value);
 }
 
 /**

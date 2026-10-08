@@ -16,11 +16,15 @@ app.use('*', authenticateToken);
 const TABLE = 'user_manager';
 const PK = 'user_manager_id';
 
-// Joined with the managed user's own name/email so the grid has something to
-// show without a second round trip per row.
+// Joined with the managed user's own name + QB sales rep code so the grid has
+// something to show without a second round trip per row.
 const SELECT_WITH_USER = `
   um.user_manager_id, um.manager_id, um.managed_user_id, um.created_at,
-  u.first_name, u.last_name, u.email
+  u.first_name, u.last_name, u.email, sr.initial AS sales_rep_initial
+`;
+const JOIN_USER = `
+  JOIN public.users u ON u.id = um.managed_user_id
+  LEFT JOIN public.qb_sales_rep sr ON sr.qb_sales_rep_id = u.qb_sales_rep_id
 `;
 
 app.get('/', requirePermission('user:read'), async (c) => {
@@ -30,7 +34,7 @@ app.get('/', requirePermission('user:read'), async (c) => {
     c.env,
     `SELECT ${SELECT_WITH_USER}
        FROM public.${TABLE} um
-       JOIN public.users u ON u.id = um.managed_user_id
+       ${JOIN_USER}
       WHERE um.manager_id = $1
       ORDER BY u.first_name, u.last_name`,
     [managerId],
@@ -60,7 +64,7 @@ app.post('/', requirePermission('user:write'), async (c) => {
     clearProfileCache();
     const { rows: withUser } = await execQuery(
       c.env,
-      `SELECT ${SELECT_WITH_USER} FROM public.${TABLE} um JOIN public.users u ON u.id = um.managed_user_id WHERE um.${PK} = $1`,
+      `SELECT ${SELECT_WITH_USER} FROM public.${TABLE} um ${JOIN_USER} WHERE um.${PK} = $1`,
       [rows[0][PK]],
       'userManagers.createJoined'
     );

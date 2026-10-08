@@ -13,13 +13,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardActionArea, CardContent, Box, Typography, Select, MenuItem } from '@mui/material';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 import { invoiceService } from './invoiceStore';
 import CardInfoTooltip from '../../components/common/CardInfoTooltip';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
-const currency = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const currency = (n: number) => formatCurrency(n, { maximumFractionDigits: 0 });
 
 export default function ReceivablesCard() {
   const navigate = useNavigate();

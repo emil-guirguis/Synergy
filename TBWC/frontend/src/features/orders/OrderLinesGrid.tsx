@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Box, Typography } from '@mui/material';
 import { EditableDataGrid, type GridColumn } from '@meterit/framework-frontend/components/datagrid/';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 import type { OrderLine } from '../../types/order';
 
 interface OrderLinesGridProps {
@@ -16,9 +17,8 @@ interface OrderLinesGridProps {
   hideAmounts?: boolean;
 }
 
-// pg returns NUMERIC columns (order.total) as strings, not numbers — Number()
-// them first, since String.prototype.toLocaleString() is a silent no-op.
-const money = (n: number | string) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// pg returns NUMERIC columns (order.total) as strings, not numbers — formatCurrency coerces.
+const money = (n: number | string) => formatCurrency(n);
 
 // Explicit widths so the totals footer below can mirror them exactly and land
 // its numbers directly under the Amount column instead of floating at the

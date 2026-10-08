@@ -9,6 +9,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { getKitItems, saveKitItems, searchInventoryItems } from '../../services/kitItemsService';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 import type { Inventory, KitItem } from '../../types/inventory';
 
 interface KitItemsPanelProps {
@@ -40,7 +41,7 @@ interface Row {
 }
 
 const money = (n: number | string | null) =>
-  n == null || n === '' ? '' : Number(n).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+  n == null || n === '' ? '' : formatCurrency(n);
 
 // pg hands NUMERIC back as a string. Number() first or toLocaleString is a no-op.
 const qtyNum = (v: number | string | null | undefined, fallback = 1) => {

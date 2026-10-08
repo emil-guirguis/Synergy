@@ -6,10 +6,10 @@ export interface Order {
   /** Normalised alias of qb_sales_order_id set by the entity store (idFieldName). */
   id?: number | string;
   txn_id: string;
-  /** 'order' (default) = normal QB-synced row; 'hold_for_release' = TBWC-only
-   *  placeholder never pushed to QuickBooks (migration 069). Set once at
-   *  creation, immutable after — see orders.ts. */
-  order_type: 'order' | 'hold_for_release';
+  /** 'order' (default) = normal QB-synced row; 'hold_for_release'/'consignment'
+   *  = TBWC-only placeholders never pushed to QuickBooks (migrations 069/085).
+   *  Set once at creation, immutable after — see orders.ts. */
+  order_type: 'order' | 'hold_for_release' | 'consignment';
   ref_number: string | null;
   customer_list_id: string | null;
   customer_name: string | null;
@@ -51,6 +51,11 @@ export interface Order {
    *  orderInvoiceStatus.ts) — free-typed shipping notes verbatim, not a
    *  parsed-out tracking number (the source data isn't structured enough). */
   shipping_tracking: string | null;
+  /** Denormalised from the linked invoice's own Memo field (see
+   *  orderInvoiceStatus.ts) — this QB company file has no serial/lot
+   *  tracking, so staff type serial numbers straight into that field by hand
+   *  (migration 080). Verbatim, read-only, same as shipping_tracking above. */
+  serial_numbers: string | null;
   contact: string | null;
   customer_tax_code: string | null;
   /** SalesOrderLineRet rows, as captured by qbwc/qbxml.ts's lineItems(). */

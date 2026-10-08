@@ -14,7 +14,7 @@ import tbwcLogo from '../../assets/tbwc-logo.png';
 import { NAV, getPageTitle, filterNav } from './navConfig';
 
 export default function AppLayoutWrapper({ children }: { children: ReactNode }) {
-  const { user, checkPermission, logout } = useAuth();
+  const { user, checkPermission, logout, updatePreferences } = useAuth();
   const responsive = useResponsive();
   const ui = useUI();
 
@@ -29,6 +29,7 @@ export default function AppLayoutWrapper({ children }: { children: ReactNode }) 
     user: { name: user?.name || user?.email || 'User', email: user?.email ?? '' },
     notificationComponent: <NotificationBell api={notificationsService} />,
     onLogout: logout,
+    onSavePreferences: updatePreferences,
     checkPermission,
     responsive: {
       isMobile: responsive.isMobile,

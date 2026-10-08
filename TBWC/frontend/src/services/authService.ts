@@ -154,6 +154,25 @@ class AuthService {
     }
   }
 
+  /** Self-service display preference override (Settings > System Config's
+   *  per-user override — see auth.ts's PUT /me/preferences). `null` for a
+   *  field clears that override back to the org default. */
+  async updatePreferences(updates: Partial<Pick<User, 'timezone' | 'date_format' | 'time_format' | 'default_page_size'>>): Promise<User> {
+    const token = tokenStorage.getToken();
+    if (!token) throw new Error('Not authenticated');
+    const res = await fetch(`${API_BASE_URL}/auth/me/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `Failed to update preferences (${res.status})`);
+    }
+    const { data } = await res.json();
+    return withName(data as User);
+  }
+
   /** Load the current user if a valid token exists (app bootstrap). */
   async loadCurrentUser(): Promise<User | null> {
     const token = tokenStorage.getToken();

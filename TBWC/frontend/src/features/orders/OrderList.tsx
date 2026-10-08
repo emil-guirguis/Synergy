@@ -8,11 +8,16 @@ import {
   generateColumnsFromSchema,
   generateFiltersFromSchema,
 } from '@meterit/framework-frontend/components/list/utils/schemaColumnGenerator';
-import { renderNumberCell, renderChipList, type ChipItem } from '@meterit/framework-frontend/components/list/utils/renderHelpers';
+import { renderCurrencyCell, renderChipList, type ChipItem } from '@meterit/framework-frontend/components/list/utils/renderHelpers';
+import { ShareMenu, useShareTarget } from '@meterit/framework-frontend/components/share';
+import { searchPeople, shareRecord } from '../../services/shareService';
+import { orderShareUrl, orderShareTitle } from './orderShare';
+import { EmailOrderDialog } from './EmailOrderDialog';
 import { Box, IconButton, Tooltip } from '@mui/material';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import { useOrdersEnhanced } from './ordersStore';
 import { useAuth } from '../../hooks/useAuth';
 import { Permission } from '../../types/auth';
@@ -30,6 +35,12 @@ function getOrderStatusChips(order: Order): ChipItem[] {
   if (order.order_type === 'hold_for_release') {
     chips.push({
       label: 'Hold for Release',
+      variant: 'primary',
+      title: 'TBWC-only placeholder order — editable in full, never sent to QuickBooks.',
+    });
+  } else if (order.order_type === 'consignment') {
+    chips.push({
+      label: 'Consignment',
       variant: 'primary',
       title: 'TBWC-only placeholder order — editable in full, never sent to QuickBooks.',
     });
@@ -91,6 +102,7 @@ function getOrderStatusChips(order: Order): ChipItem[] {
 // mirroring each chip's own `title` text, beats hunting for an example row.
 const STATUS_LEGEND: { label: string; description: string }[] = [
   { label: 'Hold for Release', description: 'TBWC-only placeholder order — editable in full, never sent to QuickBooks.' },
+  { label: 'Consignment', description: 'TBWC-only placeholder order — editable in full, never sent to QuickBooks.' },
   { label: 'Not Invoiced', description: 'Shipped, but no invoice created yet.' },
   { label: 'Closed', description: 'Manually closed in QuickBooks — no further invoicing expected.' },
   { label: 'Missing Financials', description: 'Sold For, D Net Cost, or Commission has not been entered on the Financials tab.' },
@@ -143,6 +155,7 @@ const CHIP_OPTIONS: { value: string; label: string }[] = [
   { value: 'notShipped', label: 'Not Shipped' },
   { value: 'missingFinancials', label: 'Missing Financials' },
   { value: 'holdForRelease', label: 'Hold for Release' },
+  { value: 'consignment', label: 'Consignment' },
 ];
 
 /** Small checkbox-popover filter — show only orders carrying at least one of
@@ -214,6 +227,101 @@ function ChipFilter({ value, onChange }: { value: string[]; onChange: (next: str
   );
 }
 
+const NEW_ORDER_TYPES: { value: 'hold_for_release' | 'consignment'; label: string }[] = [
+  { value: 'hold_for_release', label: 'Hold for Release' },
+  { value: 'consignment', label: 'Consignment' },
+];
+
+/** Toolbar "New ▾" split button — picks which TBWC-only placeholder type
+ *  (orders.ts's PLACEHOLDER_TYPES) the opened form defaults to. `order: 3`
+ *  (higher than the fw toolbar's default-0 items) places it after the Filter
+ *  toggle button, matching the fw's own title/filter/export/New layout —
+ *  BaseList itself has no onCreateClick slot for a dropdown, only a plain
+ *  click handler, so this renders through toolbarContent instead. */
+function NewOrderButton({ onCreate }: { onCreate: (initial?: Partial<Order>) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  const pick = (orderType: 'hold_for_release' | 'consignment') => {
+    setOpen(false);
+    onCreate({
+      order_type: orderType,
+      // Pre-filled, not just defaulted server-side on save — so it's visibly
+      // set the moment the form opens (see routes/orders.ts's POST / for the
+      // same default as a fallback, not a cross-check).
+      txn_date: new Date().toISOString().slice(0, 10),
+    });
+  };
+
+  return (
+    <div style={{ position: 'relative', order: 3 }} ref={rootRef}>
+      <button
+        type="button"
+        className="base-list__toolbar-btn base-list__toolbar-btn--new"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="true"
+        aria-expanded={open}
+        title="Create a TBWC-only placeholder order, editable in full, that is never sent to QuickBooks"
+      >
+        New
+        <i className="material-symbols-outlined">arrow_drop_down</i>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            right: 0,
+            zIndex: 10,
+            minWidth: 180,
+            // Same blue as the trigger button (base-list__toolbar-btn--new),
+            // not the default white dropdown panel.
+            background: '#2563eb',
+            borderRadius: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            overflow: 'hidden',
+          }}
+        >
+          {NEW_ORDER_TYPES.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              role="menuitem"
+              onClick={() => pick(t.value)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#1d4ed8'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '0.5rem 0.875rem',
+                border: 'none',
+                background: 'transparent',
+                color: '#ffffff',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Schema's default boolean-column render is a Yes/No pill; the order list wants
 // a literal checkbox glyph instead for these flag columns.
 const CHECKBOX_COLUMNS = new Set<keyof Order>(['is_fully_invoiced', 'expedite', 'service']);
@@ -235,6 +343,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   const auth = authProp ?? realAuth;
   const { schema } = useSchema('order');
   const [searchParams, setSearchParams] = useSearchParams();
+  const [emailOrderId, setEmailOrderId] = useState<number | null>(null);
 
   // Mirrors the server's own scope check (orders.ts ownOnly()) rather than
   // hardcoding is_admin, so an order:read=all role grant (e.g. a rep who should
@@ -300,13 +409,36 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       const poIdx = visible.findIndex((col) => col.key === 'po_number');
       visible.splice(poIdx === -1 ? 0 : poIdx + 1, 0, STATUS_CHIPS_COLUMN);
     }
+    // Email PDF — admin/employee only (matches order:write; see orders.ts's
+    // POST /:id/email, same restriction as the AI chat email_order tool).
+    if (isAdmin) {
+      visible.push({
+        key: 'email_action',
+        label: '',
+        sortable: false,
+        responsive: 'always-show',
+        render: (_value, row) => (
+          <Tooltip title="Email order">
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEmailOrderId(row.qb_sales_order_id);
+              }}
+            >
+              <EmailOutlinedIcon fontSize="inherit" />
+            </IconButton>
+          </Tooltip>
+        ),
+      });
+    }
     for (const col of visible) {
       if (CHECKBOX_COLUMNS.has(col.key as keyof Order)) {
         col.render = (_value, row) => renderCheckbox(row[col.key as keyof Order] as boolean | null);
       }
-      // total comes back from Postgres as a numeric string — coerce before formatting.
+      // total comes back from Postgres as a numeric string — renderCurrencyCell coerces.
       if (col.key === 'total') {
-        col.render = (_value, row) => renderNumberCell(Number(row.total), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        col.render = (_value, row) => renderCurrencyCell(row.total as any);
       }
       // Long free-text notes: wrap instead of forcing the table wider (auto
       // table layout otherwise stretches this column to fit it on one line).
@@ -320,7 +452,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     }
     return visible;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, canSeeAll, isManagingReps]);
+  }, [schema, canSeeAll, isManagingReps, isAdmin]);
   const ownRepListId = auth.user?.sales_rep_list_id ?? null;
   const ownRepLabel = [auth.user?.sales_rep_initial, auth.user?.sales_rep_name].filter(Boolean).join(' - ')
     || auth.user?.sales_rep_name || '';
@@ -381,6 +513,8 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     }
     return schemaFilters;
   }, [schema, canSeeAll, isManagingReps, managedRepListIds, ownRepListId, ownRepLabel]);
+
+  const { shareTarget, openShare, closeShare } = useShareTarget();
 
   const baseList = useBaseList<Order, any>({
     entityName: 'order',
@@ -476,22 +610,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       <BaseList
         title="Orders"
         toolbarContent={
-          isAdmin && onOrderCreate ? (
-            <button
-              type="button"
-              className="base-list__toolbar-btn base-list__toolbar-btn--new"
-              title="Create a TBWC-only placeholder order, editable in full, that is never sent to QuickBooks"
-              onClick={() => onOrderCreate({
-                order_type: 'hold_for_release',
-                // Pre-filled, not just defaulted server-side on save — so it's
-                // visibly set the moment the form opens (see routes/orders.ts's
-                // POST / for the same default as a fallback, not a cross-check).
-                txn_date: new Date().toISOString().slice(0, 10),
-              })}
-            >
-              + Hold for Release
-            </button>
-          ) : undefined
+          isAdmin && onOrderCreate ? <NewOrderButton onCreate={onOrderCreate} /> : undefined
         }
         filters={
           <>
@@ -517,10 +636,26 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
         // read-only (OrderForm itself still enforces that; this is just the icon).
         onEdit={baseList.canUpdate ? baseList.handleEdit : undefined}
         onView={!baseList.canUpdate ? baseList.handleView : undefined}
+        onShare={(order) => openShare({ url: orderShareUrl(order), title: orderShareTitle(order) })}
         pagination={baseList.pagination}
         sortBy={baseList.sortBy}
         sortOrder={baseList.sortOrder}
       />
+      {shareTarget && (
+        <ShareMenu
+          open={!!shareTarget}
+          onClose={closeShare}
+          title={shareTarget.title}
+          url={shareTarget.url}
+          searchPeople={searchPeople}
+          onShare={({ recipient, note }) =>
+            shareRecord({ recipientUserId: recipient.id, title: shareTarget.title, linkUrl: shareTarget.url, note })
+          }
+        />
+      )}
+      {emailOrderId !== null && (
+        <EmailOrderDialog open={emailOrderId !== null} onClose={() => setEmailOrderId(null)} orderId={emailOrderId} />
+      )}
     </div>
   );
 };

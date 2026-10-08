@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { Box, Card, CardActionArea, CardContent, Typography } from '@mui/material';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
+import { formatNumber } from '@meterit/framework-frontend/utils';
 import { ordersService } from './ordersStore';
 import type { Order } from '../../types/order';
 import CardInfoTooltip from '../../components/common/CardInfoTooltip';
@@ -59,7 +60,7 @@ export default function OrderAlertsCards() {
               </Typography>
             </Box>
             <Typography variant="h4" fontWeight={700}>
-              {loading ? '…' : notShippedCount}
+              {loading ? '…' : formatNumber(notShippedCount)}
             </Typography>
           </CardContent>
         </CardActionArea>
@@ -76,7 +77,7 @@ export default function OrderAlertsCards() {
               </Typography>
             </Box>
             <Typography variant="h4" fontWeight={700}>
-              {loading ? '…' : openSalesOrderCount}
+              {loading ? '…' : formatNumber(openSalesOrderCount)}
             </Typography>
           </CardContent>
         </CardActionArea>

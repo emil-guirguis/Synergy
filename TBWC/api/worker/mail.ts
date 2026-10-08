@@ -17,6 +17,10 @@ export interface SendMailPayload {
    *  and the edge fn just brands+sends it, see TBWC's send-mail/index.ts. */
   subject?: string;
   bodyHtml?: string;
+  /** 'document' type only — where a reply should go, when it shouldn't be
+   *  SMTP_FROM (the fixed system account). Requires the send-mail edge
+   *  function to read body.replyTo — see tbwc-site's _shared/mailer.ts. */
+  replyTo?: string;
   attachmentBase64?: string;
   attachmentFilename?: string;
   attachmentContentType?: string;

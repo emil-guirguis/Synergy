@@ -37,6 +37,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 import { invoiceTotalsService, type CustomRange } from './invoiceTotalsService';
 import { downloadTrendCsv } from './invoiceTotalsExport';
 import type { InvoiceTotalsGranularity, InvoiceTotalsPeriod, InvoiceTotalsSummary, InvoiceTotalsTrend } from '../../types/invoiceTotals';
@@ -120,8 +121,7 @@ function defaultCustomRange(): CustomRange {
   return { from: isoDate(from), to: isoDate(to) };
 }
 
-const currency = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const currency = (n: number) => formatCurrency(n, { maximumFractionDigits: 0 });
 
 function pctChange(current: number, prior: number): string {
   if (prior === 0) return current === 0 ? '—' : '+∞%';

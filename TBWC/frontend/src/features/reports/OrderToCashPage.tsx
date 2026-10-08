@@ -9,16 +9,16 @@ import {
   Alert, Box, Card, CardContent, Chip, CircularProgress, Select, MenuItem, Stack, Typography,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
 } from '@mui/material';
+import { formatCurrency, formatDate } from '@meterit/framework-frontend/utils';
 import { orderToCashService } from './orderToCashService';
 import type { OrderToCashSummary, UninvoicedOrder } from '../../types/orderToCash';
 
-const currency = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const currency = (n: number) => formatCurrency(n, { maximumFractionDigits: 0 });
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US');
+  return Number.isNaN(d.getTime()) ? '—' : formatDate(d);
 }
 
 function daysOpenColor(days: number | null): 'default' | 'warning' | 'error' {

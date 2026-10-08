@@ -17,6 +17,8 @@ export interface ManagedUserRow {
   first_name: string | null;
   last_name: string | null;
   email: string;
+  /** QB sales rep short code (public.qb_sales_rep.initial), joined via qb_sales_rep_id. */
+  sales_rep_initial: string | null;
 }
 
 function authHeaders(): Record<string, string> {

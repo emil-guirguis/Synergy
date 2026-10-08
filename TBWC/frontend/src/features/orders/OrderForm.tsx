@@ -16,10 +16,17 @@ import { tbwcReferenceSearch } from '../../shared/referenceSearch';
 import { useAuth } from '../../hooks/useAuth';
 import type { Order, OrderLine } from '../../types/order';
 
-// Picks a real QuickBooks customer onto a Hold for Release order — never a
+// Picks a real QuickBooks customer onto a placeholder order — never a
 // free-text name (routes/orders.ts's resolveCustomer is the authoritative
 // check; this picker just keeps a typo from ever reaching it).
 const CUSTOMER_SEARCH_CONFIG = { endpoint: '/customers', valueField: 'list_id', labelField: 'full_name' };
+
+// Mirrors orderSchema.ts's order_type enumLabels — used for the banner/delete
+// confirm text, which needs to say which placeholder type this is.
+const PLACEHOLDER_LABELS: Record<string, string> = {
+  hold_for_release: 'Hold for Release',
+  consignment: 'Consignment',
+};
 
 // Reps may see these on an order's Documents tab. Admins see every type.
 const REP_VISIBLE_DOC_TYPES: DocType[] = ['packing_slip', 'invoice', 'proof_of_delivery', 'load_schedule'];
@@ -29,20 +36,20 @@ const repOversizeMessage = (file: File) =>
 
 interface OrderFormProps {
   /** A full Order when editing, or a Partial<Order> carrying just
-   *  `{ order_type: 'hold_for_release' }` when opened via the list's
-   *  "+ Hold for Release" button (see OrderManagementPage/OrderList). */
+   *  `{ order_type: 'hold_for_release' | 'consignment' }` when opened via the
+   *  list's New menu (see OrderManagementPage/OrderList). */
   order?: Partial<Order>;
   onCancel: () => void;
   loading?: boolean;
 }
 
 // Header fields that are QB-owned (readOnly in orderSchema.ts) on every
-// normal synced order, but fully editable by hand on a hold_for_release
-// order, which has no QB source to be clobbered by the next sync. Overridden
-// here via renderCustomField rather than in the schema itself, so a normal
-// order's form is completely unaffected (renderCustomField returns null for
-// these field names unless isHoldForRelease, falling back to the schema's own
-// readOnly rendering).
+// normal synced order, but fully editable by hand on a placeholder order
+// (hold_for_release or consignment), which has no QB source to be clobbered
+// by the next sync. Overridden here via renderCustomField rather than in the
+// schema itself, so a normal order's form is completely unaffected
+// (renderCustomField returns null for these field names unless isPlaceholder,
+// falling back to the schema's own readOnly rendering).
 // customer_name is deliberately not here — it's picked via ReferenceSearchField
 // (see the 'customer_name' branch in renderCustomField), not typed free-text,
 // so the customer is always a real QuickBooks one (validated again server-side).
@@ -54,7 +61,7 @@ const HOLD_FOR_RELEASE_HEADER_FIELDS = new Set([
   'contact', 'customer_tax_code',
 ]);
 
-function renderHoldForReleaseField(fieldDef: any, value: any, disabled: boolean, onChange: (v: any) => void) {
+function renderPlaceholderField(fieldDef: any, value: any, disabled: boolean, onChange: (v: any) => void) {
   const common = { fullWidth: true, size: 'small' as const, label: fieldDef?.label, disabled };
   if (fieldDef?.type === 'textarea') {
     return <TextField {...common} multiline minRows={fieldDef.rows || 3} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
@@ -117,20 +124,21 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
     .filter((tab) => !isFieldVisible('order:read', `tab:${tab.name}`))
     .map((tab) => tab.name);
   // order is a full Order when editing/viewing, or just { order_type:
-  // 'hold_for_release' } when opened via "+ Hold for Release" — cast since
-  // freshOrder only ever needs the fields actually present at each stage.
+  // 'hold_for_release' | 'consignment' } when opened via the list's New menu —
+  // cast since freshOrder only ever needs the fields actually present at each
+  // stage.
   const [freshOrder, setFreshOrder] = React.useState<Order | undefined>(order?.id ? undefined : (order as Order | undefined));
   const [fetching, setFetching] = React.useState(!!order?.id);
-  const isHoldForRelease = freshOrder?.order_type === 'hold_for_release';
+  const isPlaceholder = freshOrder?.order_type === 'hold_for_release' || freshOrder?.order_type === 'consignment';
   // Picked via a plain dropdown (renderCustomField below), not schema's
   // generic field plumbing — sales_rep is a joined display string, not the
-  // real FK (sales_rep_list_id) a hold-for-release order needs to write.
+  // real FK (sales_rep_list_id) a placeholder order needs to write.
   const [pendingRepListId, setPendingRepListId] = React.useState<string | null>(null);
   // Same reason, for the customer picker — customer_name is a plain display
   // string; the real FK the server validates (routes/orders.ts's
   // resolveCustomer) is customer_list_id, picked via ReferenceSearchField.
   const [pendingCustomer, setPendingCustomer] = React.useState<{ list_id: string; name: string } | null>(null);
-  // Hold-for-release line items (add/remove + item picker, see
+  // Placeholder order line items (add/remove + item picker, see
   // PickableLineItemsGrid below) — not schema field plumbing, same reason as
   // QuoteForm's pendingLines: the grid owns its own add/remove/pick-item state.
   const [pendingLines, setPendingLines] = React.useState<OrderLine[] | null>(null);
@@ -173,7 +181,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
 
   const handleDelete = async () => {
     if (!freshOrder?.id) return;
-    if (!window.confirm('Delete this Hold for Release order? This cannot be undone.')) return;
+    const label = PLACEHOLDER_LABELS[freshOrder.order_type] ?? 'placeholder';
+    if (!window.confirm(`Delete this ${label} order? This cannot be undone.`)) return;
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -199,10 +208,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   // id. BaseForm's sidePanel prop owns the responsive row/stack split.
   return (
     <Box>
-      {isAdmin && isHoldForRelease && (
+      {isAdmin && isPlaceholder && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
           <Alert severity="info" sx={{ py: 0, flex: 1 }}>
-            Hold for Release — editable in full, never sent to QuickBooks. Delete this once the real order is entered in QuickBooks.
+            {PLACEHOLDER_LABELS[freshOrder!.order_type]} — editable in full, never sent to QuickBooks. Delete this once the real order is entered in QuickBooks.
           </Alert>
           {freshOrder?.id && (
             <Button
@@ -234,11 +243,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           sidePanel={freshOrder?.id ? <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={isAdmin} /> : undefined}
           renderCustomField={(fieldName, fieldDef, value, _error, isFieldDisabled, onChange) => {
             if (fieldName === 'lines') {
-              // Hold for release: an addable/removable grid with an item
+              // Placeholder order: an addable/removable grid with an item
               // picker (framework's PickableLineItemsGrid) — there's no QB
               // source to build rows from, so the admin builds the order
               // itself. total is computed from these server-side (sumLines).
-              if (isHoldForRelease) {
+              if (isPlaceholder) {
                 return (
                   <PickableLineItemsGrid
                     lines={pendingLines ?? value ?? []}
@@ -253,14 +262,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
             }
             if (HOLD_FOR_RELEASE_HEADER_FIELDS.has(fieldName)) {
               // Falls back to the schema's own (readOnly) rendering on a
-              // normal order — this override exists only for hold_for_release.
-              if (!isHoldForRelease) return null;
-              return <Box data-field={fieldName}>{renderHoldForReleaseField(fieldDef, value, isFieldDisabled, onChange)}</Box>;
+              // normal order — this override exists only for a placeholder.
+              if (!isPlaceholder) return null;
+              return <Box data-field={fieldName}>{renderPlaceholderField(fieldDef, value, isFieldDisabled, onChange)}</Box>;
             }
             if (fieldName === 'customer_name') {
               // Normal order: customer_name is QB-owned plain text — the
               // schema's own readOnly rendering is correct, unchanged.
-              if (!isHoldForRelease) return null;
+              if (!isPlaceholder) return null;
               return (
                 <Box data-field="customer_name">
                   <ReferenceSearchField
@@ -283,7 +292,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
               );
             }
             if (fieldName === 'sales_rep') {
-              if (!isHoldForRelease) return null;
+              if (!isPlaceholder) return null;
               const repField = orderSchema?.entityFields?.sales_rep_list_id;
               const repOptions: string[] = repField?.enumValues ?? [];
               const repLabels: Record<string, string> = repField?.enumLabels ?? {};

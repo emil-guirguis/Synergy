@@ -86,7 +86,7 @@ export const ManagedUsersGrid: React.FC<ManagedUsersGridProps> = ({ managerId })
     if (unsavedRow) rows.push({ id: 'unsaved', user: unsavedRow.user, _isUnsaved: true });
     items.forEach((row) => rows.push({
       id: row.user_manager_id,
-      user: `${row.first_name} ${row.last_name}${row.email ? ` (${row.email})` : ''}`,
+      user: `${row.first_name} ${row.last_name}${row.sales_rep_initial ? ` (${row.sales_rep_initial})` : ''}`,
     }));
     return rows;
   }, [items, unsavedRow]);

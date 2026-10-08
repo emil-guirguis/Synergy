@@ -10,13 +10,13 @@ import {
   Alert, Box, CircularProgress, Select, MenuItem, Stack, Typography,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
 } from '@mui/material';
+import { formatCurrency } from '@meterit/framework-frontend/utils';
 import { repPerformanceService } from './repPerformanceService';
 import type { RepPerformanceRow, RepPerformanceSummary } from '../../types/repPerformance';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
-const currency = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const currency = (n: number) => formatCurrency(n, { maximumFractionDigits: 0 });
 
 const percent = (n: number) => `${n.toFixed(1)}%`;
 

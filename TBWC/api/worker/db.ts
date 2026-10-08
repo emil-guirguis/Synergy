@@ -37,6 +37,10 @@ export interface Env {
   // re-verification link mailed to locked-out reps. Distinct from
   // FRONTEND_URL, which is CORS-origin-only (no path).
   PORTAL_URL?: string;
+  // tbwc-site's own origin (e.g. "https://tbwctechnology.com"), CORS-allowed
+  // only for /api/contact (index.ts) — the public contact form posts from
+  // there, a different origin than the portal's FRONTEND_URL.
+  PUBLIC_SITE_URL?: string;
   // Anthropic API key for /api/ai/chat (tool-use assistant). Set via
   // `wrangler secret put ANTHROPIC_API_KEY` in prod; local dev uses .dev.vars.
   // Unset => the route returns 503 instead of calling out.

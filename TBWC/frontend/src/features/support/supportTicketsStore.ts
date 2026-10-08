@@ -3,7 +3,7 @@ import { createEntityStore, createEntityHook } from '../../store/slices/createEn
 import { withTokenRefresh } from '../../store/middleware/apiMiddleware';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { API_BASE_URL } from '../../config/api';
-import type { SupportTicket, CreateTicketPayload, UpdateTicketPayload } from '@meterit/framework-frontend/support';
+import type { SupportTicket, CreateTicketPayload, UpdateTicketPayload, SupportAnalytics } from '@meterit/framework-frontend/support';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -46,8 +46,16 @@ const api = {
     const res = await request<any>(`/support/${id}`, { method: 'PUT', body: JSON.stringify(data) });
     return normalize(res.data);
   },
-  async delete(): Promise<void> {
-    throw new Error('Ticket deletion is not permitted');
+  async submitCsat(id: string, rating: number): Promise<SupportTicket> {
+    const res = await request<any>(`/support/${id}/csat`, { method: 'POST', body: JSON.stringify({ rating }) });
+    return normalize(res.data);
+  },
+  async getAnalytics(): Promise<SupportAnalytics> {
+    const res = await request<any>('/support/analytics');
+    return res.data;
+  },
+  async delete(id: string): Promise<void> {
+    await request<any>(`/support/${id}`, { method: 'DELETE' });
   },
 };
 
@@ -56,7 +64,7 @@ const supportTicketsService = {
   async getById(id: string) { return withTokenRefresh(() => api.getById(id)); },
   async create(data: CreateTicketPayload) { return withTokenRefresh(() => api.create(data)); },
   async update(id: string, data: UpdateTicketPayload) { return withTokenRefresh(() => api.update(id, data)); },
-  async delete(): Promise<void> { throw new Error('Ticket deletion is not permitted'); },
+  async delete(id: string): Promise<void> { return withTokenRefresh(() => api.delete(id)); },
 };
 
 export const useSupportTicketsStore = createEntityStore(supportTicketsService, {
@@ -83,5 +91,11 @@ export const supportTicketService = {
   },
   async update(id: number, payload: UpdateTicketPayload): Promise<SupportTicket> {
     return withTokenRefresh(() => api.update(String(id), payload));
+  },
+  async submitCsat(id: number, rating: number): Promise<SupportTicket> {
+    return withTokenRefresh(() => api.submitCsat(String(id), rating));
+  },
+  async getAnalytics(): Promise<SupportAnalytics> {
+    return withTokenRefresh(() => api.getAnalytics());
   },
 };

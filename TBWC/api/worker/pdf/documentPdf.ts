@@ -31,7 +31,25 @@ export interface DocumentHeader {
 const PAGE_WIDTH = 612; // US Letter, points
 const PAGE_HEIGHT = 792;
 const MARGIN = 50;
-const ROW_HEIGHT = 18;
+const LINE_HEIGHT = 11; // one wrapped line of item/description text
+const ROW_SIZE = 8; // line-item row font — smaller than the 9pt default so
+// Item/Description have room; at 9pt a 20-char item routinely ran past
+// Description's own start and the two columns visibly overlapped.
+
+// Item/Description are left-aligned text columns that wrap onto extra lines
+// within their row when too long (see wrapText) instead of colliding with
+// their neighbor or truncating silently.
+const ITEM_X = MARGIN;
+const ITEM_WIDTH = 85;
+const DESC_X = MARGIN + 95;
+const DESC_WIDTH = 230;
+
+// Numeric columns' right edges — numbers right-align to these so they line
+// up on a clean right edge instead of a ragged one (the usual invoice/table
+// convention); Item/Description above stay left-aligned.
+const QTY_RIGHT = MARGIN + 355;
+const RATE_RIGHT = MARGIN + 435;
+const AMOUNT_RIGHT = PAGE_WIDTH - MARGIN;
 
 export const money = (n: number | null): string => (n == null ? '' : `$${n.toFixed(2)}`);
 
@@ -45,6 +63,32 @@ export async function buildDocumentPdf(header: DocumentHeader, lines: DocumentLi
 
   const text = (s: string, x: number, yy: number, f: PDFFont = font, size = 9) =>
     page.drawText(s, { x, y: yy, size, font: f, color: rgb(0.1, 0.1, 0.1) });
+
+  // Draws so `s` ends flush at `rightX` instead of starting at a fixed x.
+  const rightText = (s: string, rightX: number, yy: number, f: PDFFont = font, size = 9) =>
+    text(s, rightX - f.widthOfTextAtSize(s, size), yy, f, size);
+
+  // Greedy word-wrap to fit `maxWidth` — Item/Description get a second (or
+  // third...) line within their own row instead of truncating or overrunning
+  // into the next column. A single word wider than maxWidth is left as-is
+  // rather than broken mid-word.
+  const wrapText = (s: string, maxWidth: number, f: PDFFont, size: number): string[] => {
+    if (!s) return [''];
+    const words = s.split(/\s+/).filter(Boolean);
+    const out: string[] = [];
+    let line = '';
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && f.widthOfTextAtSize(candidate, size) > maxWidth) {
+        out.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) out.push(line);
+    return out.length ? out : [''];
+  };
 
   const hLine = (yy: number) =>
     page.drawLine({ start: { x: MARGIN, y: yy }, end: { x: PAGE_WIDTH - MARGIN, y: yy }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
@@ -74,9 +118,9 @@ export async function buildDocumentPdf(header: DocumentHeader, lines: DocumentLi
     y = Math.min(billY, metaY) - 14;
     text('Item', MARGIN, y, bold);
     text('Description', MARGIN + 90, y, bold);
-    text('Qty', MARGIN + 320, y, bold);
-    text('Rate', MARGIN + 370, y, bold);
-    text('Amount', PAGE_WIDTH - MARGIN - 60, y, bold);
+    rightText('Qty', QTY_RIGHT, y, bold);
+    rightText('Rate', RATE_RIGHT, y, bold);
+    rightText('Amount', AMOUNT_RIGHT, y, bold);
     y -= 8;
     hLine(y);
     y -= 16;
@@ -86,16 +130,22 @@ export async function buildDocumentPdf(header: DocumentHeader, lines: DocumentLi
   drawHeaderAndTableHead();
 
   for (const line of lines) {
-    if (y < MARGIN + 40) {
+    const itemLines = wrapText(line.item ?? '', ITEM_WIDTH, font, ROW_SIZE);
+    const descLines = wrapText(line.description ?? '', DESC_WIDTH, font, ROW_SIZE);
+    const rowHeight = Math.max(itemLines.length, descLines.length, 1) * LINE_HEIGHT;
+
+    if (y - rowHeight < MARGIN + 40) {
       page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
       drawHeaderAndTableHead();
     }
-    text((line.item ?? '').slice(0, 20), MARGIN, y);
-    text((line.description ?? '').slice(0, 45), MARGIN + 90, y);
-    text(line.quantity != null ? String(line.quantity) : '', MARGIN + 320, y);
-    text(money(line.rate), MARGIN + 370, y);
-    text(money(line.amount), PAGE_WIDTH - MARGIN - 60, y);
-    y -= ROW_HEIGHT;
+
+    const rowTopY = y;
+    itemLines.forEach((s, i) => text(s, ITEM_X, rowTopY - i * LINE_HEIGHT, font, ROW_SIZE));
+    descLines.forEach((s, i) => text(s, DESC_X, rowTopY - i * LINE_HEIGHT, font, ROW_SIZE));
+    rightText(line.quantity != null ? String(line.quantity) : '', QTY_RIGHT, rowTopY, font, ROW_SIZE);
+    rightText(money(line.rate), RATE_RIGHT, rowTopY, font, ROW_SIZE);
+    rightText(money(line.amount), AMOUNT_RIGHT, rowTopY, font, ROW_SIZE);
+    y -= rowHeight;
   }
 
   if (y < MARGIN + 30) {
@@ -106,7 +156,7 @@ export async function buildDocumentPdf(header: DocumentHeader, lines: DocumentLi
   hLine(y);
   y -= 20;
   text('Total', PAGE_WIDTH - MARGIN - 140, y, bold, 11);
-  text(money(header.total), PAGE_WIDTH - MARGIN - 60, y, bold, 11);
+  rightText(money(header.total), AMOUNT_RIGHT, y, bold, 11);
 
   return pdf.save();
 }

@@ -26,6 +26,11 @@ export type AuthVariables = {
 const PROFILE_TTL_MS = 60_000;
 const profileCache = createEntityCache<any>(PROFILE_TTL_MS);
 
+/** Call after a self-service profile update so the next loadProfile() re-fetches. */
+export function invalidateProfile(userId: string): void {
+  profileCache.delete(userId);
+}
+
 export async function loadProfile(env: Env, userId: string): Promise<any | null> {
   return profileCache.get(userId, async () => {
     // LEFT JOIN qb_sales_rep so a rep's own QB rep identity (list_id, used by
@@ -60,7 +65,17 @@ export async function loadProfile(env: Env, userId: string): Promise<any | null>
                   SELECT mu.qb_sales_rep_id FROM public.users mu WHERE mu.id = um.managed_user_id
                 )
                 WHERE um.manager_id = u.id
-              ), ARRAY[]::text[]) AS managed_sales_rep_list_ids
+              ), ARRAY[]::text[]) AS managed_sales_rep_list_ids,
+              -- Settings > System Config's org-wide defaults, overridable per-user
+              -- (public.users.timezone/date_format/time_format/default_page_size,
+              -- NULL = inherit). company_settings is a singleton row, same org-wide
+              -- fallback for every user. currency is deliberately org-only (no
+              -- per-user override — see numberHelpers.ts's formatCurrency).
+              COALESCE(u.default_page_size, (SELECT cs.default_page_size FROM public.company_settings cs LIMIT 1)) AS default_page_size,
+              COALESCE(u.timezone, (SELECT cs.timezone FROM public.company_settings cs LIMIT 1)) AS timezone,
+              COALESCE(u.date_format, (SELECT cs.date_format FROM public.company_settings cs LIMIT 1)) AS date_format,
+              COALESCE(u.time_format, (SELECT cs.time_format FROM public.company_settings cs LIMIT 1)) AS time_format,
+              (SELECT cs.currency FROM public.company_settings cs LIMIT 1) AS currency
        FROM public.users u
        LEFT JOIN public.qb_sales_rep sr ON sr.qb_sales_rep_id = u.qb_sales_rep_id
        WHERE u.id = $1`,

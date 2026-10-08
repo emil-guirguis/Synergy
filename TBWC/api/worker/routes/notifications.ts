@@ -70,6 +70,7 @@ app.post('/', requirePermission('notification:write'), async (c) => {
       severity: body.severity,
       description: body.description,
       usersId: body.users_id,
+      linkUrl: body.link_url,
       // Stamp the caller as the sender (same as the AI chat send_notification
       // tool) so a reply has someone to go back to and the bell shows "From".
       createdBy: c.get('userId'),

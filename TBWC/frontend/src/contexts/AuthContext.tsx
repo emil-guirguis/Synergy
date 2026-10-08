@@ -8,6 +8,7 @@ import {
 import { authService } from '../services/authService';
 import { tokenStorage } from '../utils/tokenStorage';
 import { resetAllEntityStores } from '../store/slices/createEntitySlice';
+import { setSystemConfig } from '@meterit/framework-frontend/utils';
 import type { LoginCredentials, User } from '../types/auth';
 
 // checkPermission() takes the frontend's create/update/delete-shaped
@@ -39,6 +40,8 @@ export interface AuthContextValue {
   isAdmin: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
+  /** Self-service display preference override — see authService.updatePreferences. */
+  updatePreferences: (updates: Partial<Pick<User, 'timezone' | 'date_format' | 'time_format' | 'default_page_size'>>) => Promise<void>;
   checkPermission: (permission?: string) => boolean;
   /** The role-granted scope for a permission ('all' | 'own'), or null if not held. */
   scopeOf: (permission: string) => 'all' | 'own' | null;
@@ -86,6 +89,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Mirror the authenticated user's resolved display preferences (org default,
+  // overridden per-user — see loadProfile()'s COALESCE) onto the framework's
+  // System Config store, so formatDate/formatCurrency/etc. pick them up
+  // anywhere in the app without drilling the user object through every call site.
+  useEffect(() => {
+    setSystemConfig({
+      timezone: user?.timezone ?? null,
+      date_format: user?.date_format ?? null,
+      time_format: user?.time_format ?? null,
+      currency: user?.currency ?? null,
+      default_page_size: user?.default_page_size ?? null,
+    });
+  }, [user]);
+
   // The entity stores (orders, invoices, users, ...) are module singletons that
   // outlive a session: signing out clears the token and this context, but never
   // reloads the page, so their cached rows/filters/lastFetch survive into the
@@ -103,6 +120,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authService.logout();
     resetAllEntityStores();
     setUser(null);
+  }, []);
+
+  const updatePreferences = useCallback(async (updates: Partial<Pick<User, 'timezone' | 'date_format' | 'time_format' | 'default_page_size'>>) => {
+    const updated = await authService.updatePreferences(updates);
+    setUser(updated);
   }, []);
 
   // is_admin still exists on the row (legacy — role_id is authoritative,
@@ -140,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAdmin,
     login,
     logout,
+    updatePreferences,
     checkPermission,
     scopeOf,
     isFieldVisible,

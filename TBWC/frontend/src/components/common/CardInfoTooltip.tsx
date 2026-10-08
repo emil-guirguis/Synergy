@@ -15,6 +15,7 @@ export default function CardInfoTooltip({ title, sx }: { title: string; sx?: SxP
   return (
     <Tooltip title={title}>
       <IconButton
+        component="span"
         size="small"
         onClick={(e) => e.stopPropagation()}
         aria-label="What this card counts"
