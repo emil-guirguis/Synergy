@@ -11,7 +11,8 @@
     "type-check": "tsc --noEmit",
     "images:plan": "node scripts/fetch-item-images.cjs --dry-run",
     "images:families": "node scripts/fetch-item-images.cjs --families-only",
-    "images:fetch": "node scripts/fetch-item-images.cjs"
+    "images:fetch": "node scripts/fetch-item-images.cjs",
+    "test:user-create": "node scripts/test-user-create.cjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

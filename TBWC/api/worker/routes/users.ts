@@ -8,7 +8,7 @@ import { AuthVariables, authenticateToken, requirePermission } from '../middlewa
 import { findAll, findById, create, update, remove, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { usersSchema } from './usersSchema';
 import { canImpersonate } from '@meterit/framework-backend/api/base/auth';
-import { mintSessionForEmail } from '../supabaseAdmin';
+import { mintSessionForEmail, createAuthUser, deleteAuthUser } from '../supabaseAdmin';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -36,6 +36,11 @@ function normalize(body: Record<string, any>): Record<string, any> {
   } else if (body.default_page_size !== undefined) {
     body.default_page_size = Number(body.default_page_size);
   }
+  // last_verified_at is NOT NULL (default now()) — the form sends it as null
+  // (readOnly field, default: null) on create, which would override the
+  // column default with an explicit NULL and violate the constraint. Drop it
+  // so the DB default (or the existing row's own value, on update) applies.
+  if (body.last_verified_at === null) delete body.last_verified_at;
   return body;
 }
 
@@ -63,10 +68,33 @@ app.get('/:id', requirePermission('user:read'), async (c) => {
   return c.json({ success: true, data: row });
 });
 
+// public.users.id is a FK to auth.users(id) with no default — a profile row
+// can't exist without a matching auth account. This creates that account
+// directly via the Admin API (email_confirm:true, no password), bypassing
+// tbwc-site's public rep-signup flow entirely, then inserts the profile row
+// with the same id. If the profile insert fails, the auth user is rolled
+// back so admins don't accumulate orphaned auth.users rows.
 app.post('/', requirePermission('user:write'), async (c) => {
   const body = normalize(await c.req.json());
-  const row = await create(c.env, TABLE, body);
-  return c.json({ success: true, data: row }, 201);
+  if (!body.email) return c.json({ success: false, message: 'Email is required' }, 400);
+
+  let authUserId: string;
+  try {
+    ({ id: authUserId } = await createAuthUser(c.env, body.email));
+  } catch (e) {
+    return c.json(
+      { success: false, message: e instanceof Error ? e.message : 'Failed to create auth account' },
+      502
+    );
+  }
+
+  try {
+    const row = await create(c.env, TABLE, { ...body, id: authUserId });
+    return c.json({ success: true, data: row }, 201);
+  } catch (e) {
+    await deleteAuthUser(c.env, authUserId);
+    throw e;
+  }
 });
 
 app.put('/:id', requirePermission('user:write'), async (c) => {

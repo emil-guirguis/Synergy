@@ -35,6 +35,15 @@ vi.mock('../crud', async (importOriginal) => {
   };
 });
 
+const mockCreateAuthUser = vi.fn();
+const mockDeleteAuthUser = vi.fn();
+
+vi.mock('../supabaseAdmin', () => ({
+  mintSessionForEmail: vi.fn(),
+  createAuthUser: (...a: any[]) => mockCreateAuthUser(...a),
+  deleteAuthUser: (...a: any[]) => mockDeleteAuthUser(...a),
+}));
+
 import usersApp from './users';
 
 const ENV = {} as any;
@@ -47,6 +56,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   currentUser = { id: 'admin' };
   currentGrants = ['user:read', 'user:write'];
+  mockCreateAuthUser.mockResolvedValue({ id: 'auth-new' });
 });
 
 describe('permission gate', () => {
@@ -99,23 +109,47 @@ describe('GET /users/:id', () => {
 });
 
 describe('POST /users', () => {
-  it('creates and returns 201', async () => {
-    mockCreate.mockResolvedValue({ id: 'new', first_name: 'A' });
+  it('400 when email is missing (no auth account can be created)', async () => {
     const res = await req('/', json('POST', { first_name: 'A' }));
+    expect(res.status).toBe(400);
+    expect(mockCreateAuthUser).not.toHaveBeenCalled();
+  });
+
+  it('creates the auth user first, then the profile row with its id, and returns 201', async () => {
+    mockCreate.mockResolvedValue({ id: 'auth-new', first_name: 'A' });
+    const res = await req('/', json('POST', { first_name: 'A', email: 'a@x.com' }));
+    expect(mockCreateAuthUser).toHaveBeenCalledWith(ENV, 'a@x.com');
+    expect(mockCreate).toHaveBeenCalledWith(ENV, 'users',
+      expect.objectContaining({ email: 'a@x.com', id: 'auth-new' }));
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual({ success: true, data: { id: 'new', first_name: 'A' } });
+    expect(await res.json()).toEqual({ success: true, data: { id: 'auth-new', first_name: 'A' } });
+  });
+
+  it('502 with the Admin API message when auth account creation fails', async () => {
+    mockCreateAuthUser.mockRejectedValue(new Error('User already registered'));
+    const res = await req('/', json('POST', { email: 'dupe@x.com' }));
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ success: false, message: 'User already registered' });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the auth user when the profile insert fails', async () => {
+    mockCreate.mockRejectedValue(new Error('db exploded'));
+    const res = await req('/', json('POST', { email: 'a@x.com' }));
+    expect(res.status).toBe(500);
+    expect(mockDeleteAuthUser).toHaveBeenCalledWith(ENV, 'auth-new');
   });
 
   it('normalizes an empty qb_sales_rep_id to null before insert', async () => {
     mockCreate.mockResolvedValue({ id: 'new' });
-    await req('/', json('POST', { first_name: 'A', qb_sales_rep_id: '' }));
+    await req('/', json('POST', { first_name: 'A', email: 'a@x.com', qb_sales_rep_id: '' }));
     expect(mockCreate).toHaveBeenCalledWith(ENV, 'users',
       expect.objectContaining({ qb_sales_rep_id: null }));
   });
 
   it('leaves a real qb_sales_rep_id untouched', async () => {
     mockCreate.mockResolvedValue({ id: 'new' });
-    await req('/', json('POST', { qb_sales_rep_id: 42 }));
+    await req('/', json('POST', { email: 'a@x.com', qb_sales_rep_id: 42 }));
     expect(mockCreate).toHaveBeenCalledWith(ENV, 'users',
       expect.objectContaining({ qb_sales_rep_id: 42 }));
   });
