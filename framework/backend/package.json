@@ -16,6 +16,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "better-sqlite3": "^12.11.1",
     "joi": "^17.13.3",

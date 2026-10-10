@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import { runAllActiveReports } from './reportRunner';
 import { runAllActiveNotificationRules } from './notificationRunner';
+import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
 import { runQualityEngine } from './qualityEngine';
 import { cors } from 'hono/cors';
 import { Env, execQuery } from './db';
@@ -34,6 +35,7 @@ import favoriteRoutes from './routes/favorites';
 import reportRoutes from './routes/reports';
 import notificationRoutes from './routes/notifications';
 import notificationRulesRoutes from './routes/notificationRules';
+import scheduledNotificationRuleRoutes from './routes/scheduledNotificationRules';
 import notificationHistoryRoutes from './routes/notificationHistory';
 import emailLogRoutes from './routes/emailLogs';
 import aiSearchRoutes from './routes/aiSearch';
@@ -217,6 +219,7 @@ app.route('/api/ai/memory', aiMemoryRoutes);
 app.route('/api/reports', reportRoutes);
 app.route('/api/notifications', notificationRoutes);
 app.route('/api/notification-rules', notificationRulesRoutes);
+app.route('/api/scheduled-notification-rules', scheduledNotificationRuleRoutes);
 app.route('/api/notification-history', notificationHistoryRoutes);
 app.route('/api/email-logs', emailLogRoutes);
 app.route('/api/registers', registerRoutes);
@@ -266,6 +269,9 @@ export default {
         .catch(err =>
           console.error('[cron] runAllActiveNotificationRules failed:', err instanceof Error ? err.message : err)
         ),
+      runScheduledNotifications(execQuery, env, now).catch(err =>
+        console.error('[cron] runScheduledNotifications failed:', err instanceof Error ? err.message : err)
+      ),
     ]));
   },
 };

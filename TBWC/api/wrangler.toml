@@ -50,11 +50,14 @@ localConnectionString = "postgresql://postgres.ihnezwvduwimprqascsf:h6kJwcfbGAiR
 [observability.logs]
 enabled = true
 
-# Daily re-verification sweep (worker/index.ts scheduled handler -> lockStaleReps).
-# `wrangler dev` doesn't fire this without --test-scheduler; must be duplicated
-# under [env.production.triggers] below since named envs don't inherit this.
+# worker/index.ts scheduled handler -> lockStaleReps (daily re-verification
+# sweep, idempotent so running it more often than needed is harmless) and
+# runScheduledNotifications (scheduled_notification_rule crons, needs finer
+# granularity than once a day). `wrangler dev` doesn't fire this without
+# --test-scheduler; must be duplicated under [env.production.triggers] below
+# since named envs don't inherit this.
 [triggers]
-crons = ["0 13 * * *"]
+crons = ["*/15 * * * *"]
 
 # --- production -------------------------------------------------------------
 # Deploy with:  wrangler deploy --env production
@@ -97,4 +100,4 @@ enabled = true
 
 # Named envs don't inherit [triggers] either — duplicate of the block above.
 [env.production.triggers]
-crons = ["0 13 * * *"]
+crons = ["*/15 * * * *"]

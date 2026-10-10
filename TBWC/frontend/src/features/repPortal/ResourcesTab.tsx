@@ -499,7 +499,20 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
   async function onCopyShareLink() {
     if (!shareUrl) return;
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      // Plain writeText pastes as a bare URL string, which some rich-text targets
+      // (Outlook, Word, Slack) don't auto-linkify. Also write text/html with a real
+      // <a> so a rich paste always lands as a clickable link, not just text.
+      if (typeof ClipboardItem !== 'undefined') {
+        const esc = shareUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob([shareUrl], { type: 'text/plain' }),
+            'text/html': new Blob([`<a href="${esc}">${esc}</a>`], { type: 'text/html' }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+      }
       setMsg({ text: 'Link copied to clipboard', severity: 'success' });
     } catch (e) {
       setMsg({ text: (e as Error).message || 'Could not copy link', severity: 'error' });
@@ -519,18 +532,21 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     closeShare();
   }
 
-  function onSocialShare(network: 'email') {
-    if (!shareUrl) return;
-    const encodedUrl = encodeURIComponent(shareUrl);
-    const name = sharePath ? sharePath.split('/').pop() || '' : '';
-    const text = encodeURIComponent(name);
-    const links: Record<typeof network, string> = {
-      email: `mailto:?subject=${text}&body=${encodedUrl}`,
-    };
-    if (network === 'email') {
-      window.location.href = links.email;
-    } else {
-      window.open(links[network], '_blank', 'noopener,noreferrer,width=600,height=500');
+  /** Opens the user's own mail client with a draft pointing at the file. Signs
+   *  its own long-lived URL rather than reusing `shareUrl` (that one's 60s,
+   *  meant for the Browser/Download actions' immediate use — dead by the time
+   *  an emailed draft actually gets sent and opened). The recipient's own mail
+   *  client auto-linkifies the bare URL once the email is actually delivered. */
+  async function onEmailShare() {
+    if (!sharePath) return;
+    try {
+      const name = sharePath.slice(sharePath.lastIndexOf('/') + 1);
+      const longUrl = await signedViewUrl(sharePath, 60 * 60 * 24 * 7);
+      const subject = encodeURIComponent(name);
+      const body = encodeURIComponent(`Click here to open the document:\n\n${longUrl}`);
+      window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    } catch (e) {
+      setMsg({ text: (e as Error).message || 'Could not create share link', severity: 'error' });
     }
     closeShare();
   }
@@ -893,7 +909,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
           </ListItemIcon>
           <ListItemText>Browser</ListItemText>
         </MenuItem>
-        <MenuItem onClick={() => onSocialShare('email')} disabled={!shareUrl}>
+        <MenuItem onClick={() => void onEmailShare()} disabled={!sharePath}>
           <ListItemIcon>
             <EmailIcon fontSize="small" />
           </ListItemIcon>

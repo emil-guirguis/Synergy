@@ -51,6 +51,9 @@ export const quoteSchema = defineSchema({
             // TBWC-owned, manually entered — no QB source, same as
             // qb_sales_order.job_name (migration 020/076).
             field({ name: 'job_name', order: 5, type: FieldTypes.STRING, default: '', required: false, label: 'Job Name', dbField: 'job_name', maxLength: 300, showOn: ['list', 'form'] }),
+            // TBWC-owned, manually entered — no QB source (migration 087,
+            // backfilled from the "2026 Quote List" spreadsheet import).
+            field({ name: 'engineer_name', order: 6, type: FieldTypes.STRING, default: '', required: false, label: 'Engineer', dbField: 'engineer_name', maxLength: 300, showOn: ['list', 'form'] }),
             // TBWC-owned lifecycle flag (migration 059) — written directly
             // via routes/quotes.ts's WRITABLE.
             field({
@@ -67,7 +70,9 @@ export const quoteSchema = defineSchema({
           gridColumn: '2',
           fields: [
             field({ name: 'txn_date', order: 1, type: FieldTypes.DATE, default: null, required: false, label: 'Quote Date', dbField: 'txn_date', showOn: ['list', 'form'] }),
-            field({ name: 'total', order: 2, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Total', dbField: 'total', showOn: ['list', 'form'] }),
+            // Migration 087 — same manually-entered, no-QB-source pattern as engineer_name.
+            field({ name: 'po_date', order: 2, type: FieldTypes.DATE, default: null, required: false, label: 'PO Date', dbField: 'po_date', showOn: ['list', 'form'] }),
+            field({ name: 'total', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Total', dbField: 'total', showOn: ['list', 'form'] }),
           ],
         }),
       ],

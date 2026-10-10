@@ -28,6 +28,7 @@ import {
   MenuItem,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import AddIcon from '@mui/icons-material/Add';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
@@ -165,6 +166,51 @@ const ResultCard: React.FC<{ link: AiChatResultLink }> = ({ link }) => {
     </>
   );
 };
+
+/** Last path segment as a human label (e.g. "TBWC Technology eCatalog.pdf"); falls back for a non-URL or bare domain. */
+function fileLabelFromUrl(raw: string): string {
+  try {
+    const last = new URL(raw).pathname.split('/').filter(Boolean).pop();
+    if (last) return decodeURIComponent(last);
+  } catch {
+    // not a parseable absolute URL — fall through to the generic label
+  }
+  return 'Open link';
+}
+
+/** Long signed URLs (e.g. doc share links) dumped into assistant prose render as an
+ * unreadable wall of text and aren't obviously clickable — swap each one for a button. */
+function renderMessageContent(content: string): React.ReactNode {
+  const parts = content.split(/(https?:\/\/[^\s]+)/g);
+  if (parts.length === 1) return content;
+  return parts.map((part, i) => {
+    if (i % 2 === 0) return part;
+    const trailing = part.match(/[.,;:!?)\]}]+$/)?.[0] ?? '';
+    const url = trailing ? part.slice(0, -trailing.length) : part;
+    return (
+      <React.Fragment key={i}>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<OpenInNewIcon fontSize="small" />}
+          onClick={() => window.open(url, '_blank', 'noopener')}
+          sx={{
+            mx: 0.5,
+            verticalAlign: 'middle',
+            textTransform: 'none',
+            maxWidth: 260,
+            '& .MuiButton-startIcon': { flexShrink: 0 },
+          }}
+        >
+          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {fileLabelFromUrl(url)}
+          </Box>
+        </Button>
+        {trailing}
+      </React.Fragment>
+    );
+  });
+}
 
 export const AiChatPage: React.FC<AiChatPageConfig> = ({
   sendMessage,
@@ -734,7 +780,7 @@ export const AiChatPage: React.FC<AiChatPageConfig> = ({
                 }}
               >
                 <Typography variant="body2" sx={{ color: 'inherit' }}>
-                  {msg.content}
+                  {renderMessageContent(msg.content)}
                 </Typography>
               </Paper>
               {msg.toolsUsed && msg.toolsUsed.filter((t) => !HIDDEN_TOOL_CHIPS.has(t)).length > 0 && (

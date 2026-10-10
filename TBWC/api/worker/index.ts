@@ -30,6 +30,7 @@ import verifyRoutes from './routes/verify';
 import docTypeRoutes from './routes/docTypes';
 import documentRoutes from './routes/documents';
 import notificationRoutes from './routes/notifications';
+import scheduledNotificationRuleRoutes from './routes/scheduledNotificationRules';
 import aiChatRoutes from './routes/aiChat';
 import aiSearchRoutes from './routes/aiSearch';
 import aiMemoryRoutes from './routes/aiMemory';
@@ -37,6 +38,7 @@ import supportRoutes from './routes/support';
 import contactRoutes from './routes/contact';
 import { lockStaleReps } from './reverification';
 import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
+import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -101,6 +103,7 @@ app.route('/api/roles', roleRoutes);
 app.route('/api/doc-types', docTypeRoutes);
 app.route('/api/documents', documentRoutes);
 app.route('/api/notifications', notificationRoutes);
+app.route('/api/scheduled-notification-rules', scheduledNotificationRuleRoutes);
 app.route('/api/support', supportRoutes);
 // Public, unauthenticated — see routes/contact.ts's header comment.
 app.route('/api/contact', contactRoutes);
@@ -116,13 +119,20 @@ app.route('/api/verify', verifyRoutes);
 
 export default {
   fetch: app.fetch,
-  // Runs on the schedule in wrangler.toml [triggers]/[env.production.triggers].
-  // Locks any rep-type user whose last_verified_at has passed the 90-day
-  // window and mails them a fresh verify link. See reverification.ts.
-  async scheduled(_event: { scheduledTime: number }, env: Env, ctx: { waitUntil(p: Promise<any>): void }) {
+  // Runs on the schedule in wrangler.toml [triggers]/[env.production.triggers]
+  // (*/15 * * * * — bumped from daily so scheduled_notification_rule crons can
+  // fire on their own cadence; lockStaleReps' WHERE clause is idempotent, so
+  // running it every 15 min instead of once a day is harmless).
+  async scheduled(event: { scheduledTime: number }, env: Env, ctx: { waitUntil(p: Promise<any>): void }) {
+    const now = new Date(event.scheduledTime);
     ctx.waitUntil(
       lockStaleReps(env).catch((err) =>
         console.error('[cron] lockStaleReps failed:', err instanceof Error ? err.message : err)
+      )
+    );
+    ctx.waitUntil(
+      runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } }).catch((err) =>
+        console.error('[cron] runScheduledNotifications failed:', err instanceof Error ? err.message : err)
       )
     );
   },

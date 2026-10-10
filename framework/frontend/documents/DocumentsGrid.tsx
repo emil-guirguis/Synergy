@@ -873,10 +873,10 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     closeShare();
   };
 
-  const onShareByEmail = () => {
-    if (!shareUrl) return;
-    const subject = encodeURIComponent(shareRow?.file_name || '');
-    const body = encodeURIComponent(shareUrl);
+  const onEmailShareClick = () => {
+    if (!shareRow || !shareUrl) return;
+    const subject = encodeURIComponent(shareRow.file_name || '');
+    const body = encodeURIComponent(`Click here to open the document:\n\n${shareUrl}`);
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
     closeShare();
   };
@@ -1223,7 +1223,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           </ListItemIcon>
           <ListItemText>Browser</ListItemText>
         </MenuItem>
-        <MenuItem onClick={onShareByEmail} disabled={!shareUrl}>
+        <MenuItem onClick={onEmailShareClick} disabled={!shareUrl}>
           <ListItemIcon>
             <EmailIcon fontSize="small" />
           </ListItemIcon>

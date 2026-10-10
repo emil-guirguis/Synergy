@@ -26,6 +26,10 @@ const rawStorage = createSupabaseDocumentStorage({
   anonKey: SUPABASE_ANON_KEY,
   getToken: () => tokenStorage.getToken(),
   bucket: RECORD_DOCS_BUCKET,
+  // DocumentsGrid's Email share puts this URL in a mailto: body — the default
+  // 60s is meant for an immediate "Open" and would already be dead by the
+  // time anyone opened the email.
+  signedUrlTtl: 60 * 60 * 24 * 7,
 });
 
 // Both halves talk straight to their own backend (Worker / Supabase Storage),
