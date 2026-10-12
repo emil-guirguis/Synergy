@@ -72,12 +72,12 @@ describe('GET / — employee doc_type leak (resource:write gate)', () => {
 });
 
 describe('PUT / — resource document mirror sync', () => {
-  it('upserts rep_doc_type and the mirrored public.document row', async () => {
+  it('upserts document_type and the mirrored public.document row', async () => {
     mockExecQuery.mockResolvedValue({ rows: [] });
     const res = await req('/', json('PUT', { path: 'Training/Guide.pdf', type: 'rep', fileSize: 1234, mimeType: 'application/pdf' }));
     expect(res.status).toBe(200);
     expect(mockExecQuery).toHaveBeenCalledWith(
-      ENV, expect.stringContaining('INSERT INTO public.rep_doc_type'), ['Training/Guide.pdf', 'rep'], 'docTypes.upsert'
+      ENV, expect.stringContaining('INSERT INTO public.document_type'), ['Training/Guide.pdf', 'rep'], 'docTypes.upsert'
     );
     expect(mockExecQuery).toHaveBeenCalledWith(
       ENV,
@@ -107,12 +107,12 @@ describe('PUT / — resource document mirror sync', () => {
 });
 
 describe('PATCH / — rename mirrors to both tables', () => {
-  it('renames rep_doc_type and the mirrored document row', async () => {
+  it('renames document_type and the mirrored document row', async () => {
     mockExecQuery.mockResolvedValue({ rows: [] });
     const res = await req('/', json('PATCH', { fromPath: 'Old/a.pdf', toPath: 'New/a.pdf' }));
     expect(res.status).toBe(200);
     expect(mockExecQuery).toHaveBeenCalledWith(
-      ENV, expect.stringContaining('UPDATE public.rep_doc_type'), ['Old/a.pdf', 'New/a.pdf'], 'docTypes.rename'
+      ENV, expect.stringContaining('UPDATE public.document_type'), ['Old/a.pdf', 'New/a.pdf'], 'docTypes.rename'
     );
     expect(mockExecQuery).toHaveBeenCalledWith(
       ENV,
@@ -124,12 +124,12 @@ describe('PATCH / — rename mirrors to both tables', () => {
 });
 
 describe('DELETE / — removes both rows', () => {
-  it('deletes rep_doc_type and the mirrored document row', async () => {
+  it('deletes document_type and the mirrored document row', async () => {
     mockExecQuery.mockResolvedValue({ rows: [] });
     const res = await req('/', json('DELETE', { path: 'Old/a.pdf' }));
     expect(res.status).toBe(200);
     expect(mockExecQuery).toHaveBeenCalledWith(
-      ENV, expect.stringContaining('DELETE FROM public.rep_doc_type'), ['Old/a.pdf'], 'docTypes.delete'
+      ENV, expect.stringContaining('DELETE FROM public.document_type'), ['Old/a.pdf'], 'docTypes.delete'
     );
     expect(mockExecQuery).toHaveBeenCalledWith(
       ENV,
