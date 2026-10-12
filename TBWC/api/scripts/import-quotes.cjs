@@ -44,9 +44,15 @@
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
+const { Agent, setGlobalDispatcher } = require('undici');
 
 const API_DIR = path.join(__dirname, '..');
 const BUCKET = 'record-docs';
+
+// Some quote PDFs run 15-30MB; plain fetch's default undici headers timeout
+// (~30s) fires while that body is still uploading over a slow link, well
+// before Supabase ever responds. Raise it for this script's lifetime.
+setGlobalDispatcher(new Agent({ headersTimeout: 600000, bodyTimeout: 600000 }));
 
 // ---------------------------------------------------------------------------
 // Config

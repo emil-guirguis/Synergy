@@ -22,13 +22,21 @@ app.use('*', authenticateToken);
 
 const TABLE = 'support_ticket';
 const PK = 'support_ticket_id';
-const LIKE_FIELDS = likeFieldsFromSchema(supportTicketSchema);
+// ticket_number is computed (SELECT_WITH_USERS below), not a real column —
+// likeFieldsFromSchema only looks at showOn/type, so it has to be stripped
+// back out here or a ?ticket_number= filter would 500 against a nonexistent
+// column. Same reasoning as assigned_to_name/created_by_name's exclusion
+// from SupportTicketList.tsx's filterableFields.
+const LIKE_FIELDS = likeFieldsFromSchema(supportTicketSchema).filter((f) => f !== 'ticket_number');
 
 // Joined with creator/assignee names so the shared TicketDetailPage (framework/
 // frontend/support) has something to show in its "Created by"/"Assigned to"
-// metadata without a second round trip per ticket.
+// metadata without a second round trip per ticket. ticket_number is computed
+// off the PK rather than stored — no sequence/race to manage, and it can
+// never drift out of sync with support_ticket_id (see migration 088).
 const SELECT_WITH_USERS = `
   "${TABLE}".*,
+  'TK-' || LPAD("${TABLE}".${PK}::text, 6, '0') AS ticket_number,
   TRIM(CONCAT(creator.first_name, ' ', creator.last_name)) AS created_by_name,
   creator.email AS created_by_email,
   TRIM(CONCAT(assignee.first_name, ' ', assignee.last_name)) AS assigned_to_name,
@@ -107,6 +115,65 @@ app.get('/analytics', requirePermission('support:write'), async (c) => {
   });
 });
 
+// Exact PO lookup while filing/editing a ticket (mirrors orders.ts's own
+// /lookup-po/:po) — just existence + display info, not scoped to the
+// caller's own orders like order:read is, since a ticket filer may not hold
+// order:read at all (e.g. a plain customer-facing rep). Registered above
+// /:id so Hono doesn't route "validate-po" there as an id.
+app.get('/validate-po/:po', requirePermission('support:read'), async (c) => {
+  const po = c.req.param('po').trim();
+  if (!po) return c.json({ success: false, message: 'po is required' }, 400);
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT ref_number AS order_number, customer_name
+       FROM public.qb_sales_order
+      WHERE qb_deleted_at IS NULL AND lower(btrim(po_number)) = lower($1)
+      LIMIT 1`,
+    [po],
+    'support.validatePo'
+  );
+  const match = rows[0];
+  return c.json({
+    success: true,
+    data: match
+      ? { valid: true, order_number: match.order_number, customer_name: match.customer_name }
+      : { valid: false },
+  });
+});
+
+// Invoices never carry a structured serial number — this QB company file has
+// no serial/lot tracking, so staff hand-type it into a line's Desc (see
+// orders.ts's latestInvoiceSerialNumbers for the same convention, e.g.
+// "METER SERIAL # P032608004"). Search is company-wide, not scoped to one
+// order/customer, since the point here is finding which invoice(s) a given
+// unit shipped on for an RMA-style ticket. is_packing_slip excluded — a
+// packing slip is a $0 shipping doc keyed off QB's TemplateRef (migration
+// 066), not a billable invoice, so it's not a real match for "which invoice
+// was this unit billed on". Registered above /:id for the same routing
+// reason as /validate-po.
+app.get('/invoices-by-serial/:serial', requirePermission('support:read'), async (c) => {
+  const serial = c.req.param('serial').trim();
+  if (!serial) return c.json({ success: false, message: 'serial is required' }, 400);
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT i.qb_invoice_id,
+            i.ref_number AS invoice_number,
+            i.txn_date,
+            (SELECT string_agg(line->>'desc', '; ')
+               FROM jsonb_array_elements(i.lines) AS line
+              WHERE line->>'desc' ILIKE $1) AS description
+       FROM public.qb_invoice i
+      WHERE i.qb_deleted_at IS NULL
+        AND NOT i.is_packing_slip
+        AND EXISTS (SELECT 1 FROM jsonb_array_elements(i.lines) AS line WHERE line->>'desc' ILIKE $1)
+      ORDER BY i.txn_date DESC NULLS LAST
+      LIMIT 50`,
+    [`%${serial}%`],
+    'support.invoicesBySerial'
+  );
+  return c.json({ success: true, data: rows });
+});
+
 app.get('/:id', requirePermission('support:read'), async (c) => {
   const user = c.get('user');
   const row = await findById(c.env, TABLE, PK, c.req.param('id'), undefined, SELECT_WITH_USERS, JOIN_USERS);
@@ -120,8 +187,14 @@ app.get('/:id', requirePermission('support:read'), async (c) => {
 app.post('/', requirePermission('support:read'), async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
-  const { title, description, type, priority, serial_number, status } = body;
+  const {
+    title, description, type, priority, serial_number, status,
+    contact_name, contact_phone, contact_email, job_name,
+    po_number, order_number, invoice_number,
+  } = body;
   if (!title?.trim()) return c.json({ success: false, message: 'Title is required' }, 400);
+  if (!contact_name?.trim()) return c.json({ success: false, message: 'Contact name is required' }, 400);
+  if (!contact_phone?.trim()) return c.json({ success: false, message: 'Contact phone is required' }, 400);
   // Only an admin's own payload can set an initial status other than 'open'
   // (e.g. logging a ticket that's already resolved) — a regular filer's
   // status is ignored even if present in the body.
@@ -132,6 +205,13 @@ app.post('/', requirePermission('support:read'), async (c) => {
     description: description ?? null,
     type: type ?? 'general',
     priority: priority ?? 'medium',
+    contact_name: contact_name.trim(),
+    contact_phone: contact_phone.trim(),
+    contact_email: contact_email?.trim() || null,
+    job_name: job_name?.trim() || null,
+    po_number: po_number?.trim() || null,
+    order_number: order_number?.trim() || null,
+    invoice_number: invoice_number?.trim() || null,
     serial_number: serial_number?.trim() || null,
     status: initialStatus,
   });
@@ -140,7 +220,10 @@ app.post('/', requirePermission('support:read'), async (c) => {
       console.error('[support] notifyTicketCreated failed:', e instanceof Error ? e.message : e)
     )
   );
-  return c.json({ success: true, data: row }, 201);
+  // Re-fetch with ticket_number (computed, not part of create()'s plain
+  // RETURNING *) so the just-created ticket's number is there immediately.
+  const withUsers = await findById(c.env, TABLE, PK, row[PK], undefined, SELECT_WITH_USERS, JOIN_USERS);
+  return c.json({ success: true, data: withUsers ?? row }, 201);
 });
 
 app.put('/:id', requirePermission('support:write'), async (c) => {
@@ -148,8 +231,16 @@ app.put('/:id', requirePermission('support:write'), async (c) => {
   const existing = await findById(c.env, TABLE, PK, id);
   if (!existing) return c.json({ success: false, message: 'Ticket not found' }, 404);
   const body = await c.req.json();
-  const { title, description, status, priority, type, assigned_to_users_id, serial_number } = body;
+  const {
+    title, description, status, priority, type, assigned_to_users_id, serial_number,
+    contact_name, contact_phone, contact_email, job_name,
+    po_number, order_number, invoice_number, resolution_notes,
+  } = body;
   if (!title?.trim()) return c.json({ success: false, message: 'Title is required' }, 400);
+  // contact_name/contact_phone are required on create but NOT re-enforced
+  // here — tickets filed before migration 088 have neither, and an admin
+  // must still be able to change status/assignee/etc. on those without
+  // first being forced to backfill contact info on every legacy ticket.
   const resolvedStatus = status ?? 'open';
   const resolved_at = ['resolved', 'closed'].includes(resolvedStatus)
     ? existing.resolved_at ?? new Date().toISOString()
@@ -161,6 +252,14 @@ app.put('/:id', requirePermission('support:write'), async (c) => {
     priority: priority ?? 'medium',
     type: type ?? 'general',
     assigned_to_users_id: assigned_to_users_id ?? null,
+    contact_name: contact_name?.trim() || null,
+    contact_phone: contact_phone?.trim() || null,
+    contact_email: contact_email?.trim() || null,
+    job_name: job_name?.trim() || null,
+    po_number: po_number?.trim() || null,
+    order_number: order_number?.trim() || null,
+    invoice_number: invoice_number?.trim() || null,
+    resolution_notes: resolution_notes?.trim() || null,
     serial_number: serial_number?.trim() || null,
     resolved_at,
   });

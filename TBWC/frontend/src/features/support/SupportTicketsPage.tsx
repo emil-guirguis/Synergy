@@ -1,16 +1,27 @@
 import React from 'react';
-import { SupportTicketsPage as SharedSupportTicketsPage } from '@meterit/framework-frontend/support';
+import { SupportTicketManagementPage as SharedSupportTicketManagementPage } from '@meterit/framework-frontend/support';
+import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import { documentsApi, documentsStorage } from '../../services/documentsClient';
+import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useAuth } from '../../hooks/useAuth';
 import { useSupportTicketsEnhanced, supportTicketService } from './supportTicketsStore';
 
 export const SupportTicketsPage: React.FC = () => {
   const { checkPermission } = useAuth();
   return (
-    <SharedSupportTicketsPage
+    <SharedSupportTicketManagementPage
       useStore={useSupportTicketsEnhanced}
       ticketService={supportTicketService}
       isAdminSupport={checkPermission('support:write')}
-      basePath="/support"
+      renderDocuments={(ticketId) => (
+        <DocumentsGrid
+          entityType="support_ticket"
+          entityId={ticketId}
+          api={documentsApi}
+          storage={documentsStorage}
+          classifyDocType={classifyDocTypeForFile}
+        />
+      )}
     />
   );
 };

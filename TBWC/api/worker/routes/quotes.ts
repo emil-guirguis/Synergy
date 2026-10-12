@@ -244,6 +244,7 @@ app.put('/:id', requirePermission('quote:write'), async (c) => {
   if ('job_name' in body) cols.job_name = body.job_name;
   if ('engineer_name' in body) cols.engineer_name = body.engineer_name;
   if ('po_date' in body) cols.po_date = body.po_date;
+  if ('total' in body) cols.total = body.total;
   const newLines = 'lines' in body ? (Array.isArray(body.lines) ? body.lines : []) : null;
   const keys = Object.keys(cols);
   if (keys.length === 0 && newLines === null) {

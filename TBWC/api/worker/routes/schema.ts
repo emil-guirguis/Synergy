@@ -10,6 +10,10 @@
  * it only exists to carry filter options) is populated the same way but keyed
  * by qb_sales_rep.list_id, since that's what qb_sales_order.sales_rep_list_id
  * stores (the QB SalesRepRef ListID), not the qb_sales_rep table's own PK.
+ *
+ * The `support_ticket` schema's `assigned_to_users_id` SELECT is populated
+ * with every public.users row, same mechanism, so SupportTicketForm's
+ * "Assigned To" dropdown stays current without a rebuild.
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
@@ -74,6 +78,26 @@ async function roleOptions(env: Env): Promise<{ values: string[]; labels: Record
     const id = String(row.role_id);
     values.push(id);
     labels[id] = row.name;
+  }
+  return { values, labels };
+}
+
+/** Load every user as SELECT enum values + labels, for support_ticket.assigned_to_users_id. */
+async function assignableUserOptions(env: Env): Promise<{ values: string[]; labels: Record<string, string> }> {
+  const r = await execQuery(
+    env,
+    `SELECT id, TRIM(CONCAT(first_name, ' ', last_name)) AS name, email
+       FROM public.users
+      ORDER BY first_name NULLS LAST, last_name NULLS LAST`,
+    [],
+    'schema.supportTicket.assignableUserOptions'
+  );
+  const values: string[] = [];
+  const labels: Record<string, string> = {};
+  for (const row of r.rows) {
+    const id = String(row.id);
+    values.push(id);
+    labels[id] = row.name?.trim() || row.email || id;
   }
   return { values, labels };
 }
@@ -143,6 +167,11 @@ app.get('/:entity', async (c) => {
   if (entity === 'order' || entity === 'quote') {
     const { values, labels } = await salesRepListIdOptions(c.env);
     injectFieldOptions(json, 'sales_rep_list_id', values, labels);
+  }
+
+  if (entity === 'support_ticket') {
+    const { values, labels } = await assignableUserOptions(c.env);
+    injectFieldOptions(json, 'assigned_to_users_id', values, labels);
   }
 
   return c.json({ success: true, data: json });

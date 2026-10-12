@@ -13,9 +13,13 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 }
 
+// ?openId= opens this one ticket in the Support list's modal form directly —
+// same deep-link convention InvoiceList.tsx/invoiceShareUrl use, since a
+// dedicated /support/:id route no longer exists (the detail view is a modal
+// now, see SupportTicketManagementPage).
 function ticketUrl(env: Env, id: number | string): string {
   const portalUrl = (env.PORTAL_URL || '/').replace(/\/*$/, '/');
-  return `${portalUrl}support/${id}`;
+  return `${portalUrl}support?openId=${id}`;
 }
 
 function paragraph(text: string): string {

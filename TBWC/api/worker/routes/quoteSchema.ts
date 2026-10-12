@@ -29,12 +29,18 @@ export const quoteSchema = defineSchema({
     tab({
       name: 'Quote',
       order: 1,
+      // Left half (Details) spans both rows; right half stacks Status over
+      // Dates & Total. Trailing 1fr row absorbs Details' extra height so
+      // Dates & Total sits directly under Status instead of being pushed
+      // down/off-screen — same fix as orderSchema's Order tab.
       columns: '1fr 1fr',
+      rows: 'auto 1fr',
       sections: [
         section({
           name: 'Details',
           order: 1,
           gridColumn: '1',
+          gridRow: '1 / 3',
           fields: [
             // referenceSearch drives QuoteForm's async picker (see
             // PickableLineItemsGrid's sibling, ReferenceSearchField, in
@@ -45,7 +51,6 @@ export const quoteSchema = defineSchema({
               label: 'Customer', dbField: 'customer_list_id', showOn: ['form'],
               referenceSearch: { endpoint: '/customers', valueField: 'list_id', labelField: 'full_name' },
             }),
-            field({ name: 'customer_name', order: 2, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Customer', dbField: 'customer_name', maxLength: 300, showOn: ['list', 'form'] }),
             field({ name: 'ref_number', order: 3, type: FieldTypes.STRING, default: '', required: false, label: 'Quote #', dbField: 'ref_number', maxLength: 100, showOn: ['list', 'form'] }),
             field({ name: 'sales_rep', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep', maxLength: 200, showOn: ['list', 'form'] }),
             // TBWC-owned, manually entered — no QB source, same as
@@ -54,10 +59,18 @@ export const quoteSchema = defineSchema({
             // TBWC-owned, manually entered — no QB source (migration 087,
             // backfilled from the "2026 Quote List" spreadsheet import).
             field({ name: 'engineer_name', order: 6, type: FieldTypes.STRING, default: '', required: false, label: 'Engineer', dbField: 'engineer_name', maxLength: 300, showOn: ['list', 'form'] }),
+          ],
+        }),
+        section({
+          name: 'Status',
+          order: 1,
+          gridColumn: '2',
+          gridRow: '1',
+          fields: [
             // TBWC-owned lifecycle flag (migration 059) — written directly
             // via routes/quotes.ts's WRITABLE.
             field({
-              name: 'status', order: 6, type: FieldTypes.SELECT, default: 'quote', required: false,
+              name: 'status', order: 1, type: FieldTypes.SELECT, default: 'quote', required: false,
               label: 'Status', dbField: 'status', showOn: ['list', 'form'],
               enumValues: ['quote', 'on_hold', 'cancelled'],
               enumLabels: { quote: 'Quote', on_hold: 'On Hold', cancelled: 'Cancelled' },
@@ -68,11 +81,12 @@ export const quoteSchema = defineSchema({
           name: 'Dates & Total',
           order: 2,
           gridColumn: '2',
+          gridRow: '2',
           fields: [
             field({ name: 'txn_date', order: 1, type: FieldTypes.DATE, default: null, required: false, label: 'Quote Date', dbField: 'txn_date', showOn: ['list', 'form'] }),
             // Migration 087 — same manually-entered, no-QB-source pattern as engineer_name.
             field({ name: 'po_date', order: 2, type: FieldTypes.DATE, default: null, required: false, label: 'PO Date', dbField: 'po_date', showOn: ['list', 'form'] }),
-            field({ name: 'total', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, readOnly: true, label: 'Total', dbField: 'total', showOn: ['list', 'form'] }),
+            field({ name: 'total', order: 3, type: FieldTypes.CURRENCY, default: null, required: false, label: 'Total', dbField: 'total', showOn: ['list', 'form'] }),
           ],
         }),
       ],

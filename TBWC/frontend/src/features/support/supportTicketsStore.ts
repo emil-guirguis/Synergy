@@ -3,7 +3,7 @@ import { createEntityStore, createEntityHook } from '../../store/slices/createEn
 import { withTokenRefresh } from '../../store/middleware/apiMiddleware';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { API_BASE_URL } from '../../config/api';
-import type { SupportTicket, CreateTicketPayload, UpdateTicketPayload, SupportAnalytics } from '@meterit/framework-frontend/support';
+import type { SupportTicket, CreateTicketPayload, UpdateTicketPayload, SupportAnalytics, PoValidationResult, InvoiceSerialMatch } from '@meterit/framework-frontend/support';
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -54,6 +54,14 @@ const api = {
     const res = await request<any>('/support/analytics');
     return res.data;
   },
+  async validatePo(po: string): Promise<PoValidationResult> {
+    const res = await request<any>(`/support/validate-po/${encodeURIComponent(po)}`);
+    return res.data;
+  },
+  async findInvoicesBySerial(serial: string): Promise<InvoiceSerialMatch[]> {
+    const res = await request<any>(`/support/invoices-by-serial/${encodeURIComponent(serial)}`);
+    return res.data;
+  },
   async delete(id: string): Promise<void> {
     await request<any>(`/support/${id}`, { method: 'DELETE' });
   },
@@ -67,7 +75,7 @@ const supportTicketsService = {
   async delete(id: string): Promise<void> { return withTokenRefresh(() => api.delete(id)); },
 };
 
-export const useSupportTicketsStore = createEntityStore(supportTicketsService, {
+export const useSupportTicketsStore = createEntityStore<SupportTicket & { id: string }>(supportTicketsService as any, {
   name: 'support_ticket',
   cache: { ttl: 2 * 60 * 1000, maxAge: 10 * 60 * 1000 },
 });
@@ -97,5 +105,11 @@ export const supportTicketService = {
   },
   async getAnalytics(): Promise<SupportAnalytics> {
     return withTokenRefresh(() => api.getAnalytics());
+  },
+  async validatePo(po: string): Promise<PoValidationResult> {
+    return withTokenRefresh(() => api.validatePo(po));
+  },
+  async findInvoicesBySerial(serial: string): Promise<InvoiceSerialMatch[]> {
+    return withTokenRefresh(() => api.findInvoicesBySerial(serial));
   },
 };

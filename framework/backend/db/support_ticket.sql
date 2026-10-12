@@ -38,6 +38,22 @@ CREATE TABLE IF NOT EXISTS public.support_ticket (
     type  varchar(30) NOT NULL DEFAULT 'general',
     status  varchar(20) NOT NULL DEFAULT 'open',
     priority  varchar(20) NOT NULL DEFAULT 'medium',
+    -- Filer contact info + order/invoice reference, app-layer validated
+    -- (contact_name/contact_phone required) same as `title` above — see
+    -- TBWC migrations/088-support-ticket-contact-fields.sql. TBWC-only so far
+    -- (po_number is cross-checked against that app's own orders table);
+    -- MeterItPro's support module is a separate hand-rolled implementation
+    -- that doesn't consume this file or framework/frontend/support/*.
+    contact_name text,
+    contact_phone varchar(30),
+    contact_email varchar(200),
+    job_name text,
+    po_number varchar(100),
+    order_number varchar(100),
+    invoice_number varchar(100),
+    -- Admin-written notes on how the ticket was resolved, distinct from the
+    -- filer's own `description`.
+    resolution_notes text,
     resolved_at timestamp without time zone,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
