@@ -7,6 +7,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 let currentUser: any = { id: 'admin' };
 let currentGrants: string[] = ['document:read', 'document:write'];
 let fakeGrants: string[] = ['document:read', 'document:write', 'quote:read', 'quote:write'];
+// Per-permission scope override — unset means 'all' for anything in fakeGrants.
+let fakeScopes: Record<string, 'own' | 'all'> = {};
+
+function fakePermSet() {
+  return {
+    has: (p: string) => fakeGrants.includes(p),
+    scopeOf: (p: string) => (fakeGrants.includes(p) ? fakeScopes[p] ?? 'all' : null),
+  };
+}
 
 vi.mock('../middleware', () => ({
   authenticateToken: (c: any, next: any) => {
@@ -18,14 +27,15 @@ vi.mock('../middleware', () => ({
     if (!currentGrants.includes(permission)) {
       return c.json({ success: false, message: 'Insufficient permissions' }, 403);
     }
-    c.set('permissions', { has: (p: string) => fakeGrants.includes(p) });
+    c.set('permissions', fakePermSet());
     return next();
   },
   // documents.ts's mutating routes resolve write access themselves (so a
   // "managing rep" can bypass the document:write grant on order documents)
   // instead of going through the requirePermission middleware above — same
   // fake PermissionSet shape either way.
-  permissionsFor: async () => ({ has: (p: string) => fakeGrants.includes(p) }),
+  permissionsFor: async () => fakePermSet(),
+  visibleRepListIds: (user: any) => [user.sales_rep_list_id, ...(user.managed_sales_rep_list_ids ?? [])].filter(Boolean),
 }));
 
 const mockListDocuments = vi.fn();
@@ -46,8 +56,9 @@ vi.mock('@meterit/framework-backend/api/base/documents', async (importOriginal) 
   };
 });
 
+const mockExecQuery = vi.fn();
 vi.mock('../db', () => ({
-  execQuery: vi.fn(),
+  execQuery: (...a: any[]) => mockExecQuery(...a),
 }));
 
 import documentsApp from './documents';
@@ -63,6 +74,7 @@ beforeEach(() => {
   currentUser = { id: 'admin' };
   currentGrants = ['document:read', 'document:write'];
   fakeGrants = ['document:read', 'document:write', 'quote:read', 'quote:write'];
+  fakeScopes = {};
 });
 
 describe('GET / — quote gate', () => {
@@ -150,6 +162,63 @@ describe('DELETE /:id — quote gate', () => {
   });
 });
 
+// canAccessQuoteDocs only checked the boolean quote:read/write grant, never
+// its scope — an own-scoped caller could list/attach/edit/delete documents
+// on ANY quote by id. quoteOwnedByCaller closes that the same way orders.ts
+// scopes its own table.
+describe('quote document ownership scoping (own scope)', () => {
+  beforeEach(() => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    fakeScopes = { 'quote:read': 'own', 'quote:write': 'own' };
+  });
+
+  it("GET 404s a quote not belonging to the caller's visible reps", async () => {
+    mockExecQuery.mockResolvedValue({ rows: [] }); // quoteOwnedByCaller finds no match
+    const res = await req('/?entity_type=quote&entity_id=5');
+    expect(res.status).toBe(404);
+    expect(mockListDocuments).not.toHaveBeenCalled();
+  });
+
+  it('GET 200s the caller\'s own quote', async () => {
+    mockExecQuery.mockResolvedValue({ rows: [{ x: 1 }] });
+    mockListDocuments.mockResolvedValue([{ document_id: 1, entity_type: 'quote' }]);
+    const res = await req('/?entity_type=quote&entity_id=5');
+    expect(res.status).toBe(200);
+    expect(mockExecQuery).toHaveBeenCalledWith(
+      {},
+      expect.stringContaining('FROM public.quote'),
+      ['5', ['REP-123']],
+      'documents.quoteOwnedByCaller'
+    );
+  });
+
+  it("POST 403s attaching a document to a quote not belonging to the caller's visible reps", async () => {
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    const res = await req(
+      '/',
+      json('POST', { entityType: 'quote', entityId: '5', storageBucket: 'record-docs', fileName: 'a.pdf' })
+    );
+    expect(res.status).toBe(403);
+    expect(mockCreateDocument).not.toHaveBeenCalled();
+  });
+
+  it('PUT 403s editing a document on a quote not belonging to the caller', async () => {
+    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote', entity_id: '5' });
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    const res = await req('/1', json('PUT', { description: 'x' }));
+    expect(res.status).toBe(403);
+    expect(mockUpdateDocument).not.toHaveBeenCalled();
+  });
+
+  it('DELETE 403s deleting a document on a quote not belonging to the caller', async () => {
+    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote', entity_id: '5' });
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    const res = await req('/1', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+    expect(mockDeleteDocument).not.toHaveBeenCalled();
+  });
+});
+
 // A rep's order Documents tab: no document:write grant at all (the role
 // seed), type-filtered to REP_VISIBLE_ORDER_DOC_TYPES, and writable only via
 // the "managing rep" bypass (managed_sales_rep_list_ids non-empty — see
@@ -185,23 +254,45 @@ describe('rep order documents', () => {
     expect(mockCreateDocument).not.toHaveBeenCalled();
   });
 
-  it('POST succeeds for a managing rep even without document:write', async () => {
+  it('POST succeeds for a managing rep on an order belonging to a rep they manage', async () => {
     currentUser = managingRep;
+    mockExecQuery.mockResolvedValue({ rows: [{ x: 1 }] }); // managesOrderRep: order 42 belongs to REP-2
     mockCreateDocument.mockResolvedValue({ document_id: 1, entity_type: 'order', doc_type: 'invoice' });
     const res = await req(
       '/',
-      json('POST', { entityType: 'order', storageBucket: 'record-docs', fileName: 'a.pdf', docType: 'invoice' })
+      json('POST', { entityType: 'order', entityId: '42', storageBucket: 'record-docs', fileName: 'a.pdf', docType: 'invoice' })
     );
     expect(res.status).toBe(201);
+    expect(mockExecQuery).toHaveBeenCalledWith(
+      ENV,
+      expect.stringContaining('FROM public.qb_sales_order'),
+      ['42', ['REP-2']],
+      'documents.managesOrderRep'
+    );
   });
 
   it('POST still rejects a doc_type outside the rep-visible set for a managing rep', async () => {
     currentUser = managingRep;
+    mockExecQuery.mockResolvedValue({ rows: [{ x: 1 }] });
     const res = await req(
       '/',
-      json('POST', { entityType: 'order', storageBucket: 'record-docs', fileName: 'a.pdf', docType: 'credit_memo' })
+      json('POST', { entityType: 'order', entityId: '42', storageBucket: 'record-docs', fileName: 'a.pdf', docType: 'credit_memo' })
     );
     expect(res.status).toBe(400);
+    expect(mockCreateDocument).not.toHaveBeenCalled();
+  });
+
+  it('POST is forbidden for a managing rep on an order NOT belonging to a rep they manage (the fixed bug)', async () => {
+    // Before the fix, isManagingRepOrder only checked "manages >=1 rep
+    // anywhere", granting write access to every order company-wide. Now it
+    // checks the SPECIFIC order's rep against managed_sales_rep_list_ids.
+    currentUser = managingRep;
+    mockExecQuery.mockResolvedValue({ rows: [] }); // order 99 belongs to some other, unmanaged rep
+    const res = await req(
+      '/',
+      json('POST', { entityType: 'order', entityId: '99', storageBucket: 'record-docs', fileName: 'a.pdf', docType: 'invoice' })
+    );
+    expect(res.status).toBe(403);
     expect(mockCreateDocument).not.toHaveBeenCalled();
   });
 });

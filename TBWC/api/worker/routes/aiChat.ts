@@ -17,20 +17,28 @@
  * auto-wrapped with LIMIT 500) for ad-hoc analysis/aggregates across any
  * public table that the fixed search tools can't answer.
  *
- * That full tool set is admin/employee-only (aichat:use scope 'all') — none of
- * it scopes queries to the caller's own sales rep, so a rep asking one of
- * those questions would read every rep's orders plus the whole invoice/
- * customer set. A rep (scope 'own' — migration 073) gets a completely
- * different, narrow tool set instead: the quote-creation wizard
- * (search_customers/search_catalog/create_quote/set_quote_job_name/
- * add_quote_line/get_quote, REP_TOOL_NAMES below), every call forced to their own identity and quote
- * ownership — see the scope branch in the route handler at the bottom of
- * this file.
+ * aichat:use only gates whether a caller may use AI chat at all; which tools
+ * they see and what rows those tools return comes from the SAME per-module
+ * permission + scope (order:read, quote:write, etc.) the REST routes already
+ * enforce — see the "Permission gating" section below (toolAllowed,
+ * ownScopeClause). A caller with order:read scope 'own' gets search_orders
+ * but only ever sees their own rep's rows; one with no quote:read grant at
+ * all never sees search_quotes in the tool list Claude is given.
+ *
+ * The one exception is a plain rep (aichat:use scope 'own' — migration 073),
+ * who gets a completely different, narrow tool set instead regardless of
+ * their other grants: the quote-creation wizard (search_customers/
+ * search_catalog/create_quote/set_quote_job_name/add_quote_line/get_quote,
+ * REP_TOOL_NAMES below) — a rep has no customer:read/inventory:read grant at
+ * all, yet still needs those two lookups to build a quote, so this path is
+ * intentionally hand-curated rather than permission-gated like everything
+ * else. See the route handler at the bottom of this file.
  */
 import { Hono } from 'hono';
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, execQuery, withTransaction } from '../db';
 import { authenticateToken, requirePermission, AuthVariables, visibleRepListIds } from '../middleware';
+import type { PermissionSet } from '@meterit/framework-backend/api/base/permissions';
 import {
   runAiChatLoop,
   AiChatTool,
@@ -194,10 +202,12 @@ const TOOLS: AiChatTool[] = [
     function: {
       name: 'search_documents',
       description:
-        'Search uploaded documents (attachments on orders, quotes, invoices, inventory items, etc.) by file name, ' +
-        'document type, or mime type — use this when the user asks for a document, file, PDF, photo, or attachment ' +
-        "by its name/type. Only matches file name/type metadata, NOT what's written inside the file — if the user " +
-        'wants text found inside a document\'s contents, use search_document_contents instead.',
+        'Search uploaded documents (attachments on orders, quotes, invoices, inventory items, etc. — AND the ' +
+        'Resources library: training guides, price sheets, policy docs, cutsheets shared with reps/employees) by ' +
+        'file name, document type, or mime type — use this when the user asks for a document, file, PDF, photo, ' +
+        'or attachment by its name/type, including a Resources question like "do we have a guide on X" or "find ' +
+        "the install manual for Y\". Only matches file name/type metadata, NOT what's written inside the file — " +
+        "if the user wants text found inside a document's contents, use search_document_contents instead.",
       parameters: {
         type: 'object',
         properties: {
@@ -213,10 +223,12 @@ const TOOLS: AiChatTool[] = [
     function: {
       name: 'search_document_contents',
       description:
-        'Search INSIDE the text content of uploaded documents (PDF, DOCX, XLSX, plain text) — use this when the ' +
-        'user wants something found in what a file actually says, not just its name or type (e.g. "which document ' +
-        'mentions serial number X", "find the PO that has this note in it", "search the load schedule for panel ' +
-        'A"). Downloads and text-extracts every matching-size document to search, so it is much slower than ' +
+        'Search INSIDE the text content of uploaded documents (PDF, DOCX, XLSX, plain text) — covers order/quote/ ' +
+        'invoice attachments AND the Resources library (training guides, price sheets, policy docs). Use this when ' +
+        'the user wants something found in what a file actually says, not just its name or type (e.g. "which ' +
+        'document mentions serial number X", "find the PO that has this note in it", "search the load schedule ' +
+        'for panel A", "what does the warranty policy say about X" — the last one answered from Resources, not an ' +
+        'order). Downloads and text-extracts every matching-size document to search, so it is much slower than ' +
         'search_documents — only use it when the request specifically needs file contents, and prefer ' +
         'search_documents/search_orders_by_document first when a file name or type alone would answer the question.',
       parameters: {
@@ -587,9 +599,112 @@ function formatInvoiceBillTo(customerName: string | null, billAddr: any): string
   return lines.length ? lines.join('\n') : customerName ?? null;
 }
 
+// --- Permission gating ----------------------------------------------------
+//
+// Every tool below is gated by the SAME module permission (and scope) its
+// equivalent REST route checks — order:read for search_orders, quote:write
+// for create_quote, etc. — rather than the single aichat:use own/all switch
+// a caller gets at the top of the route handler. aichat:use now means only
+// "may use AI chat at all"; what it can see/do comes from the real per-module
+// grants, exactly like every other part of this app. REP_TOOL_NAMES (the
+// quote-wizard-only set a scope='own' aichat:use caller gets) is untouched —
+// it's already its own hand-curated, properly self-scoped allowlist (a rep
+// has no customer:read/inventory:read grant at all, by design, yet still
+// needs search_customers/search_catalog to build a quote; gating those by
+// the generic permission here would break that carve-out), so the permission
+// map below only applies to the non-rep ('all' aichat:use) branch.
+
+/** Single required permission to even see a tool in the list. Tools needing a
+ *  second permission (document:read, on top of the owning module's read
+ *  permission) are listed in DOC_AWARE_TOOLS below. search_documents/
+ *  search_document_contents aren't in this map — they're gated by
+ *  document:read OR resource:read (either is enough), handled specially. */
+const TOOL_PERMISSION: Record<string, string> = {
+  search_orders: 'order:read',
+  search_order_lines: 'order:read',
+  search_orders_by_document: 'order:read',
+  get_order_documents: 'order:read',
+  email_order: 'order:write',
+  search_quotes: 'quote:read',
+  get_quote_documents: 'quote:read',
+  get_quote: 'quote:read',
+  create_quote: 'quote:write',
+  set_quote_job_name: 'quote:write',
+  add_quote_line: 'quote:write',
+  search_invoices: 'invoice:read',
+  search_invoice_lines: 'invoice:read',
+  // invoices.ts is read-only (synced from QB, nobody writes there) — there is
+  // no invoice:write permission to gate emailing one, so invoice:read is the
+  // closest real grant.
+  email_invoice: 'invoice:read',
+  search_inventory: 'inventory:read',
+  search_catalog: 'inventory:read',
+  search_customers: 'customer:read',
+  // search_users exists here only to resolve a send_notification target —
+  // gate both by the action permission rather than requiring a separate
+  // user:read grant most roles don't hold.
+  search_users: 'notification:write',
+  send_notification: 'notification:write',
+  // Arbitrary read-only SQL across the whole schema — its own explicit,
+  // admin-only permission (see permissions.ts), not derivable from holding
+  // several other :read permissions at 'all' scope.
+  run_sql_query: 'aichat:sql',
+};
+
+/** Tools whose primary permission (above) resolves an order/quote by id, but
+ *  which also surface its attachment metadata — require document:read too. */
+const DOC_AWARE_TOOLS = new Set(['search_orders_by_document', 'get_order_documents', 'get_quote_documents']);
+
+function toolAllowed(name: string, permissions: PermissionSet): boolean {
+  if (name === 'search_documents' || name === 'search_document_contents') {
+    return permissions.has('document:read') || permissions.has('resource:read');
+  }
+  const perm = TOOL_PERMISSION[name];
+  // Fail closed: a tool added to TOOLS later without an entry here is hidden
+  // by default, not exposed — the opposite default is exactly the bug this
+  // gating exists to close.
+  if (!perm) return false;
+  if (!permissions.has(perm)) return false;
+  if (DOC_AWARE_TOOLS.has(name) && !permissions.has('document:read')) return false;
+  return true;
+}
+
+/** entity_type values search_documents/search_document_contents may return,
+ *  built from whichever of document:read/resource:read the caller holds.
+ *  Deliberately excludes 'support_ticket' (also stored in public.document) —
+ *  those attachments are owned per-ticket (filer or assignee), not coverable
+ *  by a flat permission allowlist, so they stay out of this tool entirely
+ *  rather than risk exposing one caller's ticket to another. */
+function allowedDocEntityTypes(permissions: PermissionSet): string[] {
+  const types: string[] = [];
+  if (permissions.has('document:read')) types.push('order', 'quote', 'invoice', 'inventory');
+  if (permissions.has('resource:read')) types.push('resource');
+  return types;
+}
+
+/** Own-scope SQL fragment for a rep-owned table/alias, mirroring orders.ts/
+ *  quotes.ts/invoices.ts's visibleRepListIds filtering: '' (no filter) at
+ *  'all' scope, an impossible condition for an own-scoped caller who owns
+ *  no rep rows at all (matches nothing rather than every unassigned row),
+ *  else an IN-list against the caller's visible rep list_ids. Pushes onto
+ *  `params` and returns the clause to splice into the query's WHERE/AND. */
+function ownScopeClause(
+  permissions: PermissionSet,
+  user: any,
+  permission: string,
+  column: string,
+  params: any[]
+): string {
+  if (permissions.scopeOf(permission) !== 'own') return '';
+  const repIds = visibleRepListIds(user);
+  if (repIds.length === 0) return ' AND 1 = 0';
+  params.push(repIds);
+  return ` AND ${column} = ANY($${params.length}::text[])`;
+}
+
 // --- Tool executor ------------------------------------------------------------
 
-async function executeTool(env: Env, user: any, scope: string | null, toolName: string, toolInput: Record<string, any>): Promise<string> {
+async function executeTool(env: Env, user: any, permissions: PermissionSet, toolName: string, toolInput: Record<string, any>): Promise<string> {
   try {
     switch (toolName) {
       case 'search_orders': {
@@ -616,6 +731,7 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         // Mirrors the Orders list's "Missing Financials" chip (OrderList.tsx /
         // orders.ts CHIP_CONDITIONS.missingFinancials) — keep both in sync.
         if (missingFinancials) conditions.push('(sold_for IS NULL OR commission IS NULL OR d_net_cost IS NULL)');
+        const ownClause = ownScopeClause(permissions, user, 'order:read', 'sales_rep_list_id', params);
         params.push(limit);
         const result = await execQuery(
           env,
@@ -625,6 +741,7 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
            FROM public.qb_sales_order
            WHERE qb_deleted_at IS NULL
              AND ${conditions.join(' AND ')}
+             ${ownClause}
            ORDER BY txn_date DESC NULLS LAST
            LIMIT $${params.length}`,
           params,
@@ -637,6 +754,9 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 20, 100);
+        const params: any[] = [text];
+        const ownClause = ownScopeClause(permissions, user, 'order:read', 'o.sales_rep_list_id', params);
+        params.push(limit);
         const result = await execQuery(
           env,
           `SELECT o.qb_sales_order_id, o.txn_id, o.ref_number, o.customer_name, o.job_name, o.txn_date,
@@ -647,9 +767,10 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
            FROM public.qb_sales_order o, jsonb_array_elements(o.lines) elem
            WHERE o.qb_deleted_at IS NULL
              AND elem->>'desc' ILIKE '%' || $1 || '%'
+             ${ownClause}
            ORDER BY o.txn_date DESC NULLS LAST
-           LIMIT $2`,
-          [text, limit],
+           LIMIT $${params.length}`,
+          params,
           'aiChat.search_order_lines'
         );
         return JSON.stringify(result.rows);
@@ -659,16 +780,20 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 20, 100);
+        const params: any[] = [text];
+        const ownClause = ownScopeClause(permissions, user, 'quote:read', 'sales_rep_list_id', params);
+        params.push(limit);
         const result = await execQuery(
           env,
           `SELECT quote_id, ref_number, customer_name, sales_rep, total, txn_date, memo
            FROM public.quote
-           WHERE customer_name ILIKE '%' || $1 || '%'
+           WHERE (customer_name ILIKE '%' || $1 || '%'
               OR ref_number ILIKE '%' || $1 || '%'
-              OR sales_rep ILIKE '%' || $1 || '%'
+              OR sales_rep ILIKE '%' || $1 || '%')
+             ${ownClause}
            ORDER BY txn_date DESC NULLS LAST
-           LIMIT $2`,
-          [text, limit],
+           LIMIT $${params.length}`,
+          params,
           'aiChat.search_quotes'
         );
         return JSON.stringify(result.rows);
@@ -678,6 +803,8 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const quoteId = Number(toolInput.quoteId);
         if (!Number.isFinite(quoteId)) return JSON.stringify({ error: 'quoteId is required' });
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        const params: any[] = [quoteId, text];
+        const ownClause = ownScopeClause(permissions, user, 'quote:read', 'q.sales_rep_list_id', params);
         const result = await execQuery(
           env,
           `SELECT q.quote_id, q.ref_number, q.customer_name, q.txn_date,
@@ -691,8 +818,9 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
                 OR replace(d.doc_type, '_', ' ') ILIKE '%' || $2 || '%'
                 OR d.file_name ILIKE '%' || $2 || '%'
               )
+              ${ownClause}
             ORDER BY d.document_id DESC`,
-          [quoteId, text],
+          params,
           'aiChat.get_quote_documents'
         );
         return JSON.stringify(result.rows);
@@ -703,6 +831,9 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 20, 100);
         const unpaidOnly = toolInput.unpaidOnly === true;
+        const params: any[] = [text];
+        const ownClause = ownScopeClause(permissions, user, 'invoice:read', 'sales_rep_list_id', params);
+        params.push(limit);
         const result = await execQuery(
           env,
           `SELECT qb_invoice_id, txn_id, ref_number, customer_name, txn_date, due_date, total, balance_remaining, is_paid
@@ -710,9 +841,10 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
            WHERE qb_deleted_at IS NULL
              AND (customer_name ILIKE '%' || $1 || '%' OR ref_number ILIKE '%' || $1 || '%')
              ${unpaidOnly ? "AND COALESCE(is_paid, false) = false" : ''}
+             ${ownClause}
            ORDER BY txn_date DESC NULLS LAST
-           LIMIT $2`,
-          [text, limit],
+           LIMIT $${params.length}`,
+          params,
           'aiChat.search_invoices'
         );
         return JSON.stringify(result.rows);
@@ -722,6 +854,9 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 20, 100);
+        const params: any[] = [text];
+        const ownClause = ownScopeClause(permissions, user, 'invoice:read', 'i.sales_rep_list_id', params);
+        params.push(limit);
         const result = await execQuery(
           env,
           `SELECT i.qb_invoice_id, i.txn_id, i.ref_number, i.customer_name, i.txn_date,
@@ -732,9 +867,10 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
            FROM public.qb_invoice i, jsonb_array_elements(i.lines) elem
            WHERE i.qb_deleted_at IS NULL
              AND elem->>'desc' ILIKE '%' || $1 || '%'
+             ${ownClause}
            ORDER BY i.txn_date DESC NULLS LAST
-           LIMIT $2`,
-          [text, limit],
+           LIMIT $${params.length}`,
+          params,
           'aiChat.search_invoice_lines'
         );
         return JSON.stringify(result.rows);
@@ -763,7 +899,8 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 20, 100);
-        const { matches } = await searchDocumentsMetadata(execQuery, env, text);
+        const entityTypes = allowedDocEntityTypes(permissions);
+        const { matches } = await searchDocumentsMetadata(execQuery, env, text, { entityTypes });
         return JSON.stringify(matches.slice(0, limit));
       }
 
@@ -771,7 +908,8 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 10, 50);
-        const { results } = await searchDocumentsContent(execQuery, env, text);
+        const entityTypes = allowedDocEntityTypes(permissions);
+        const { results } = await searchDocumentsContent(execQuery, env, text, { entityTypes });
         return JSON.stringify(results.slice(0, limit));
       }
 
@@ -779,6 +917,9 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 5, 100);
+        const params: any[] = [text];
+        const ownClause = ownScopeClause(permissions, user, 'order:read', 'o.sales_rep_list_id', params);
+        params.push(limit);
         const result = await execQuery(
           env,
           `SELECT qb_sales_order_id, txn_id, ref_number, customer_name, job_name, txn_date, total, doc_type, file_name, document_id, storage_path
@@ -795,11 +936,12 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
                     OR replace(d.doc_type, '_', ' ') ILIKE '%' || $1 || '%'
                     OR d.file_name ILIKE '%' || $1 || '%'
                   )
+                  ${ownClause}
                 ORDER BY o.qb_sales_order_id, o.txn_date DESC NULLS LAST
              ) matched
             ORDER BY txn_date DESC NULLS LAST
-            LIMIT $2`,
-          [text, limit],
+            LIMIT $${params.length}`,
+          params,
           'aiChat.search_orders_by_document'
         );
         return JSON.stringify(result.rows);
@@ -809,6 +951,8 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
         const orderId = Number(toolInput.orderId);
         if (!Number.isFinite(orderId)) return JSON.stringify({ error: 'orderId is required' });
         const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        const params: any[] = [orderId, text];
+        const ownClause = ownScopeClause(permissions, user, 'order:read', 'o.sales_rep_list_id', params);
         const result = await execQuery(
           env,
           `SELECT o.qb_sales_order_id, o.ref_number, o.customer_name, o.job_name, o.txn_date,
@@ -823,14 +967,20 @@ async function executeTool(env: Env, user: any, scope: string | null, toolName: 
                 OR replace(d.doc_type, '_', ' ') ILIKE '%' || $2 || '%'
                 OR d.file_name ILIKE '%' || $2 || '%'
               )
+              ${ownClause}
             ORDER BY d.document_id DESC`,
-          [orderId, text],
+          params,
           'aiChat.get_order_documents'
         );
         return JSON.stringify(result.rows);
       }
 
       case 'run_sql_query': {
+        // Defense in depth — toolAllowed() already keeps this tool out of the
+        // list sent to Claude for anyone without aichat:sql, but this is the
+        // single most dangerous tool here (arbitrary SELECT, whole schema),
+        // so it re-checks rather than trusting tool-list filtering alone.
+        if (!permissions.has('aichat:sql')) return JSON.stringify({ error: 'Not permitted' });
         // Read-only + schema checks live in sqlGuard.ts, which scans the SQL
         // with string literals and comments blanked out - the previous inline
         // scan read the raw text and rejected honest queries that merely
@@ -900,14 +1050,17 @@ ${guard.statement}
         if (!Number.isFinite(qbSalesOrderId)) return JSON.stringify({ error: 'qbSalesOrderId is required — resolve it with search_orders first' });
         const explicitEmail = typeof toolInput.recipientEmail === 'string' ? toolInput.recipientEmail.trim() : '';
 
+        const params: any[] = [qbSalesOrderId];
+        const ownClause = ownScopeClause(permissions, user, 'order:write', 'o.sales_rep_list_id', params);
         const result = await execQuery(
           env,
           `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.total,
                   o.bill_address_block, o.lines, c.email AS customer_email
              FROM public.qb_sales_order o
              LEFT JOIN public.qb_customer c ON c.list_id = o.customer_list_id AND c.qb_deleted_at IS NULL
-            WHERE o.qb_sales_order_id = $1 AND o.qb_deleted_at IS NULL`,
-          [qbSalesOrderId],
+            WHERE o.qb_sales_order_id = $1 AND o.qb_deleted_at IS NULL
+              ${ownClause}`,
+          params,
           'aiChat.email_order'
         );
         if (result.rows.length === 0) return JSON.stringify({ error: 'Order not found' });
@@ -935,14 +1088,17 @@ ${guard.statement}
         if (!Number.isFinite(qbInvoiceId)) return JSON.stringify({ error: 'qbInvoiceId is required — resolve it with search_invoices first' });
         const explicitEmail = typeof toolInput.recipientEmail === 'string' ? toolInput.recipientEmail.trim() : '';
 
+        const params: any[] = [qbInvoiceId];
+        const ownClause = ownScopeClause(permissions, user, 'invoice:read', 'i.sales_rep_list_id', params);
         const result = await execQuery(
           env,
           `SELECT i.ref_number, i.customer_name, i.txn_date, i.due_date, i.total, i.lines,
                   c.email AS customer_email, c.bill_addr
              FROM public.qb_invoice i
              LEFT JOIN public.qb_customer c ON c.list_id = i.customer_list_id AND c.qb_deleted_at IS NULL
-            WHERE i.qb_invoice_id = $1 AND i.qb_deleted_at IS NULL`,
-          [qbInvoiceId],
+            WHERE i.qb_invoice_id = $1 AND i.qb_deleted_at IS NULL
+              ${ownClause}`,
+          params,
           'aiChat.email_invoice'
         );
         if (result.rows.length === 0) return JSON.stringify({ error: 'Invoice not found' });
@@ -1037,7 +1193,7 @@ ${guard.statement}
         );
         const quote = quoteRows.rows[0];
         if (!quote) return JSON.stringify({ error: 'Quote not found' });
-        if (scope === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
+        if (permissions.scopeOf('quote:write') === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
           return JSON.stringify({ error: 'Quote not found' });
         }
 
@@ -1068,7 +1224,7 @@ ${guard.statement}
         );
         const quote = quoteRows.rows[0];
         if (!quote) return JSON.stringify({ error: 'Quote not found' });
-        if (scope === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
+        if (permissions.scopeOf('quote:write') === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
           return JSON.stringify({ error: 'Quote not found' });
         }
 
@@ -1118,7 +1274,7 @@ ${guard.statement}
         );
         const quote = quoteRows.rows[0];
         if (!quote) return JSON.stringify({ error: 'Quote not found' });
-        if (scope === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
+        if (permissions.scopeOf('quote:read') === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
           return JSON.stringify({ error: 'Quote not found' });
         }
         delete quote.sales_rep_list_id;
@@ -1165,8 +1321,15 @@ app.post('/', async (c) => {
   // forced to their own identity, never the unscoped admin/employee set
   // (search_orders/search_invoices/run_sql_query/etc., none of which filter
   // by rep) — see REP_TOOL_NAMES.
-  const repScoped = c.get('permissions').scopeOf('aichat:use') === 'own';
-  const tools = repScoped ? TOOLS.filter((t) => REP_TOOL_NAMES.has(t.function.name)) : TOOLS;
+  const permissions = c.get('permissions');
+  const repScoped = permissions.scopeOf('aichat:use') === 'own';
+  // Reps get the hand-curated wizard set as-is (see REP_TOOL_NAMES's own
+  // comment) — everyone else gets every tool whose real module permission
+  // (order:read, quote:write, etc.) they actually hold; toolAllowed() is the
+  // single gate, not the aichat:use scope.
+  const tools = repScoped
+    ? TOOLS.filter((t) => REP_TOOL_NAMES.has(t.function.name))
+    : TOOLS.filter((t) => toolAllowed(t.function.name, permissions));
 
   const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
   // The memory tool isn't rep-scoped (shared store, not partitioned per
@@ -1237,7 +1400,7 @@ ${AI_CHAT_SCOPE_GUARDRAIL}`;
       executeTool: (toolName, toolInput) =>
         !repScoped && toolName === AI_MEMORY_TOOL_NAME
           ? executeMemoryCommand((sql, params) => execQuery(c.env, sql, params, 'ai_memory'), null, toolInput)
-          : executeTool(c.env, user, repScoped ? 'own' : 'all', toolName, toolInput),
+          : executeTool(c.env, user, permissions, toolName, toolInput),
     });
 
     if (outOfScope) {

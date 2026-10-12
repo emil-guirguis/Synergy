@@ -6,7 +6,7 @@
  * tree, and delete / rename files. Reps see the read-only side on tbwc-site's
  * portal.html; this is the admin-only management side.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -253,6 +253,19 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
   // trades that for one full recursive walk, needed to show accurate folder counts.
   const [showCounts, setShowCounts] = useState(false);
 
+  // Filename search — needs the whole tree loaded (unexpanded folders otherwise
+  // have no files to match against), so the first keystroke triggers one full
+  // recursive walk, same as the "show counts" toggle. Only once per session.
+  const [search, setSearch] = useState('');
+  const searchTriggeredFullLoad = useRef(false);
+  async function onSearchChange(value: string) {
+    setSearch(value);
+    if (value.trim() && !showCounts && !searchTriggeredFullLoad.current) {
+      searchTriggeredFullLoad.current = true;
+      await load(true);
+    }
+  }
+
   // Multi-select for bulk drag-and-drop moves.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const toggleSelect = (path: string) =>
@@ -349,6 +362,18 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     return filterTree(tree, docTypes, typeSel);
   }, [tree, docTypes, typeSel, readOnly]);
 
+  const searching = search.trim().length > 0;
+  const displayTree = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return filteredTree;
+    const keep = (f: DocFile) => f.name.toLowerCase().includes(q);
+    const rootFiles = filteredTree.rootFiles.filter(keep);
+    const categories = filteredTree.categories
+      .map((c) => filterCategory(c, keep))
+      .filter((c): c is DocCategory => c !== null);
+    return { rootFiles, categories };
+  }, [filteredTree, search]);
+
   async function onTypeChange(path: string, type: DocType) {
     const prev = typeOf(docTypes, path);
     setDocTypes((d) => ({ ...d, [path]: type }));
@@ -397,7 +422,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
         const path = `${prefix}/${file.name}`;
         await uploadDoc(path, file);
         try {
-          await setDocType(path, typeSel);
+          await setDocType(path, typeSel, { size: file.size, mimeType: file.type || 'application/pdf' });
         } catch {
           // Best-effort — the file itself uploaded fine, it just defaults to 'all'.
         }
@@ -784,6 +809,15 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
         </Paper>
       )}
 
+      <TextField
+        size="small"
+        fullWidth
+        placeholder="Search resources by file name…"
+        value={search}
+        onChange={(e) => void onSearchChange(e.target.value)}
+        sx={{ mb: 1 }}
+      />
+
       <Stack direction="row" alignItems="center" justifyContent="flex-end" sx={{ mb: 1 }}>
         <FormControlLabel
           control={
@@ -824,15 +858,17 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
           <Typography sx={{ p: 2 }} color="text.secondary">
             Loading…
           </Typography>
-        ) : filteredTree.rootFiles.length === 0 && filteredTree.categories.length === 0 ? (
+        ) : displayTree.rootFiles.length === 0 && displayTree.categories.length === 0 ? (
           <Typography sx={{ p: 2 }} color="text.secondary">
             {tree.rootFiles.length === 0 && tree.categories.length === 0
               ? 'No resources yet.'
-              : `No ${TYPE_LABEL[typeSel].toLowerCase()} resources.`}
+              : searching
+                ? `No resources matching "${search.trim()}".`
+                : `No ${TYPE_LABEL[typeSel].toLowerCase()} resources.`}
           </Typography>
         ) : (
           <>
-            {filteredTree.rootFiles.map((f) => (
+            {displayTree.rootFiles.map((f) => (
               <FileRow
                 key={f.path}
                 file={f}
@@ -850,7 +886,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
                 dragPathsFor={dragPathsFor}
               />
             ))}
-            {filteredTree.categories.map((c) => (
+            {displayTree.categories.map((c) => (
               <FolderRow
                 key={c.path}
                 cat={c}
@@ -873,12 +909,13 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
                 selected={selected}
                 toggleSelect={toggleSelect}
                 dragPathsFor={dragPathsFor}
+                forceOpen={searching}
               />
             ))}
           </>
         )}
       </Paper>
-      {!readOnly && (filteredTree.rootFiles.length > 0 || filteredTree.categories.length > 0) && (
+      {!readOnly && (displayTree.rootFiles.length > 0 || displayTree.categories.length > 0) && (
         <Stack
           direction="row"
           alignItems="center"
@@ -1074,6 +1111,7 @@ function FolderRow({
   selected,
   toggleSelect,
   dragPathsFor,
+  forceOpen = false,
 }: {
   cat: DocCategory;
   depth: number;
@@ -1098,9 +1136,13 @@ function FolderRow({
   selected: Set<string>;
   toggleSelect: (path: string) => void;
   dragPathsFor: (path: string) => string[];
+  /** True while a filename search is active — every matched folder renders expanded
+   * (its contents already loaded by the search's full-tree fetch) regardless of the
+   * `open` map, so matches are visible without the user expanding each one by hand. */
+  forceOpen?: boolean;
 }) {
   const key = cat.path;
-  const isOpen = !!open[key];
+  const isOpen = forceOpen || !!open[key];
   return (
     <Box>
       <FolderHeader
@@ -1161,6 +1203,7 @@ function FolderRow({
             selected={selected}
             toggleSelect={toggleSelect}
             dragPathsFor={dragPathsFor}
+            forceOpen={forceOpen}
           />
         ))}
       </Collapse>

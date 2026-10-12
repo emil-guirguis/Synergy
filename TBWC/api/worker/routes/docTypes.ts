@@ -3,6 +3,11 @@
  * Storage bucket. Table public.rep_doc_type, PK rep_doc_type_id — see
  * migrations/015-rep-doc-type.sql for why this lives here instead of on the
  * bucket object itself.
+ *
+ * Every mutation here also keeps a mirror row in the shared public.document
+ * table (entity_type='resource') so Resources get filename/content search and
+ * AI-chat coverage for free via the existing document search tools — see
+ * upsertResourceDocument below and migrations/089-resource-documents.sql.
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
@@ -18,18 +23,58 @@ function isDocType(v: unknown): v is DocType {
   return typeof v === 'string' && (TYPES as readonly string[]).includes(v);
 }
 
+/** Keeps the shared public.document table (entity_type='resource') in sync with
+ *  the rep-docs bucket, so the existing document search/AI tools (aiChat.ts
+ *  search_documents/search_document_contents) cover Resources too — see
+ *  migrations/089-resource-documents.sql. fileSize/mimeType are only known at
+ *  upload time (the file object) — a later type-only change (dropdown, no
+ *  re-upload) omits them, so an existing row's values are preserved via COALESCE. */
+async function upsertResourceDocument(
+  env: Env,
+  docPath: string,
+  fileSize?: number | null,
+  mimeType?: string | null
+): Promise<void> {
+  const fileName = docPath.slice(docPath.lastIndexOf('/') + 1);
+  await execQuery(
+    env,
+    `INSERT INTO public.document (entity_type, entity_id, doc_type, file_name, mime_type, file_size, storage_bucket, storage_path)
+     VALUES ('resource', $1, 'other', $2, $3, $4, 'rep-docs', $1)
+     ON CONFLICT (entity_id) WHERE entity_type = 'resource' DO UPDATE SET
+       file_name = EXCLUDED.file_name,
+       mime_type = COALESCE(EXCLUDED.mime_type, document.mime_type),
+       file_size = COALESCE(EXCLUDED.file_size, document.file_size),
+       updated_at = now()`,
+    [docPath, fileName, mimeType ?? null, fileSize ?? null],
+    'docTypes.upsertResourceDocument'
+  );
+}
+
 // { "Category/file.pdf": "rep", ... } for every file that has a type set.
-// Files with no row default to 'all' on the client.
+// Files with no row default to 'all' on the client. A caller without
+// resource:write (i.e. the read-only rep-facing view — mirrors ResourcesTab.tsx's
+// readOnly filter) never sees an 'employee'-only path at all, even as bare
+// metadata: that distinction used to be enforced only by the frontend's own
+// filtering of this same response, which a direct API call could skip entirely.
 app.get('/', requirePermission('resource:read'), async (c) => {
   const result = await execQuery(c.env, 'SELECT doc_path, doc_type FROM public.rep_doc_type');
+  const canSeeEmployeeDocs = c.get('permissions').has('resource:write');
   const data: Record<string, DocType> = {};
-  for (const row of result.rows) data[row.doc_path] = row.doc_type;
+  for (const row of result.rows) {
+    if (row.doc_type === 'employee' && !canSeeEmployeeDocs) continue;
+    data[row.doc_path] = row.doc_type;
+  }
   return c.json({ success: true, data });
 });
 
 app.put('/', requirePermission('resource:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const { path, type } = body as { path?: string; type?: string };
+  const { path, type, fileSize, mimeType } = body as {
+    path?: string;
+    type?: string;
+    fileSize?: number;
+    mimeType?: string;
+  };
   if (!path) return c.json({ success: false, message: 'path is required' }, 400);
   if (!isDocType(type)) return c.json({ success: false, message: 'type must be rep, employee, or all' }, 400);
 
@@ -41,6 +86,7 @@ app.put('/', requirePermission('resource:write'), async (c) => {
     [path, type],
     'docTypes.upsert'
   );
+  await upsertResourceDocument(c.env, path, fileSize ?? null, mimeType ?? null);
   return c.json({ success: true });
 });
 
@@ -55,6 +101,14 @@ app.patch('/', requirePermission('resource:write'), async (c) => {
     [fromPath, toPath],
     'docTypes.rename'
   );
+  await execQuery(
+    c.env,
+    `UPDATE public.document
+        SET entity_id = $2, storage_path = $2, file_name = $3, updated_at = now()
+      WHERE entity_type = 'resource' AND entity_id = $1`,
+    [fromPath, toPath, toPath.slice(toPath.lastIndexOf('/') + 1)],
+    'docTypes.renameResourceDocument'
+  );
   return c.json({ success: true });
 });
 
@@ -64,6 +118,12 @@ app.delete('/', requirePermission('resource:write'), async (c) => {
   if (!path) return c.json({ success: false, message: 'path is required' }, 400);
 
   await execQuery(c.env, 'DELETE FROM public.rep_doc_type WHERE doc_path = $1', [path], 'docTypes.delete');
+  await execQuery(
+    c.env,
+    `DELETE FROM public.document WHERE entity_type = 'resource' AND entity_id = $1`,
+    [path],
+    'docTypes.deleteResourceDocument'
+  );
   return c.json({ success: true });
 });
 

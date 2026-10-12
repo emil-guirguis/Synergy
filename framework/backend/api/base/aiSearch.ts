@@ -78,6 +78,12 @@ export interface DocumentContentSearchResult extends DocumentSearchResult {
 interface DocumentSearchOptions {
   /** Override only if an app names the table something else. */
   table?: string;
+  /** Restrict to these entity_type values (e.g. an app scoping the search tool
+   *  to only the entity types the caller's permissions actually cover — see
+   *  TBWC's aiChat.ts). Omit for no filter (every entity_type, the original
+   *  behavior); an empty array matches nothing rather than everything, so a
+   *  caller computing "entity types I'm allowed to see" as [] fails closed. */
+  entityTypes?: string[];
 }
 
 const DEFAULT_TABLE = 'document';
@@ -102,13 +108,15 @@ export async function searchDocumentsMetadata(
   options?: DocumentSearchOptions
 ): Promise<{ matches: DocumentSearchResult[]; totalDocuments: number }> {
   const table = options?.table ?? DEFAULT_TABLE;
+  if (options?.entityTypes && options.entityTypes.length === 0) return { matches: [], totalDocuments: 0 };
   let rows: any[];
   try {
     const result = await execQuery(
       env,
       `SELECT document_id, entity_type, entity_id, file_name, mime_type, doc_type, storage_bucket, storage_path, file_size
-         FROM public.${table}`,
-      [],
+         FROM public.${table}
+        ${options?.entityTypes ? 'WHERE entity_type = ANY($1)' : ''}`,
+      options?.entityTypes ? [options.entityTypes] : [],
       'aiSearch.documents.metadata'
     );
     rows = result.rows;
@@ -236,6 +244,7 @@ export async function searchDocumentsContent(
 ): Promise<{ results: DocumentContentSearchResult[]; scanned: number; truncated: boolean }> {
   const table = options?.table ?? DEFAULT_TABLE;
   const maxDocs = options?.maxDocs ?? MAX_CONTENT_DOCS;
+  if (options?.entityTypes && options.entityTypes.length === 0) return { results: [], scanned: 0, truncated: false };
 
   let rows: any[];
   try {
@@ -245,9 +254,10 @@ export async function searchDocumentsContent(
          FROM public.${table}
         WHERE storage_bucket IS NOT NULL AND storage_path IS NOT NULL
           AND (file_size IS NULL OR file_size <= $1)
+          ${options?.entityTypes ? 'AND entity_type = ANY($3)' : ''}
         ORDER BY created_at DESC
         LIMIT $2`,
-      [MAX_CONTENT_FILE_SIZE, maxDocs + 1],
+      options?.entityTypes ? [MAX_CONTENT_FILE_SIZE, maxDocs + 1, options.entityTypes] : [MAX_CONTENT_FILE_SIZE, maxDocs + 1],
       'aiSearch.documents.content'
     );
     rows = result.rows;

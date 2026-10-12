@@ -225,6 +225,17 @@ function ownOnly(c: any): boolean {
   return c.get('permissions')?.scopeOf('order:read') === 'own';
 }
 
+/** True when this caller's grant on `permission` is scoped to 'own' and
+ *  `row` isn't one of their visible reps' — the same rule GET /:id and PUT
+ *  /:id already apply, reused here for the email/delete routes below (each
+ *  gated by its own permission: order:write for email, order:delete for
+ *  DELETE), which previously had no row-level check at all despite
+ *  requiring a write/delete grant. */
+function notOwnedRow(c: any, permission: string, row: { sales_rep_list_id?: string | null }): boolean {
+  if (c.get('permissions').scopeOf(permission) !== 'own') return false;
+  return !row.sales_rep_list_id || !visibleRepListIds(c.get('user')).includes(row.sales_rep_list_id);
+}
+
 // visibleRepListIds (own rep + every managed user's rep) now lives in
 // middleware.ts — shared with quotes.ts/invoices.ts so "own scope" means
 // the same thing everywhere.
@@ -669,7 +680,7 @@ async function loadOrderForEmail(env: Env, id: string) {
   const result = await execQuery(
     env,
     `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.total,
-            o.bill_address_block, o.lines, c.email AS customer_email,
+            o.bill_address_block, o.lines, o.sales_rep_list_id, c.email AS customer_email,
             u.email AS rep_email, u.first_name AS rep_first_name, u.last_name AS rep_last_name
        FROM public.qb_sales_order o
        LEFT JOIN public.qb_customer c ON c.list_id = o.customer_list_id AND c.qb_deleted_at IS NULL
@@ -700,6 +711,7 @@ function orderEmailHeader(row: any): DocumentHeader {
 app.get('/:id/email', requirePermission('order:write'), async (c) => {
   const row = await loadOrderForEmail(c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (notOwnedRow(c, 'order:write', row)) return c.json({ success: false, message: 'Order not found' }, 404);
   const repName = [row.rep_first_name, row.rep_last_name].filter(Boolean).join(' ') || null;
   return c.json({
     success: true,
@@ -719,6 +731,7 @@ app.get('/:id/email', requirePermission('order:write'), async (c) => {
 app.get('/:id/email/pdf', requirePermission('order:write'), async (c) => {
   const row = await loadOrderForEmail(c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (notOwnedRow(c, 'order:write', row)) return c.json({ success: false, message: 'Order not found' }, 404);
   const pdfBytes = await buildDocumentPdf(orderEmailHeader(row), toDocumentLines(row.lines));
   // pdf-lib's Uint8Array return type doesn't pin its buffer to plain
   // ArrayBuffer (vs. ArrayBufferLike/SharedArrayBuffer), which current DOM
@@ -729,6 +742,7 @@ app.get('/:id/email/pdf', requirePermission('order:write'), async (c) => {
 app.post('/:id/email', requirePermission('order:write'), async (c) => {
   const row = await loadOrderForEmail(c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (notOwnedRow(c, 'order:write', row)) return c.json({ success: false, message: 'Order not found' }, 404);
 
   const body = await c.req.json().catch(() => ({}));
   const recipientEmail = (typeof body.recipientEmail === 'string' ? body.recipientEmail.trim() : '') || row.customer_email;
@@ -757,6 +771,7 @@ app.delete('/:id', requirePermission('order:delete'), async (c) => {
   const id = c.req.param('id');
   const existing = await findById(c.env, TABLE, PK, id);
   if (!existing) return c.json({ success: false, message: 'Order not found' }, 404);
+  if (notOwnedRow(c, 'order:delete', existing)) return c.json({ success: false, message: 'Order not found' }, 404);
   if (!PLACEHOLDER_TYPES.has(existing.order_type)) {
     return c.json({ success: false, message: 'Orders are managed by the QuickBooks sync and cannot be deleted here.' }, 405);
   }

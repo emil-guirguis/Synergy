@@ -53,6 +53,15 @@ export const PERMISSIONS = [
   'qbsync:read',
   'qbsync:run',
   'aichat:use',
+  // Gates the AI chat run_sql_query tool specifically (arbitrary read-only SELECT
+  // across the whole schema) — kept separate from aichat:use because that
+  // permission only means "may use AI chat at all" now; every other AI tool is
+  // gated by the real module permission it exposes (order:read, quote:read,
+  // etc.) and scoped the same way the REST routes are. run_sql_query can't be
+  // row-scoped after the fact (the model writes arbitrary free-form SQL), so it
+  // stays its own explicit, admin-only grant rather than falling out of holding
+  // several other permissions at 'all' scope. See routes/aiChat.ts.
+  'aichat:sql',
   'dashboard:read',
   // Support tickets. read's scope is 'own' (just the tickets you filed) or
   // 'all' (every ticket, any filer) — see routes/support.ts. write gates the

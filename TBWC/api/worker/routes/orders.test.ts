@@ -494,4 +494,76 @@ describe('DELETE /:id', () => {
     const res = await req('/9', { method: 'DELETE' });
     expect(res.status).toBe(404);
   });
+
+  // notOwnedRow — previously DELETE had no row-level check at all despite
+  // requiring order:delete, unlike GET/PUT on the same table. No role grants
+  // order:delete scope 'own' today (same as order:write), but the scope is
+  // editable per role, so this must be honoured regardless.
+  it("404s (as 'Order not found') an own-scoped delete on a hold placeholder belonging to another rep", async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = resolvePermissions(
+      [{ permission: 'order:delete', scope: 'own', hiddenFields: [] }],
+      null, PERMISSIONS
+    );
+    mockFindById.mockResolvedValue({ qb_sales_order_id: 9, order_type: 'hold_for_release', sales_rep_list_id: 'OTHER-REP' });
+    const res = await req('/9', { method: 'DELETE' });
+    expect(res.status).toBe(404);
+    expect(mockExecQuery).not.toHaveBeenCalled();
+  });
+
+  it('deletes a hold placeholder for the owning own-scoped rep', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = resolvePermissions(
+      [{ permission: 'order:delete', scope: 'own', hiddenFields: [] }],
+      null, PERMISSIONS
+    );
+    mockFindById.mockResolvedValue({ qb_sales_order_id: 9, order_type: 'hold_for_release', sales_rep_list_id: 'REP-123' });
+    mockExecQuery.mockResolvedValue({ rows: [{ qb_sales_order_id: 9 }] });
+    const res = await req('/9', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('order email routes — ownership scoping (notOwnedRow)', () => {
+  // loadOrderForEmail's own execQuery call — all 3 email routes share it.
+  const EMAIL_ROW = { ref_number: 'SO-9', customer_name: 'Acme', lines: [], sales_rep_list_id: 'OTHER-REP' };
+
+  it("GET /:id/email 404s for an own-scoped order:write caller who doesn't own the order", async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = resolvePermissions(
+      [{ permission: 'order:write', scope: 'own', hiddenFields: [] }],
+      null, PERMISSIONS
+    );
+    mockExecQuery.mockResolvedValue({ rows: [EMAIL_ROW] });
+    const res = await req('/9/email');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /:id/email 200s for the owning own-scoped rep', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = resolvePermissions(
+      [{ permission: 'order:write', scope: 'own', hiddenFields: [] }],
+      null, PERMISSIONS
+    );
+    mockExecQuery.mockResolvedValue({ rows: [{ ...EMAIL_ROW, sales_rep_list_id: 'REP-123' }] });
+    const res = await req('/9/email');
+    expect(res.status).toBe(200);
+  });
+
+  it("POST /:id/email 404s for an own-scoped caller who doesn't own the order, before ever calling sendDocumentEmail", async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = resolvePermissions(
+      [{ permission: 'order:write', scope: 'own', hiddenFields: [] }],
+      null, PERMISSIONS
+    );
+    mockExecQuery.mockResolvedValue({ rows: [{ ...EMAIL_ROW, customer_email: 'c@acme.com' }] });
+    const res = await req('/9/email', json('POST', {}));
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /:id/email is unrestricted for an all-scope caller regardless of the order\'s rep', async () => {
+    mockExecQuery.mockResolvedValue({ rows: [EMAIL_ROW] });
+    const res = await req('/9/email');
+    expect(res.status).toBe(200);
+  });
 });

@@ -11,7 +11,8 @@
 import { Hono } from 'hono';
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, execQuery } from '../db';
-import { authenticateToken, AuthVariables } from '../middleware';
+import { authenticateToken, AuthVariables, permissionsFor, getCachedUser } from '../middleware';
+import type { PermissionSet } from '@meterit/framework-backend/api/base/permissions';
 import { logError } from '../errorHandler';
 import {
   runAiChatLoop,
@@ -148,6 +149,32 @@ const TOOLS: AiChatTool[] = [
     },
   },
 ];
+
+// --- Permission gating ----------------------------------------------------
+//
+// This route previously had only authenticateToken — any authenticated user
+// of the tenant got every tool regardless of role (no requirePermission at
+// all, despite the rate-limit comment above claiming one existed). Data
+// itself was never cross-tenant exposed (every query here is already scoped
+// by tenantId), but a viewer-only user could still ask the AI about
+// notification rules/alerts without holding notification:read. Gated the
+// same way TBWC's aiChat.ts now is: each tool requires the real module
+// permission its data belongs to, checked against the tenant's resolved
+// PermissionSet, not a separate ai-chat-specific switch.
+const TOOL_PERMISSION: Record<string, string> = {
+  list_meters: 'meter:read',
+  get_meter_readings: 'meter:read',
+  list_notification_rules: 'notification:read',
+  get_recent_alerts: 'notification:read',
+  get_dashboard_summary: 'dashboard:read',
+};
+
+function toolAllowed(name: string, permissions: PermissionSet): boolean {
+  const perm = TOOL_PERMISSION[name];
+  // Fail closed: a tool added later without an entry here is hidden, not
+  // exposed — the opposite default is exactly the bug this gating closes.
+  return !!perm && permissions.has(perm);
+}
 
 // --- Tool executor ------------------------------------------------------------
 
@@ -307,8 +334,20 @@ app.post('/', async (c) => {
     return c.json({ success: false, message: 'message is required' }, 400);
   }
 
+  // authenticateToken only ever sets the minimal JWT-claims user (no role/
+  // role_id) — the full row is loaded lazily, same promotion requirePermission
+  // itself does, since this route has no requirePermission call of its own to
+  // do it for us.
+  const partialUser = c.get('user');
+  const user = partialUser.role === undefined ? await getCachedUser(c.env, String(partialUser.users_id)) : partialUser;
+  if (!user || !user.active) {
+    return c.json({ success: false, message: 'User not found' }, 401);
+  }
+  const permissions = await permissionsFor(c.env, user);
+  const tools = TOOLS.filter((t) => toolAllowed(t.function.name, permissions));
+
   const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
-  const claudeTools: Anthropic.ToolUnion[] = [...toClaudeTools(TOOLS), AI_MEMORY_CLAUDE_TOOL];
+  const claudeTools: Anthropic.ToolUnion[] = [...toClaudeTools(tools), AI_MEMORY_CLAUDE_TOOL];
 
   const systemPrompt = `You are an AI assistant (Zenith) for MeterItPro, a facility energy management platform.
 You help facility managers understand their meter data, identify issues, and make sense of their energy consumption.
@@ -330,7 +369,7 @@ ${AI_CHAT_SCOPE_GUARDRAIL}`;
   try {
     const { response, toolsUsed, outOfScope } = await runAiChatLoop(message, history as any, {
       systemPrompt,
-      tools: TOOLS,
+      tools,
       complete: async (messages) => {
         const { system, messages: claudeMessages } = toClaudeMessages(messages);
         const res = await client.messages.create({

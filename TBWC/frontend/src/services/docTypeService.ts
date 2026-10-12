@@ -30,12 +30,19 @@ export async function getDocTypes(): Promise<Record<string, DocType>> {
   return data.data || {};
 }
 
-export async function setDocType(path: string, type: DocType): Promise<void> {
+/** fileSize/mimeType are only known at upload time — pass them then so the mirrored
+ * public.document row (entity_type='resource', see migrations/089) gets real metadata;
+ * omit on a plain type change (dropdown only) and the existing values are kept. */
+export async function setDocType(
+  path: string,
+  type: DocType,
+  file?: { size: number; mimeType: string }
+): Promise<void> {
   await parse(
     await fetch(`${API_BASE_URL}/doc-types`, {
       method: 'PUT',
       headers: authHeaders(),
-      body: JSON.stringify({ path, type }),
+      body: JSON.stringify({ path, type, fileSize: file?.size, mimeType: file?.mimeType }),
     })
   );
 }

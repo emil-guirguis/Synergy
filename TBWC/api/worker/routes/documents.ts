@@ -11,7 +11,7 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, permissionsFor, requirePermission } from '../middleware';
+import { AuthVariables, authenticateToken, permissionsFor, requirePermission, visibleRepListIds } from '../middleware';
 import {
   createDocument,
   deleteDocument,
@@ -66,6 +66,23 @@ function canAccessQuoteDocs(c: any, action: 'quote:read' | 'quote:write'): boole
   return !!c.get('permissions')?.has(action);
 }
 
+/** True unless `action`'s grant is scoped to 'own' and `entityId`'s quote
+ *  isn't one of the caller's visible reps' — canAccessQuoteDocs above only
+ *  checks the boolean permission, never scope, so an own-scoped caller
+ *  (quote:read/write 'own') could otherwise list/attach/edit/delete
+ *  documents on ANY quote by id, not just their own, the same way
+ *  orders.ts's ownOnly scoping gates its own table. */
+async function quoteOwnedByCaller(c: any, entityId: string, action: 'quote:read' | 'quote:write'): Promise<boolean> {
+  if (c.get('permissions')?.scopeOf(action) !== 'own') return true;
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT 1 FROM public.quote WHERE quote_id::text = $1 AND sales_rep_list_id = ANY($2::text[])`,
+    [entityId, visibleRepListIds(c.get('user'))],
+    'documents.quoteOwnedByCaller'
+  );
+  return rows.length > 0;
+}
+
 /**
  * Write access for one mutation, parking the resolved PermissionSet on the
  * context (same side effect requirePermission's own guard has) so
@@ -76,10 +93,12 @@ function canAccessQuoteDocs(c: any, action: 'quote:read' | 'quote:write'): boole
  * grants.sql) — but a "managing rep" (manages >=1 other user via the Users
  * form's Manages tab / public.user_manager, surfaced here as
  * managed_sales_rep_list_ids — see middleware.ts's loadProfile) may still
- * add/edit their own orders' documents, matching the elevated access that
- * relation already grants them over those users' orders (orders.ts's ownOnly
- * scoping). Scoped to entityType === 'order' only — it says nothing about
- * invoice/inventory/quote documents, which stay gated by document:write.
+ * add/edit documents on THEIR MANAGED REPS' orders specifically (checked
+ * against the actual order's sales_rep_list_id by managesOrderRep below —
+ * matching orders.ts's ownOnly scoping precisely, not "manages someone,
+ * somewhere" against every order company-wide). Scoped to entityType ===
+ * 'order' only — it says nothing about invoice/inventory/quote documents,
+ * which stay gated by document:write.
  *
  * restrictedOrderDocs says whether THIS caller's order-document access is the
  * limited kind (REP_VISIBLE_ORDER_DOC_TYPES/REP_ORDER_MAX_FILE_SIZE below) —
@@ -88,6 +107,22 @@ function canAccessQuoteDocs(c: any, action: 'quote:read' | 'quote:write'): boole
  * employee holds document:write 'all' (migration 040) same as admin, so
  * either one is unrestricted; is_admin would wrongly restrict the employee.
  */
+/** True when `entityId` is an order whose sales_rep_list_id is one of the
+ *  reps THIS caller manages (public.user_manager) — not just "manages some
+ *  rep, somewhere", which would wrongly grant document access to every
+ *  order company-wide the moment someone manages a single rep. */
+async function managesOrderRep(c: any, entityId: string): Promise<boolean> {
+  const managed: string[] = c.get('user')?.managed_sales_rep_list_ids ?? [];
+  if (managed.length === 0) return false;
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT 1 FROM public.qb_sales_order WHERE qb_sales_order_id::text = $1 AND sales_rep_list_id = ANY($2::text[])`,
+    [entityId, managed],
+    'documents.managesOrderRep'
+  );
+  return rows.length > 0;
+}
+
 /** True when `entityId` is a support_ticket row the caller themselves filed. */
 async function ownsSupportTicket(c: any, entityId: string): Promise<boolean> {
   const userId = c.get('user')?.id;
@@ -109,7 +144,7 @@ async function resolveWriteAccess(c: any, entityType: string, entityId?: string)
     c.set('permissions', permissions);
   }
   const hasDocumentWrite = !!permissions.has('document:write');
-  const isManagingRepOrder = entityType === 'order' && (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
+  const isManagingRepOrder = entityType === 'order' && !!entityId && !hasDocumentWrite && (await managesOrderRep(c, entityId));
   // A rep/customer has no document:write grant at all (see comment above), but
   // they should still be able to attach their own files to a ticket they
   // filed (e.g. a photo for an RMA) — scoped to exactly that ticket via
@@ -127,7 +162,12 @@ app.get('/', requirePermission('document:read'), async (c) => {
   const entityId = c.req.query('entity_id');
   if (!isEntityType(entityType)) return c.json({ success: false, message: 'Unknown entity_type' }, 400);
   if (!entityId) return c.json({ success: false, message: 'entity_id is required' }, 400);
-  if (entityType === 'quote' && !canAccessQuoteDocs(c, 'quote:read')) return forbidden(c);
+  if (entityType === 'quote') {
+    if (!canAccessQuoteDocs(c, 'quote:read')) return forbidden(c);
+    if (!(await quoteOwnedByCaller(c, entityId, 'quote:read'))) {
+      return c.json({ success: false, message: 'Not found' }, 404);
+    }
+  }
 
   try {
     let rows = await listDocuments(execQuery, c.env, entityType, entityId);
@@ -152,7 +192,10 @@ app.post('/', async (c) => {
   }
   const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType, body.entityId);
   if (!allowed) return forbidden(c);
-  if (body.entityType === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
+  if (body.entityType === 'quote') {
+    if (!canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
+    if (!(await quoteOwnedByCaller(c, body.entityId, 'quote:write'))) return forbidden(c);
+  }
   if (restrictedOrderDocs && !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)) {
     return c.json({ success: false, message: `doc_type must be one of: ${REP_VISIBLE_ORDER_DOC_TYPES.join(', ')}` }, 400);
   }
@@ -183,7 +226,10 @@ app.put('/:id', async (c) => {
     const existing = await getDocument(execQuery, c.env, c.req.param('id'));
     const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '', existing?.entity_id);
     if (!allowed) return forbidden(c);
-    if (existing?.entity_type === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
+    if (existing?.entity_type === 'quote') {
+      if (!canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
+      if (!(await quoteOwnedByCaller(c, existing.entity_id, 'quote:write'))) return forbidden(c);
+    }
     if (
       body.docType !== undefined &&
       restrictedOrderDocs &&
@@ -212,7 +258,10 @@ app.delete('/:id', async (c) => {
   if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
   const { allowed } = await resolveWriteAccess(c, existing.entity_type, existing.entity_id);
   if (!allowed) return forbidden(c);
-  if (existing.entity_type === 'quote' && !canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
+  if (existing.entity_type === 'quote') {
+    if (!canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
+    if (!(await quoteOwnedByCaller(c, existing.entity_id, 'quote:write'))) return forbidden(c);
+  }
   const row = await deleteDocument(execQuery, c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Document not found' }, 404);
   return c.json({ success: true, data: row });

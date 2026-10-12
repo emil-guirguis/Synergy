@@ -23,7 +23,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 
 import { verify } from 'hono/jwt';
 import { query } from '../db';
-import { clearUserCache } from '../middleware';
+import { clearUserCache, clearPermissionCache } from '../middleware';
 import aiChatApp from './aiChat';
 import type { Env } from '../db';
 import Anthropic from '@anthropic-ai/sdk';
@@ -64,6 +64,7 @@ describe('AI Chat Routes', () => {
       messages = { create: mockCreate };
     } as any);
     clearUserCache();
+    clearPermissionCache();
     setupAuth();
   });
 
@@ -159,15 +160,23 @@ describe('AI Chat Routes', () => {
           content: [{ type: 'text', text: 'You have 3 meters.' }],
         });
 
-      // Tool executes a DB query
-      mockQuery
-        .mockResolvedValueOnce({
-          rows: [
-            { meter_id: 1, name: 'Meter A', serial_number: 'SN001', location_name: 'Building 1', latest_kwh: 100, latest_reading_at: new Date() },
-            { meter_id: 2, name: 'Meter B', serial_number: 'SN002', location_name: 'Building 2', latest_kwh: 200, latest_reading_at: new Date() },
-            { meter_id: 3, name: 'Meter C', serial_number: 'SN003', location_name: null, latest_kwh: null, latest_reading_at: null },
-          ],
-        } as any);
+      // The route now also resolves the full user + permissions (getCachedUser,
+      // role_permission) before the tool ever runs — layer the tool's own
+      // meter query on top of the base auth routing (by SQL content) instead
+      // of a bare "next call" queue, which the auth calls would consume first.
+      const baseAuth = authQuery(ADMIN_USER);
+      mockQuery.mockImplementation(async (env: any, sql: string, params?: any[]) => {
+        if (/FROM meter m/.test(sql)) {
+          return {
+            rows: [
+              { meter_id: 1, name: 'Meter A', serial_number: 'SN001', location_name: 'Building 1', latest_kwh: 100, latest_reading_at: new Date() },
+              { meter_id: 2, name: 'Meter B', serial_number: 'SN002', location_name: 'Building 2', latest_kwh: 200, latest_reading_at: new Date() },
+              { meter_id: 3, name: 'Meter C', serial_number: 'SN003', location_name: null, latest_kwh: null, latest_reading_at: null },
+            ],
+          } as any;
+        }
+        return baseAuth(env, sql, params);
+      });
 
       const res = await aiChatApp.request('/', {
         method: 'POST',
@@ -245,6 +254,79 @@ describe('AI Chat Routes', () => {
       }, TEST_ENV);
 
       expect(res.status).toBe(401);
+    });
+  });
+
+  // This route previously had only authenticateToken — any authenticated
+  // tenant user got every tool regardless of role. toolAllowed()/
+  // TOOL_PERMISSION now gate each tool by the real module permission its
+  // data belongs to (meter:read, notification:read, dashboard:read).
+  describe('POST / — per-tool permission gating', () => {
+    async function send(message = 'hi') {
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] });
+      await aiChatApp.request('/', {
+        method: 'POST',
+        headers: { authorization: 'Bearer valid-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ message }),
+      }, TEST_ENV);
+      return mockCreate.mock.calls[0][0].tools.map((t: any) => t.name);
+    }
+
+    it('a full-access caller gets every tool', async () => {
+      const names = await send();
+      for (const n of ['list_meters', 'get_meter_readings', 'list_notification_rules', 'get_recent_alerts', 'get_dashboard_summary']) {
+        expect(names).toContain(n);
+      }
+    });
+
+    it('drops meter tools without meter:read', async () => {
+      mockQuery.mockImplementation(authQuery(
+        { users_id: 2, name: 'Viewer', email: 'viewer@test.com', role: 'viewer', active: true, tenant_id: 1, permissions: {}, role_id: 2 },
+        [
+          { permission: 'notification:read', scope: 'all', hidden_fields: [] },
+          { permission: 'dashboard:read', scope: 'all', hidden_fields: [] },
+        ]
+      ));
+      const names = await send();
+      expect(names).not.toContain('list_meters');
+      expect(names).not.toContain('get_meter_readings');
+      expect(names).toContain('list_notification_rules');
+      expect(names).toContain('get_dashboard_summary');
+    });
+
+    it('drops notification tools without notification:read', async () => {
+      mockQuery.mockImplementation(authQuery(
+        { users_id: 3, name: 'Viewer2', email: 'viewer2@test.com', role: 'viewer', active: true, tenant_id: 1, permissions: {}, role_id: 3 },
+        [
+          { permission: 'meter:read', scope: 'all', hidden_fields: [] },
+          { permission: 'dashboard:read', scope: 'all', hidden_fields: [] },
+        ]
+      ));
+      const names = await send();
+      expect(names).not.toContain('list_notification_rules');
+      expect(names).not.toContain('get_recent_alerts');
+      expect(names).toContain('list_meters');
+    });
+
+    it('drops get_dashboard_summary without dashboard:read', async () => {
+      mockQuery.mockImplementation(authQuery(
+        { users_id: 4, name: 'Viewer3', email: 'viewer3@test.com', role: 'viewer', active: true, tenant_id: 1, permissions: {}, role_id: 4 },
+        [{ permission: 'meter:read', scope: 'all', hidden_fields: [] }]
+      ));
+      const names = await send();
+      expect(names).not.toContain('get_dashboard_summary');
+      expect(names).toContain('list_meters');
+    });
+
+    it('a caller with no grants at all gets no tenant-data tools (memory tool aside)', async () => {
+      mockQuery.mockImplementation(authQuery(
+        { users_id: 5, name: 'Nobody', email: 'nobody@test.com', role: 'none', active: true, tenant_id: 1, permissions: {}, role_id: 5 },
+        []
+      ));
+      const names = await send();
+      for (const n of ['list_meters', 'get_meter_readings', 'list_notification_rules', 'get_recent_alerts', 'get_dashboard_summary']) {
+        expect(names).not.toContain(n);
+      }
     });
   });
 });
