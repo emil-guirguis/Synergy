@@ -1,5 +1,5 @@
 /**
- * Rep Portal — admin hub for rep access requests.
+ * Portal — admin hub for rep access requests.
  *
  * Approve/delete applicants who requested rep access. Both talk to the shared
  * Supabase project directly (PostgREST / edge functions) with the admin's

@@ -1,4 +1,4 @@
-# Publishes the TBWC rep portal to tbwctechnology.com/portal/.
+# Publishes the TBWC portal to tbwctechnology.com/portal/.
 #
 # The portal's source lives here, but it is served from the tbwc-site repo
 # (tbwc-emil/tbwc-site), which GitHub Pages builds from the root of master — the
@@ -102,7 +102,7 @@ jobs:
             echo "Portal build unchanged — nothing to publish."
             exit 0
           fi
-          git commit             -m "Update rep portal build from Synergy ${GITHUB_SHA::7}"             -m "Built from ${GITHUB_REPOSITORY}@${GITHUB_SHA} by .github/workflows/deploy-tbwc-portal.yml"
+          git commit             -m "Update portal build from Synergy ${GITHUB_SHA::7}"             -m "Built from ${GITHUB_REPOSITORY}@${GITHUB_SHA} by .github/workflows/deploy-tbwc-portal.yml"
           # Someone may have pushed to the site between checkout and now; the build
           # output is ours alone, so replaying it on top of theirs is safe.
           git pull --rebase origin ${{ env.SITE_BRANCH }}

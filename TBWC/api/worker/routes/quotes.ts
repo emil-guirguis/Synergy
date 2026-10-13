@@ -26,6 +26,17 @@ const [DEFAULT_SORT_FIELD, DEFAULT_SORT_ORDER] = quoteSchema.schema.defaultSortB
 const SEARCH = ['customer_name', 'ref_number'];
 const LIKE_FIELDS = likeFieldsFromSchema(quoteSchema);
 
+// Sales rep identity always comes from here now, not the old freeform
+// sales_rep text column (dropped from quoteSchema.ts — see
+// scripts/import-quotes-from-folders.cjs / backfill-sales-rep-id.cjs for why
+// a wrong rep match would be a real permission leak, not just cosmetic).
+// `sr.name AS sales_rep` after "quote".* relies on node-postgres's row
+// construction taking the LAST same-named column, so this overrides the raw
+// stored value with the live join result (verified against pg 8.23) —
+// null/blank for a quote whose rep was never matched, same as before.
+const REP_JOIN = 'LEFT JOIN public.qb_sales_rep sr ON sr.list_id = "quote".sales_rep_list_id';
+const REP_SELECT = '"quote".*, sr.name AS sales_rep';
+
 /** True when this caller's quote:read grant is limited to their own rows. */
 function ownOnly(c: any): boolean {
   return c.get('permissions')?.scopeOf('quote:read') === 'own';
@@ -101,29 +112,6 @@ async function resolveCustomer(env: Env, listId: string): Promise<{ full_name: s
   return r.rows[0] ?? null;
 }
 
-/**
- * Overwrites each row's sales_rep with the live qb_sales_rep.name for its
- * sales_rep_list_id (falls back to the stored string when unlinked). The
- * stored column is write-once at creation (see POST below) and can go stale
- * or — for rows inherited from the old QB-Estimate sync (migration 070) —
- * hold the QB SalesRepRef's initials rather than the rep's spelled-out name
- * (same initials-vs-name gap fixed for search in migration/salesRep.ts).
- */
-async function resolveSalesRepNames(env: Env, rows: any[]): Promise<void> {
-  const listIds = [...new Set(rows.map((r) => r.sales_rep_list_id).filter(Boolean))];
-  if (listIds.length === 0) return;
-  const r = await execQuery(
-    env,
-    `SELECT list_id, name FROM public.qb_sales_rep WHERE list_id IN (${listIds.map((_, i) => `$${i + 1}`).join(', ')})`,
-    listIds,
-    'quotes.resolveSalesRepNames'
-  );
-  const nameByListId = new Map(r.rows.map((row) => [row.list_id, row.name]));
-  for (const row of rows) {
-    row.sales_rep = nameByListId.get(row.sales_rep_list_id) ?? row.sales_rep;
-  }
-}
-
 app.get('/', requirePermission('quote:read'), async (c) => {
   const user = c.get('user');
   const q = c.req.query();
@@ -152,21 +140,21 @@ app.get('/', requirePermission('quote:read'), async (c) => {
     where,
     whereLike,
     whereRaw,
+    joins: REP_JOIN,
+    selectFields: REP_SELECT,
   });
-  await resolveSalesRepNames(c.env, result.rows);
   const items = redactRows(c.get('permissions'), 'quote:read', result.rows);
   return c.json({ success: true, data: { items, total: result.pagination.total } });
 });
 
 app.get('/:id', requirePermission('quote:read'), async (c) => {
   const user = c.get('user');
-  const row = await findById(c.env, TABLE, PK, c.req.param('id'));
+  const row = await findById(c.env, TABLE, PK, c.req.param('id'), undefined, REP_SELECT, REP_JOIN);
   if (!row) return c.json({ success: false, message: 'Quote not found' }, 404);
   if (ownOnly(c) && (!row.sales_rep_list_id || !visibleRepListIds(user).includes(row.sales_rep_list_id))) {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
   row.lines = await fetchLines(c.env, row.quote_id);
-  await resolveSalesRepNames(c.env, [row]);
   return c.json({ success: true, data: redactRow(c.get('permissions'), 'quote:read', row) });
 });
 
@@ -183,9 +171,11 @@ app.post('/', requirePermission('quote:write'), async (c) => {
   const lines = Array.isArray(body.lines) ? body.lines : [];
   const quoteId = await withTransaction(c.env, async (q) => {
     const r = await q(
+      // No sales_rep column write — identity is sales_rep_list_id alone now,
+      // resolved to a name on read via REP_JOIN, never stored as text.
       `INSERT INTO public.quote
-         (customer_list_id, customer_name, txn_date, total, memo, sales_rep_list_id, sales_rep, status, ref_number, job_name, engineer_name, po_date)
-       VALUES ($1,$2,$3,0,$4,$5,$6,COALESCE($7, 'quote'),$8,$9,$10,$11)
+         (customer_list_id, customer_name, txn_date, total, memo, sales_rep_list_id, status, ref_number, job_name, engineer_name, po_date)
+       VALUES ($1,$2,$3,0,$4,$5,COALESCE($6, 'quote'),$7,$8,$9,$10)
        RETURNING quote_id`,
       [
         body.customer_list_id,
@@ -195,7 +185,6 @@ app.post('/', requirePermission('quote:write'), async (c) => {
         body.txn_date ?? new Date().toISOString().slice(0, 10),
         body.memo ?? null,
         body.sales_rep_list_id ?? user.sales_rep_list_id ?? null,
-        body.sales_rep ?? user.sales_rep_name ?? null,
         body.status ?? null,
         body.ref_number ?? null,
         body.job_name ?? null,
@@ -207,7 +196,7 @@ app.post('/', requirePermission('quote:write'), async (c) => {
     if (lines.length > 0) await replaceLines(q, quoteId, lines);
     return quoteId;
   });
-  const row = await findById(c.env, TABLE, PK, quoteId);
+  const row = await findById(c.env, TABLE, PK, quoteId, undefined, REP_SELECT, REP_JOIN);
   row.lines = await fetchLines(c.env, quoteId);
   return c.json({ success: true, data: redactRow(c.get('permissions'), 'quote:read', row) }, 201);
 });
@@ -261,7 +250,7 @@ app.put('/:id', requirePermission('quote:write'), async (c) => {
     if (newLines !== null) await replaceLines(q, id, newLines);
   });
 
-  const row = await findById(c.env, TABLE, PK, id);
+  const row = await findById(c.env, TABLE, PK, id, undefined, REP_SELECT, REP_JOIN);
   row.lines = await fetchLines(c.env, id);
   return c.json({ success: true, data: row });
 });

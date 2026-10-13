@@ -14,7 +14,7 @@ export const usersSchema = defineSchema({
   entityName: 'User',
   tableName: 'users',
   idFieldName: 'id',
-  description: 'Rep portal user profile (tbwc-site public.users)',
+  description: 'Portal user profile (tbwc-site public.users)',
   formMaxWidth: '760px',
   customListColumns: {},
   defaultSortBy: 'first_name asc',

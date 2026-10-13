@@ -37,6 +37,20 @@ CREATE TABLE IF NOT EXISTS public.document (
   storage_path   varchar(1000),
   -- DB-blob backend (unused today; see header).
   content        bytea,
+  -- Text extracted from the file (pdf/docx/xlsx/plain text — see
+  -- api/base/aiSearch.ts's extractDocumentText), indexed below for fast full-
+  -- text search instead of downloading+parsing every file on each query (the
+  -- same idea as SQL Server Full-Text Search: a maintained index, not a live
+  -- CONTAINS()-style scan). NULL = not yet indexed (brand new upload, or
+  -- pending the next backfill sweep); '' = indexed and genuinely has no
+  -- extractable text (e.g. an image-only PDF, or an unsupported binary type).
+  extracted_text text,
+  extracted_at   timestamptz,
+  -- Maintained alongside extracted_text by the same write (indexDocumentContent
+  -- in api/base/aiSearch.ts) rather than a GENERATED column, because
+  -- to_tsvector() is STABLE, not IMMUTABLE, in Postgres — generated-column
+  -- expressions require IMMUTABLE.
+  search_vector  tsvector,
   created_by     uuid,
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
@@ -55,6 +69,9 @@ CREATE TABLE IF NOT EXISTS public.document (
 
 CREATE INDEX IF NOT EXISTS document_entity_idx
   ON public.document (entity_type, entity_id);
+
+CREATE INDEX IF NOT EXISTS document_search_vector_idx
+  ON public.document USING gin (search_vector);
 
 ALTER TABLE public.document OWNER TO postgres;
 -- Worker connects as postgres (table owner, bypasses RLS). RLS on + no policies

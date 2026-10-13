@@ -1,4 +1,4 @@
--- TBWC migration 054 — rep-docs (Rep Portal "Resources") bucket RLS policies.
+-- TBWC migration 054 — rep-docs (Portal "Resources") bucket RLS policies.
 --
 -- COPY of tbwc-site/scripts/schema.sql lines ~208-241 (canonical — that repo owns
 -- the bucket + the is_admin()/is_approved_rep() helper functions, shared with

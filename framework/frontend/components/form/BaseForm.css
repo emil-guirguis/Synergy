@@ -385,6 +385,19 @@ div.form-container div.MuiFormControl-root {
   color: var(--color-error, #dc2626);
 }
 
+/* Schema loading skeleton */
+.form-loading-skeleton {
+  padding: 1.5rem;
+}
+
+.form-loading-skeleton__row {
+  margin-bottom: 1.25rem;
+}
+
+.form-loading-skeleton__row > :first-child {
+  margin-bottom: 0.375rem;
+}
+
 /* MUI components handle all input styling - removed to prevent conflicts */
 
 /* Error message */

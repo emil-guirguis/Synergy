@@ -181,12 +181,17 @@ export async function fetchSchema(
   const defaultBaseUrl = typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL 
     ? (import.meta as any).env.VITE_API_BASE_URL 
     : 'http://localhost:3001/api';
-  // Default OFF in dev (`vite dev`) so schema edits (fields, sections, tabs, layout)
-  // show up on the next reload instead of being masked by the 30-min cache — this was
-  // the cause of "I edited the schema and don't see the change locally" reports.
-  // Explicit `cache` in options (e.g. prefetchSchemas) always wins.
   const isDev = typeof import.meta !== 'undefined' && !!(import.meta as any).env?.DEV;
-  const { cache = !isDev, baseUrl = defaultBaseUrl, ttl = CACHE_TTL } = options;
+  const { cache = true, baseUrl = defaultBaseUrl, ttl = CACHE_TTL } = options;
+  // localStorage persistence is OFF in dev (`vite dev`) so schema edits (fields,
+  // sections, tabs, layout) show up on the next reload instead of being masked by
+  // the 30-min cache surviving F5 — this was the cause of "I edited the schema and
+  // don't see the change locally" reports. The in-memory cache stays on in dev too:
+  // it's a plain JS Map, so a hard reload already clears it naturally, and leaving
+  // it off was forcing a network refetch on every single form mount within the same
+  // session (every tab switch, every dialog open) — the cause of slow/flashing
+  // "Loading form schema..." reports.
+  const persist = cache && !isDev;
 
   // 1. Check in-memory cache
   if (cache && schemaCache.has(entityName)) {
@@ -200,7 +205,7 @@ export async function fetchSchema(
   }
 
   // 2. Check localStorage (survives F5)
-  if (cache) {
+  if (persist) {
     const stored = hydrateFromStorage(entityName);
     if (stored) {
       return stored.schema;
@@ -243,7 +248,7 @@ export async function fetchSchema(
     if (cache) {
       const entry: CacheEntry = { schema, timestamp: Date.now() };
       schemaCache.set(entityName, entry);
-      persistToStorage(entityName, entry);
+      if (persist) persistToStorage(entityName, entry);
     }
 
     return schema;

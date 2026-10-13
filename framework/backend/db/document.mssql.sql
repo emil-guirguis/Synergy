@@ -7,6 +7,12 @@
 -- INSERTED.*` / `OUTPUT DELETED.*`, and $1-style placeholders become @p1.
 -- If `content` is ever used, the driver parameter MUST be declared
 -- VarBinary(MAX) — the default inferred length silently truncates at 8000 bytes.
+--
+-- extracted_text/search_vector (see document.sql) have no SQL Server
+-- equivalent shown here: that engine's answer is a Full-Text Index on
+-- extracted_text itself (CREATE FULLTEXT INDEX ... KEY INDEX document_pkey)
+-- queried with CONTAINS()/FREETEXT(), not a separate indexed column like
+-- Postgres's tsvector — so there is no search_vector column to add on this side.
 
 IF OBJECT_ID('dbo.document', 'U') IS NULL
 BEGIN
@@ -22,6 +28,8 @@ BEGIN
     storage_bucket NVARCHAR(100) NULL,
     storage_path   NVARCHAR(1000) NULL,
     content        VARBINARY(MAX) NULL,
+    extracted_text NVARCHAR(MAX) NULL,
+    extracted_at   DATETIME2 NULL,
     created_by     UNIQUEIDENTIFIER NULL,
     created_at     DATETIME2 NOT NULL CONSTRAINT document_created_at_default DEFAULT SYSUTCDATETIME(),
     updated_at     DATETIME2 NOT NULL CONSTRAINT document_updated_at_default DEFAULT SYSUTCDATETIME(),

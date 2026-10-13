@@ -41,7 +41,7 @@ export const PERMISSIONS = [
   // leaf under Utilities instead of the three the sidebar actually has.
   'resource:read',
   'resource:write',
-  // Rep Portal access requests (nav: Utilities > Rep Approvals). Previously
+  // Portal access requests (nav: Utilities > Rep Approvals). Previously
   // gated by is_admin + the unused users.can_approve_rep_leads column instead
   // of a role grant — see routes/AppRoutes.tsx history.
   'repApproval:write',

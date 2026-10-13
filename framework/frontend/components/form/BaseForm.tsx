@@ -8,7 +8,7 @@ import { FormTabs } from './FormTabs';
 import { ValidationFieldSelect } from '../validationfieldselect/ValidationFieldSelect';
 import { FormField } from '../formfield/FormField';
 import { TIMEZONE_OPTIONS } from '../formfield/fieldOptions';
-import { Tooltip } from '@mui/material';
+import { Tooltip, Skeleton } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import RouterOutlinedIcon from '@mui/icons-material/RouterOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
@@ -412,11 +412,21 @@ export const BaseForm: React.FC<BaseFormProps> = ({
     );
   };
 
-  // Dynamic form loading state
+  // Dynamic form loading state — skeleton mirrors the eventual form shape
+  // (tab bar + label/field rows) instead of a bare text flash, which read as
+  // a broken page when it appeared for only a couple hundred ms.
   if (isDynamicForm && schemaLoading) {
     return (
       <div className={formClassName}>
-        <div className="form-loading">Loading form schema...</div>
+        <div className="form-loading-skeleton" aria-busy="true" aria-live="polite">
+          <Skeleton variant="rounded" width={240} height={32} sx={{ mb: 3 }} />
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="form-loading-skeleton__row">
+              <Skeleton variant="text" width="30%" height={20} />
+              <Skeleton variant="rounded" height={40} />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

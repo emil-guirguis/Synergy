@@ -64,7 +64,12 @@ vi.mock('../db', () => ({
 import documentsApp from './documents';
 
 const ENV = {} as any;
-const req = (path: string, init?: RequestInit) => documentsApp.request(path, init, ENV);
+// Real Workers give every request a live ExecutionContext; Hono's test
+// request() leaves it undefined unless passed explicitly, so routes using
+// c.executionCtx.waitUntil() (e.g. the indexDocumentContent kick-off below)
+// need this stub or they throw "This context has no ExecutionContext".
+const EXECUTION_CTX = { waitUntil: (p: Promise<any>) => { p.catch(() => {}); }, passThroughOnException: () => {}, props: {} };
+const req = (path: string, init?: RequestInit) => documentsApp.request(path, init, ENV, EXECUTION_CTX);
 const json = (method: string, body: any) => ({
   method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' },
 });
@@ -114,6 +119,14 @@ describe('POST / — quote gate', () => {
     mockCreateDocument.mockResolvedValue({ document_id: 1, ...body });
     const res = await req('/', json('POST', body));
     expect(res.status).toBe(201);
+  });
+
+  it('kicks off content indexing in the background without delaying the response', async () => {
+    mockCreateDocument.mockResolvedValue({ document_id: 1, storage_bucket: 'record-docs', storage_path: 'quote/1/a.pdf', mime_type: 'application/pdf', file_name: 'a.pdf' });
+    const waitUntilSpy = vi.spyOn(EXECUTION_CTX, 'waitUntil');
+    const res = await req('/', json('POST', body));
+    expect(res.status).toBe(201);
+    expect(waitUntilSpy).toHaveBeenCalledTimes(1);
   });
 });
 

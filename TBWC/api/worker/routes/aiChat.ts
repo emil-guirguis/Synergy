@@ -563,6 +563,27 @@ const TOOLS: AiChatTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'search_support_tickets',
+      description:
+        'Search support tickets by serial number, job name, title/description text, PO/order/invoice number, or ' +
+        'filer contact name/email — use this for any question about a support ticket, issue, complaint, or RMA, ' +
+        'including "which ticket mentions serial number X" or "is there a ticket for job Y". Optionally filter by ' +
+        "status. A caller with support:read scoped to 'own' only sees tickets they filed themselves — this tool " +
+        "already applies that, so an empty result may just mean the caller can't see a ticket that exists.",
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text to match (substring, case-insensitive) against serial number, job name, title, description, PO/order/invoice number, or contact name/email' },
+          status: { type: 'string', enum: ['open', 'in_progress', 'resolved', 'closed'], description: 'Optional: filter to one status' },
+          limit: { type: 'number', description: 'Maximum number of tickets to return (default 20)' },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 // The full-tool-set admin/employee caller is 'all'; a rep (scope 'own' —
@@ -649,6 +670,7 @@ const TOOL_PERMISSION: Record<string, string> = {
   // admin-only permission (see permissions.ts), not derivable from holding
   // several other :read permissions at 'all' scope.
   run_sql_query: 'aichat:sql',
+  search_support_tickets: 'support:read',
 };
 
 /** Tools whose primary permission (above) resolves an order/quote by id, but
@@ -900,7 +922,22 @@ async function executeTool(env: Env, user: any, permissions: PermissionSet, tool
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 20, 100);
         const entityTypes = allowedDocEntityTypes(permissions);
-        const { matches } = await searchDocumentsMetadata(execQuery, env, text, { entityTypes });
+        const { matches, candidates } = await searchDocumentsMetadata(execQuery, env, text, { entityTypes });
+        if (matches.length === 0 && candidates && candidates.length > 0) {
+          // No file name/type literally shared a word with the query — hand the
+          // model the real candidate list instead of reporting "not found" on an
+          // empty array it never got to reason over (e.g. "Dent PowerScout
+          // Manual" vs the file "Dent PowerScout Meters Owners Manual.pdf").
+          return JSON.stringify({
+            matches: [],
+            note:
+              'No document name/type literally matched the search text, but here is every document name currently ' +
+              'available (availableDocuments). If one clearly refers to what the user asked for — even phrased ' +
+              "differently — tell them you found it and name it exactly as listed. Don't claim a match that isn't " +
+              "plausibly the same document, and don't invent a document not in this list.",
+            availableDocuments: candidates,
+          });
+        }
         return JSON.stringify(matches.slice(0, limit));
       }
 
@@ -1118,6 +1155,55 @@ ${guard.statement}
           total: row.total != null ? Number(row.total) : null,
         };
         return sendDocumentEmail(env, header, toDocumentLines(row.lines), recipientEmail);
+      }
+
+      case 'search_support_tickets': {
+        const text = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        const status = typeof toolInput.status === 'string' ? toolInput.status.trim() : '';
+        if (!text && !status) return JSON.stringify({ error: 'text or status is required' });
+        const limit = Math.min(toolInput.limit ?? 20, 100);
+        const params: any[] = [];
+        const conditions: string[] = [];
+        if (text) {
+          params.push(text);
+          conditions.push(
+            `(serial_number ILIKE '%' || $${params.length} || '%'
+               OR job_name ILIKE '%' || $${params.length} || '%'
+               OR title ILIKE '%' || $${params.length} || '%'
+               OR description ILIKE '%' || $${params.length} || '%'
+               OR po_number ILIKE '%' || $${params.length} || '%'
+               OR order_number ILIKE '%' || $${params.length} || '%'
+               OR invoice_number ILIKE '%' || $${params.length} || '%'
+               OR contact_name ILIKE '%' || $${params.length} || '%'
+               OR contact_email ILIKE '%' || $${params.length} || '%')`
+          );
+        }
+        if (status) {
+          params.push(status);
+          conditions.push(`status = $${params.length}`);
+        }
+        // Same own/all split as routes/support.ts's ownOnly() — TBWC has no
+        // tenant concept, so 'own' scope means the ticket's own filer, not a
+        // rep-list match (ownScopeClause above is for that, different shape).
+        if (permissions.scopeOf('support:read') === 'own') {
+          params.push(user.id);
+          conditions.push(`users_id = $${params.length}`);
+        }
+        params.push(limit);
+        const result = await execQuery(
+          env,
+          `SELECT support_ticket_id, 'TK-' || LPAD(support_ticket_id::text, 6, '0') AS ticket_number,
+                  title, description, type, status, priority, serial_number, job_name,
+                  po_number, order_number, invoice_number, contact_name, contact_email,
+                  created_at, resolved_at
+             FROM public.support_ticket
+            WHERE ${conditions.join(' AND ')}
+            ORDER BY created_at DESC
+            LIMIT $${params.length}`,
+          params,
+          'aiChat.search_support_tickets'
+        );
+        return JSON.stringify(result.rows);
       }
 
       case 'search_customers': {
@@ -1366,6 +1452,7 @@ Guidelines:
 - A request for a document, file, photo, or attachment uses search_documents (file name/type only, not contents) — don't say you have no access to documents.
 - If the user wants something found inside a file's actual contents (not just its name/type), use search_document_contents — you DO have access to read inside PDF/DOCX/XLSX/text files. Don't tell the user you can only search by name/type/MIME type; that's only true of search_documents, not the tool set as a whole.
 - "Which orders have a [X] document" / "latest orders with a [X] attached" is about orders, not documents — use search_orders_by_document, not search_documents. It already sorts most-recent-order-first and returns one row per order.
+- A question about a support ticket, issue, complaint, or RMA — including "is there a ticket for job X" or "which ticket mentions serial number Y" — uses search_support_tickets, not search_orders/search_order_lines even though a serial number or job name is involved. If the caller lacks support:read, you won't see this tool at all; don't tell them tickets don't exist, just answer from whatever tools you do have.
 - "The [document type] for [customer/job/order]" (a SPECIFIC customer or order was named) is a two-step lookup: resolve the order with search_orders first (customer name, job name, or address all work), then call get_order_documents with that order's qb_sales_order_id. NEVER use search_orders_by_document or search_documents for this — both search across every order regardless of customer, so their top result can easily belong to someone else. Only present a document as matching the customer/order the user asked about if you got it back from get_order_documents for that exact order's id, or you independently confirmed (e.g. via search_orders) that the order it came from is theirs — never assume a search_orders_by_document/search_documents hit is the right customer just because it matched a document type.
 - Only write out details in prose when there's no search result to back it up, or when the user asks a follow-up question about one specific result.
 - If nothing matches, say so plainly rather than inventing results.

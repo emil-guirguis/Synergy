@@ -348,42 +348,6 @@ describe('PUT /:id', () => {
   });
 });
 
-describe('GET /lookup-po/:po', () => {
-  it('400s an empty/whitespace po', async () => {
-    const res = await req('/lookup-po/%20');
-    expect(res.status).toBe(400);
-    expect(mockExecQuery).not.toHaveBeenCalled();
-  });
-
-  it('trims the po before querying, and queries an exact (not partial) match', async () => {
-    mockExecQuery.mockResolvedValue({ rows: [] });
-    await req('/lookup-po/%20PO-100%20');
-    expect(mockExecQuery.mock.calls[0][2]).toEqual(['PO-100']);
-    expect(mockExecQuery.mock.calls[0][1]).toContain('lower(btrim(po_number)) = lower($1)');
-  });
-
-  it('returns the single matching order for an admin', async () => {
-    mockExecQuery.mockResolvedValue({
-      rows: [{ qb_sales_order_id: 5, ref_number: 'SO-5', customer_name: 'Acme', po_number: 'PO-100', sales_rep_list_id: null }],
-    });
-    const res = await req('/lookup-po/PO-100');
-    expect(res.status).toBe(200);
-    const body: any = await res.json();
-    expect(body.data).toEqual([{ qb_sales_order_id: 5, ref_number: 'SO-5', customer_name: 'Acme', po_number: 'PO-100', sales_rep_list_id: null }]);
-  });
-
-  it('filters out orders that do not belong to an own-scoped rep', async () => {
-    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
-    currentPermSet = repPermSet();
-    mockExecQuery.mockResolvedValue({
-      rows: [{ qb_sales_order_id: 5, ref_number: 'SO-5', sales_rep_list_id: 'OTHER-REP' }],
-    });
-    const res = await req('/lookup-po/PO-100');
-    const body: any = await res.json();
-    expect(body.data).toEqual([]);
-  });
-});
-
 describe('POST / creates a Hold for Release order', () => {
   it('400s with no customer_list_id', async () => {
     const res = await req('/', json('POST', { ref_number: 'HFR-1' }));

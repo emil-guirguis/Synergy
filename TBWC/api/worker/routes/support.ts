@@ -115,11 +115,11 @@ app.get('/analytics', requirePermission('support:write'), async (c) => {
   });
 });
 
-// Exact PO lookup while filing/editing a ticket (mirrors orders.ts's own
-// /lookup-po/:po) — just existence + display info, not scoped to the
-// caller's own orders like order:read is, since a ticket filer may not hold
-// order:read at all (e.g. a plain customer-facing rep). Registered above
-// /:id so Hono doesn't route "validate-po" there as an id.
+// Exact (trimmed, case-insensitive) PO lookup while filing/editing a ticket —
+// just existence + display info, not scoped to the caller's own orders like
+// order:read is, since a ticket filer may not hold order:read at all (e.g. a
+// plain customer-facing rep). Registered above /:id so Hono doesn't route
+// "validate-po" there as an id.
 app.get('/validate-po/:po', requirePermission('support:read'), async (c) => {
   const po = c.req.param('po').trim();
   if (!po) return c.json({ success: false, message: 'po is required' }, 400);

@@ -316,35 +316,6 @@ app.get('/', requirePermission('order:read'), async (c) => {
   return c.json({ success: true, data: { items, total: result.pagination.total } });
 });
 
-// Full match-key + TBWC-owned-field snapshot of every non-deleted order, in one
-// query — used by Settings > Commission Import (see CommissionImportPanel.tsx)
-// to resolve each spreadsheet row's TBWC#/PO# to an order and diff the sheet's
-// values against what's already stored, without one request per row (the
-// build-list workbook runs into the thousands of rows). No txn_date cutoff
-// (unlike GET /) since an older order should still be resolvable for backfill.
-// Registered ABOVE GET /:id deliberately — both are single path segments, and
-// Hono matches these in registration order, so this being below /:id meant
-// "import-index" itself was captured as :id (bigint cast error, 500).
-app.get('/import-index', requirePermission('order:write'), async (c) => {
-  const user = c.get('user');
-  const { rows } = await execQuery(
-    c.env,
-    `SELECT qb_sales_order_id, ref_number, po_number, customer_name, sales_rep_list_id,
-            build_notes, job_name, expedite, jay, ship_no_later_than, actual_ship_date,
-            sold_for, d_net_cost, overage, commission, project_admin_fee, trade_ally_fee,
-            commission_total, notes
-       FROM public.${TABLE}
-      WHERE qb_deleted_at IS NULL`,
-    [],
-    'orders.importIndex'
-  );
-  const importRepIds = visibleRepListIds(user);
-  const visible = ownOnly(c)
-    ? rows.filter((r: any) => r.sales_rep_list_id && importRepIds.includes(r.sales_rep_list_id))
-    : rows;
-  return c.json({ success: true, data: redactRows(c.get('permissions'), 'order:read', visible) });
-});
-
 // Revenue Backlog & Pipeline: value of open (Not Invoiced / Partially
 // Invoiced) orders minus what's already invoiced against them — a snapshot
 // of what's still owed to the business, not a per-year sum (unlike
@@ -353,8 +324,8 @@ app.get('/import-index', requirePermission('order:write'), async (c) => {
 // invoiced in more than one pass) — deliberately not the PO-number fallback
 // /:id/invoices uses, since that's an inferred match meant for one order's
 // own detail panel, not something to trust in a company-wide total.
-// Registered above /:id (both are single path segments; see import-index's
-// comment on registration order for why that matters with Hono).
+// Registered above /:id — both are single path segments, and Hono matches
+// these in registration order, so below /:id this would get captured as :id.
 app.get('/reports/backlog', requirePermission('order:read'), async (c) => {
   const user = c.get('user');
   const params: any[] = [];
@@ -410,30 +381,6 @@ app.get('/:id', requirePermission('order:read'), async (c) => {
   }
   row.serial_numbers = await latestInvoiceSerialNumbers(c.env, row);
   return c.json({ success: true, data: redactRow(c.get('permissions'), 'order:read', row) });
-});
-
-// Exact PO lookup for the Settings > Document Import routine (see
-// DocumentImportPanel.tsx): a folder name has to resolve to exactly one order
-// before its files get attached, so this is a trimmed/case-insensitive EXACT
-// match — unlike /?po_number=, which goes through LIKE_FIELDS as a partial
-// ILIKE and would happily "match" every PO that merely contains the string.
-app.get('/lookup-po/:po', requirePermission('order:read'), async (c) => {
-  const user = c.get('user');
-  const po = c.req.param('po').trim();
-  if (!po) return c.json({ success: false, message: 'po is required' }, 400);
-  const { rows } = await execQuery(
-    c.env,
-    `SELECT qb_sales_order_id, ref_number, customer_name, po_number, sales_rep_list_id
-       FROM public.${TABLE}
-      WHERE qb_deleted_at IS NULL AND lower(btrim(po_number)) = lower($1)`,
-    [po],
-    'orders.lookupPo'
-  );
-  const lookupRepIds = visibleRepListIds(user);
-  const visible = ownOnly(c)
-    ? rows.filter((r: any) => r.sales_rep_list_id && lookupRepIds.includes(r.sales_rep_list_id))
-    : rows;
-  return c.json({ success: true, data: redactRows(c.get('permissions'), 'order:read', visible) });
 });
 
 // Invoices linked to this order, for the order form's right-hand panel.

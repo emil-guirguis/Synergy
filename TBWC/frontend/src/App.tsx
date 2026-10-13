@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import '@meterit/framework-frontend/components/common/TableCellStyles.css';
@@ -7,12 +8,21 @@ import AppRoutes from './routes/AppRoutes';
 import LoginPage from './pages/LoginPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import { setupDebugConsole } from './utils/debugConsole';
+import { prefetchAppSchemas } from './utils/schemaPrefetch';
 
 setupDebugConsole();
 
 export default function App() {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
+
+  // Warm the schema cache right after login so the first form/list a user
+  // opens doesn't pay the network round-trip — see schemaPrefetch.ts.
+  useEffect(() => {
+    if (isAuthenticated && !isLoading) {
+      prefetchAppSchemas();
+    }
+  }, [isAuthenticated, isLoading]);
 
   // Reached via the mailed re-verification link with no session — must render
   // ahead of the login gate below. See TBWC/api/worker/reverification.ts.

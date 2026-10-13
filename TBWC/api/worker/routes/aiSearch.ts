@@ -73,7 +73,10 @@ app.post('/content', async (c) => {
       id: d.documentId, name: d.fileName, type: 'document',
       docType: d.docType, mimeType: d.mimeType, entityType: d.entityType, entityId: d.entityId,
       fileSize: d.fileSize, snippet: d.snippet,
-      relevanceScore: Math.min(d.score / 5, 1.0),
+      // d.score is already a 0..1 ts_rank value (see aiSearch.ts's
+      // searchDocumentsContent) — no /5 rescale needed like the old
+      // occurrence-count score had.
+      relevanceScore: d.score,
     }));
 
     return c.json({

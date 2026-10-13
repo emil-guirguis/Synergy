@@ -52,7 +52,15 @@ export const quoteSchema = defineSchema({
               referenceSearch: { endpoint: '/customers', valueField: 'list_id', labelField: 'full_name' },
             }),
             field({ name: 'ref_number', order: 3, type: FieldTypes.STRING, default: '', required: false, label: 'Quote #', dbField: 'ref_number', maxLength: 100, showOn: ['list', 'form'] }),
-            field({ name: 'sales_rep', order: 4, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep', maxLength: 200, showOn: ['list', 'form'] }),
+            // Was a freeform STRING on the old 'sales_rep' text column — real
+            // identity now always comes through a LEFT JOIN against
+            // qb_sales_rep (routes/quotes.ts), keyed by this ID; enumValues
+            // injected at serve time (routes/schema.ts salesRepListIdOptions),
+            // same mechanism as orderSchema's field of the same name.
+            field({
+              name: 'sales_rep_list_id', order: 4, type: FieldTypes.SELECT, default: null, required: false,
+              readOnly: true, label: 'Sales Rep', dbField: 'sales_rep_list_id', enumValues: [], showOn: ['list', 'form'],
+            }),
             // TBWC-owned, manually entered — no QB source, same as
             // qb_sales_order.job_name (migration 020/076).
             field({ name: 'job_name', order: 5, type: FieldTypes.STRING, default: '', required: false, label: 'Job Name', dbField: 'job_name', maxLength: 300, showOn: ['list', 'form'] }),
@@ -149,10 +157,6 @@ export const quoteSchema = defineSchema({
 
   entityFields: {
     quote_id: field({ name: 'quote_id', type: FieldTypes.NUMBER, default: null, readOnly: true, label: 'ID', dbField: 'quote_id' }),
-    // Not list/form-shown — options carrier for the list's rep filter, keyed
-    // by list_id (mirrors orderSchema's sales_rep_list_id); injected at serve
-    // time from public.qb_sales_rep (see routes/schema.ts).
-    sales_rep_list_id: field({ name: 'sales_rep_list_id', type: FieldTypes.SELECT, default: null, readOnly: true, label: 'Sales Rep', dbField: 'sales_rep_list_id', enumValues: [] }),
   },
   validation: {},
 });

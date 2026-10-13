@@ -39,6 +39,7 @@ import contactRoutes from './routes/contact';
 import { lockStaleReps } from './reverification';
 import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
 import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
+import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSearch';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -133,6 +134,15 @@ export default {
     ctx.waitUntil(
       runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } }).catch((err) =>
         console.error('[cron] runScheduledNotifications failed:', err instanceof Error ? err.message : err)
+      )
+    );
+    // Safety net for indexDocumentContent (documents.ts/docTypes.ts upload
+    // paths) — catches anything that failed there or predates it. Bounded
+    // batch (default 25) so a large backlog is worked off over several
+    // 15-min ticks instead of one long one.
+    ctx.waitUntil(
+      backfillDocumentIndex(execQuery, env).catch((err) =>
+        console.error('[cron] backfillDocumentIndex failed:', err instanceof Error ? err.message : err)
       )
     );
   },

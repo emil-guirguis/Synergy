@@ -20,6 +20,7 @@ import {
   updateDocument,
   DocumentValidationError,
 } from '@meterit/framework-backend/api/base/documents';
+import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -210,6 +211,16 @@ app.post('/', async (c) => {
         createdBy: c.get('userId'),
       },
       restrictedOrderDocs ? { maxFileSize: REP_ORDER_MAX_FILE_SIZE } : undefined
+    );
+    // Extracts text + indexes it for search_document_contents (aiChat.ts) /
+    // the header search bar's "search file contents" — backgrounded so the
+    // upload response doesn't wait on downloading the file back down and
+    // parsing it. backfillDocumentIndex (Worker cron) catches anything that
+    // fails here.
+    c.executionCtx.waitUntil(
+      indexDocumentContent(execQuery, c.env, row).catch((e) =>
+        console.error('[documents] indexDocumentContent failed:', e instanceof Error ? e.message : e)
+      )
     );
     return c.json({ success: true, data: row }, 201);
   } catch (e) {

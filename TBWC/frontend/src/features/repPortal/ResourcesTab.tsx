@@ -1,7 +1,7 @@
 /**
  * Resources tab — admin document manager.
  *
- * Ports the tbwc-site "Rep Portal" admin card (admin.html): upload PDFs into a
+ * Ports the tbwc-site "Portal" admin card (admin.html): upload PDFs into a
  * category / subcategory tree in the shared private `rep-docs` bucket, browse the
  * tree, and delete / rename files. Reps see the read-only side on tbwc-site's
  * portal.html; this is the admin-only management side.

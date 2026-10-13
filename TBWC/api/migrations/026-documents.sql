@@ -71,7 +71,7 @@ GRANT ALL ON TABLE public.document TO service_role;
 
 -- ===== Storage bucket (TBWC-specific) =====
 -- Files themselves live in a private bucket; `document` rows hold the path.
--- Separate from the Rep Portal's `rep-docs` bucket: different audience, different
+-- Separate from the Portal's `rep-docs` bucket: different audience, different
 -- policies, and record attachments are keyed by <entity_type>/<entity_id>/ prefix.
 INSERT INTO storage.buckets (id, name, public)
 SELECT 'record-docs', 'record-docs', false

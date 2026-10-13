@@ -121,9 +121,23 @@ describe('tool visibility', () => {
     mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'hi' }] });
     await post({ message: 'hi' });
     const names = toolNamesSent();
-    for (const n of ['search_orders', 'search_quotes', 'search_invoices', 'search_inventory', 'search_documents', 'run_sql_query']) {
+    for (const n of ['search_orders', 'search_quotes', 'search_invoices', 'search_inventory', 'search_documents', 'search_support_tickets', 'run_sql_query']) {
       expect(names).toContain(n);
     }
+  });
+
+  it('search_support_tickets is hidden without support:read', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }]);
+    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'hi' }] });
+    await post({ message: 'hi' });
+    expect(toolNamesSent()).not.toContain('search_support_tickets');
+  });
+
+  it('search_support_tickets is visible with support:read', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'support:read' }]);
+    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'hi' }] });
+    await post({ message: 'hi' });
+    expect(toolNamesSent()).toContain('search_support_tickets');
   });
 
   it('drops every order tool when the caller has no order:read', async () => {
@@ -244,6 +258,69 @@ describe('order/quote/invoice row scoping (ownScopeClause)', () => {
     const result = JSON.parse(toolResultContent(1));
     expect(result.error).toBeUndefined();
     expect(result.quote_id).toBe(5);
+  });
+});
+
+describe('search_support_tickets row scoping', () => {
+  it('filters by users_id when support:read is own', async () => {
+    currentUser = { id: 'rep1' };
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'support:read', scope: 'own' }]);
+    scriptOneToolCall('search_support_tickets', { text: 'SN-123' });
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    await post({ message: 'any ticket for serial SN-123?' });
+    const call = mockExecQuery.mock.calls.find(([, sql]: any[]) => sql.includes('FROM public.support_ticket'));
+    expect(call![1]).toContain('users_id = $');
+    expect(call![2]).toContain('rep1');
+  });
+
+  it('has no own-scope filter when support:read is all', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'support:read', scope: 'all' }]);
+    scriptOneToolCall('search_support_tickets', { text: 'SN-123' });
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    await post({ message: 'any ticket for serial SN-123?' });
+    const call = mockExecQuery.mock.calls.find(([, sql]: any[]) => sql.includes('FROM public.support_ticket'));
+    expect(call![1]).not.toContain('users_id = $');
+  });
+
+  it('matches serial_number, job_name, and other header fields', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'support:read', scope: 'all' }]);
+    scriptOneToolCall('search_support_tickets', { text: 'SN-123' });
+    mockExecQuery.mockResolvedValue({ rows: [{ support_ticket_id: 1, ticket_number: 'TK-000001' }] });
+    await post({ message: 'any ticket for serial SN-123?' });
+    const result = JSON.parse(toolResultContent(1));
+    expect(result).toEqual([{ support_ticket_id: 1, ticket_number: 'TK-000001' }]);
+    const call = mockExecQuery.mock.calls.find(([, sql]: any[]) => sql.includes('FROM public.support_ticket'));
+    expect(call![1]).toContain('serial_number ILIKE');
+    expect(call![1]).toContain('job_name ILIKE');
+  });
+});
+
+describe('search_documents candidate fallback', () => {
+  it('hands the model availableDocuments when nothing scored but documents exist', async () => {
+    scriptOneToolCall('search_documents', { text: 'Dent PowerScout Manual' });
+    mockSearchDocumentsMetadata.mockResolvedValue({
+      matches: [],
+      totalDocuments: 1,
+      candidates: [{ documentId: 1, entityType: 'resource', fileName: 'Dent PowerScout Meters Owners Manual.pdf', docType: 'manual' }],
+    });
+    await post({ message: 'get me the Dent PowerScout Manual' });
+    const result = JSON.parse(toolResultContent(1));
+    expect(result.matches).toEqual([]);
+    expect(result.availableDocuments).toEqual([
+      { documentId: 1, entityType: 'resource', fileName: 'Dent PowerScout Meters Owners Manual.pdf', docType: 'manual' },
+    ]);
+    expect(result.note).toMatch(/availableDocuments/);
+  });
+
+  it('returns plain matches, not the fallback shape, when something scored', async () => {
+    scriptOneToolCall('search_documents', { text: 'warranty' });
+    mockSearchDocumentsMetadata.mockResolvedValue({
+      matches: [{ documentId: 1, fileName: 'warranty.pdf', score: 10 }],
+      totalDocuments: 1,
+    });
+    await post({ message: 'find the warranty doc' });
+    const result = JSON.parse(toolResultContent(1));
+    expect(result).toEqual([{ documentId: 1, fileName: 'warranty.pdf', score: 10 }]);
   });
 });
 

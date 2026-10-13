@@ -6,8 +6,6 @@ import { useCallback, useEffect, useState } from 'react';
 import BusinessIcon from '@mui/icons-material/Business';
 import TuneIcon from '@mui/icons-material/Tune';
 import SecurityIcon from '@mui/icons-material/Security';
-import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
-import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import {
   SettingsPageShell,
@@ -21,13 +19,10 @@ import { getSettings, updateSettings, type CompanySettings } from '../services/s
 import {
   getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
 } from '../services/rolesService';
-import DocumentImportPanel from '../features/documentImport/DocumentImportPanel';
-import CommissionImportPanel from '../features/commissionImport/CommissionImportPanel';
 import AiMemoryPanel from '../features/aiMemory/AiMemoryPanel';
 import { NAV, roleOrderFromNav } from '../components/layout/navConfig';
 
 const ROLES_TAB_ENABLED = true;
-const COMMISSION_IMPORT_TAB_ENABLED = true;
 
 // Derived from the sidebar's own nav (components/layout/navConfig.ts), so a
 // new nav item with a requiredPermission just shows up here too — no second
@@ -203,20 +198,6 @@ export default function SettingsPage() {
             />
           ),
         },
-        {
-          key: 'documentImport',
-          label: 'Document Import',
-          icon: <DriveFolderUploadIcon fontSize="small" />,
-          description: 'Bulk-attach a folder of scanned documents to their orders by PO number.',
-          content: <DocumentImportPanel />,
-        },
-        ...(COMMISSION_IMPORT_TAB_ENABLED ? [{
-          key: 'commissionImport',
-          label: 'Commission Import',
-          icon: <RequestQuoteIcon fontSize="small" />,
-          description: 'Bulk-update order financials from the build-list workbook, by TBWC#/PO#. Newest year tab wins on a duplicate.',
-          content: <CommissionImportPanel />,
-        }] : []),
         ...(ROLES_TAB_ENABLED ? [{
           key: 'roles',
           label: 'Roles',

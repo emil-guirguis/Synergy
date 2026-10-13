@@ -51,4 +51,4 @@ rmSync(outDir, { recursive: true, force: true });
 cpSync(distDir, outDir, { recursive: true });
 
 console.log('[deploy:site] done. Next:');
-console.log(`  cd ${siteDir} && git add portal && git commit -m "Update rep portal build" && git push`);
+console.log(`  cd ${siteDir} && git add portal && git commit -m "Update portal build" && git push`);

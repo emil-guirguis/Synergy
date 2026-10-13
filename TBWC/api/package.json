@@ -5,7 +5,7 @@
   "scripts": {
     "start": "wrangler dev",
     "worker:dev": "wrangler dev",
-    "worker:deploy": "wrangler deploy",
+    "worker:deploy": "wrangler deploy --env production",
     "test": "vitest --run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",

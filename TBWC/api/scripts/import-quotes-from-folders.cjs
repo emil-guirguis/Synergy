@@ -19,6 +19,15 @@
  *                  above it are components that sum to it) — stays 0 when
  *                  a folder's PDFs never print pricing on the cover page
  *   - memo       = POC + rep, so a later manual customer match has context
+ *   - sales_rep_list_id = matched against public.qb_sales_rep via
+ *                  scripts/lib/sales-rep-match.cjs (quote.sales_rep_list_id
+ *                  gates row visibility for rep-scoped users — see
+ *                  worker/middleware.ts visibleRepListIds — so leaving it
+ *                  null would make every imported quote invisible to the
+ *                  rep who's actually on it). Unmatched stays null with a
+ *                  "needs manual assignment" note appended to memo, never
+ *                  a guess — see backfill-sales-rep-id.cjs for the same
+ *                  logic applied to quotes already imported before this.
  * engineer_name/po_date have no equivalent in these folders and stay NULL.
  *
  * Every file in the folder (recursing into any nested subfolder — a
@@ -49,20 +58,12 @@
  */
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { Client } = require('pg');
-const { Agent, setGlobalDispatcher } = require('undici');
+const { loadRepIndex, matchSalesRep, UNMATCHED_FLAG } = require('./lib/sales-rep-match.cjs');
 
 const API_DIR = path.join(__dirname, '..');
 const BUCKET = 'record-docs';
-
-// Some quote PDFs run 15-30MB; plain fetch's default undici headers timeout
-// (~30s) fires while that body is still uploading over a slow link, well
-// before Supabase ever responds. Raised, but capped well under 10 minutes —
-// a run already hit a stalled upload (TCP connection stayed "established"
-// with zero throughput) that sat idle for 8+ minutes before being killed by
-// hand; a tighter bound lets a real stall fail and get picked back up by
-// the caller's retry loop instead of hanging the whole run.
-setGlobalDispatcher(new Agent({ headersTimeout: 120000, bodyTimeout: 120000 }));
 
 // ---------------------------------------------------------------------------
 // Config
@@ -325,24 +326,81 @@ function buildMemo(header) {
   if (header.poc) parts.push(`POC: ${header.poc}`);
   const rep = buildSalesRep(header);
   if (rep) parts.push(`Rep: ${rep}`);
-  parts.push('Imported from local job folder (no spreadsheet source).');
+  parts.push(`Imported ${new Date().toISOString().slice(0, 10)} from local job folder (no spreadsheet source).`);
   return parts.join('  |  ');
 }
 
 // ---------------------------------------------------------------------------
 // Supabase storage upload
 // ---------------------------------------------------------------------------
-async function uploadToBucket(objectPath, buf, mime) {
-  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURI(objectPath)}`, {
-    method: 'POST',
-    headers: {
-      ...(SERVICE_KEY.startsWith('eyJ') ? { Authorization: `Bearer ${SERVICE_KEY}` } : { apikey: SERVICE_KEY }),
-      'Content-Type': mime,
-      'x-upsert': 'true',
-    },
-    body: buf,
+// Supabase Storage's key validation rejects '[', ']' and some non-ASCII
+// punctuation (hit on a real filename with "[48100R031443]" and an en-dash
+// "–") with a hard 400 InvalidKey — encodeURI doesn't touch those
+// characters at all, so it never helped. Swap anything outside a safe set
+// for '_', one segment at a time so '/' keeps separating folders.
+function sanitizeStorageKey(relPath) {
+  return relPath
+    .split('/')
+    .map((seg) => seg.replace(/[^A-Za-z0-9 ._()-]/g, '_'))
+    .join('/');
+}
+
+// Root cause, confirmed by isolated measurement (nothing else running):
+// this machine's actual UPLOAD throughput right now is ~25-80KB/s to three
+// unrelated destinations (Supabase storage, httpbin.org, Cloudflare's own
+// speed-test endpoint) — not a stalled/dead connection, just genuinely slow
+// upload bandwidth. A fixed short timeout was killing real-but-slow
+// transfers before they could finish; the timeout here instead scales with
+// file size against a conservative 30KB/s floor, so it only fires on an
+// actual stall, not a merely-slow-but-progressing one.
+function uploadOnce(objectPath, buf, mime) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURI(objectPath)}`);
+    const req = https.request(
+      url,
+      {
+        method: 'POST',
+        agent: false,
+        headers: {
+          ...(SERVICE_KEY.startsWith('eyJ') ? { Authorization: `Bearer ${SERVICE_KEY}` } : { apikey: SERVICE_KEY }),
+          'Content-Type': mime,
+          'Content-Length': buf.length,
+          'x-upsert': 'true',
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) return resolve();
+          const text = Buffer.concat(chunks).toString('utf8').slice(0, 300);
+          const err = new Error(`upload ${res.statusCode}: ${text}`);
+          err.isClientError = res.statusCode >= 400 && res.statusCode < 500;
+          reject(err);
+        });
+      }
+    );
+    const timeoutMs = Math.min(1200000, Math.max(60000, Math.ceil(buf.length / 30000) * 1000 + 20000));
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`upload timed out after ${timeoutMs}ms (${buf.length} bytes)`)));
+    req.on('error', reject);
+    req.end(buf);
   });
-  if (!res.ok) throw new Error(`upload ${res.status}: ${(await res.text()).slice(0, 300)}`);
+}
+
+// Retry transient failures a couple times with backoff rather than taking
+// down the whole folder's transaction over one blip. A 4xx (e.g.
+// InvalidKey) won't succeed on retry, so it's thrown immediately instead of
+// wasting time re-uploading a slow file that was never going to work.
+async function uploadToBucket(objectPath, buf, mime, attempts = 3) {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await uploadOnce(objectPath, buf, mime);
+      return;
+    } catch (e) {
+      if (e.isClientError || i === attempts) throw e;
+      await new Promise((r) => setTimeout(r, 1000 * i));
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -353,11 +411,16 @@ async function main() {
   if (OPTS.only) folders = folders.filter((f) => f.jobName.toLowerCase().includes(OPTS.only.toLowerCase()));
   console.log(`${folders.length} local job folder(s) found under ${OPTS.dir}.\n`);
 
-  const client = new Client({ connectionString: DATABASE_URL, ssl: false });
+  // query_timeout matches the upload Agent's timeout below: a run has hit
+  // stalls where the pg connection itself goes silent (established, zero
+  // throughput), and the default is to hang forever — bound it so a dead
+  // connection fails fast instead of blocking the whole import.
+  const client = new Client({ connectionString: DATABASE_URL, ssl: false, query_timeout: 30000, connectionTimeoutMillis: 30000 });
   await client.connect();
   const existing = await client.query('SELECT DISTINCT job_name FROM public.quote WHERE job_name IS NOT NULL');
   const existingNormalized = new Set(existing.rows.map((r) => normalize(r.job_name)));
   console.log(`${existingNormalized.size} job_name(s) already in DB — exact-normalized matches will be skipped.\n`);
+  const repIndex = await loadRepIndex(client);
 
   let imported = 0;
   let skipped = 0;
@@ -387,10 +450,15 @@ async function main() {
     }
     const header = mergeHeaders(headerParts);
     const salesRep = buildSalesRep(header);
-    const memo = buildMemo(header);
+    const repMatch = salesRep ? matchSalesRep(salesRep, repIndex) : null;
+    const salesRepListId = repMatch ? repMatch.list_id : null;
+    const memo = buildMemo(header) + (salesRep && !repMatch ? `  |  ${UNMATCHED_FLAG}` : '');
 
     console.log(`- ${jobName}`);
-    console.log(`  txn_date=${header.txnDate || '-'}  total=${header.total ?? '-'}  rep=${salesRep || '-'}  poc=${header.poc || '-'}`);
+    console.log(
+      `  txn_date=${header.txnDate || '-'}  total=${header.total ?? '-'}  rep=${salesRep || '-'}` +
+        `  rep_match=${repMatch ? `${repMatch.name} (${repMatch.list_id})` : 'none'}  poc=${header.poc || '-'}`
+    );
     console.log(`  docs: ${docs.map((d) => `${d.relPath} (${d.docType})`).join(', ') || 'none'}`);
     console.log(`  primary for line parse: ${primary ? primary.relPath : 'none'}`);
     console.log(`  parsed ${parsedLines.length} line(s)${parsedLines.length ? ':' : ''}`);
@@ -408,10 +476,10 @@ async function main() {
       try {
         const insertRes = await client.query(
           `INSERT INTO public.quote
-             (customer_list_id, customer_name, txn_date, total, sales_rep, status, job_name, engineer_name, po_date, memo)
-           VALUES (NULL, NULL, $1, $2, $3, 'quote', $4, $5, NULL, $6)
+             (customer_list_id, customer_name, txn_date, total, sales_rep, sales_rep_list_id, status, job_name, engineer_name, po_date, memo)
+           VALUES (NULL, NULL, $1, $2, $3, $4, 'quote', $5, $6, NULL, $7)
            RETURNING quote_id`,
-          [header.txnDate || null, header.total || 0, salesRep, jobName, header.engineerName || null, memo]
+          [header.txnDate || null, header.total || 0, salesRep, salesRepListId, jobName, header.engineerName || null, memo]
         );
         const quoteId = insertRes.rows[0].quote_id;
 
@@ -424,9 +492,15 @@ async function main() {
           );
         }
 
+        // Sequential on purpose: the bottleneck turned out to be real upload
+        // bandwidth (measured ~25-80KB/s against three unrelated
+        // destinations), not per-connection latency — running multiple
+        // uploads at once just splits that same scarce pipe between them,
+        // making every one of them individually slower and more likely to
+        // hit a timeout than if each got the full pipe to itself in turn.
         for (const d of docs) {
           const buf = fs.readFileSync(d.fullPath);
-          const objectPath = `quote/${quoteId}/${d.relPath}`;
+          const objectPath = `quote/${quoteId}/${sanitizeStorageKey(d.relPath)}`;
           await uploadToBucket(objectPath, buf, d.mime);
           await client.query(
             `INSERT INTO public.document

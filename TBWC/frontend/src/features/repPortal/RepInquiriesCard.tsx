@@ -3,7 +3,7 @@
  *
  * Always shown (admin-only — reps can't see inquiries). Displays the total
  * inquiry count, with outstanding (not-yet-invited) broken out. Clicking the
- * card opens the Rep Portal, which defaults to the Rep Inquiries tab.
+ * card opens the Portal, which defaults to the Rep Inquiries tab.
  */
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';

@@ -1,5 +1,5 @@
 /**
- * Supabase Storage REST client for the Rep Portal documents feature.
+ * Supabase Storage REST client for the Portal documents feature.
  *
  * Mirrors the tbwc-site rep-docs logic (admin.html / portal.html) but with no
  * @supabase/supabase-js dependency — every call is a plain fetch to
