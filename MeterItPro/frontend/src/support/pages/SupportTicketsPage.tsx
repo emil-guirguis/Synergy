@@ -1,5 +1,5 @@
 import React from 'react';
-import { SupportTicketsPage as SharedSupportTicketsPage } from '@meterit/framework-frontend/support';
+import { SupportTicketManagementPage as SharedSupportTicketsPage } from '@meterit/framework-frontend/support';
 import { useSupportTicketsEnhanced, supportTicketService } from '../supportTicketsStore';
 import { useAuth } from '../../hooks/useAuth';
 

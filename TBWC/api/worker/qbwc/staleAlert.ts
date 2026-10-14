@@ -87,8 +87,13 @@ export async function checkQbwcStale(env: Env): Promise<void> {
   await logError(env, null, ALERT_OBJECT_TYPE, message, throttled ? null : 'notified');
   if (throttled) return;
 
+  // Settled in parallel, not sequentially: 6 admins x (DB insert + outbound
+  // fetch) run one after another otherwise, and a scheduled Worker invocation
+  // has a wall-clock budget — a slow run risks later admins never being
+  // attempted at all, with nothing to show for it since each failure was
+  // only ever console.error'd (invisible outside `wrangler tail`).
   const admins = await adminRecipients(env);
-  for (const admin of admins) {
+  await Promise.allSettled(admins.map(async (admin) => {
     try {
       await createNotification(execQuery, env, null, {
         notificationType: 'qbwc_connection',
@@ -99,7 +104,7 @@ export async function checkQbwcStale(env: Env): Promise<void> {
         linkUrl: '/qb-sync',
       }, { tenantColumn: null });
     } catch (e) {
-      console.error('[QBWC] stale-alert notification failed for', admin.id, e);
+      await logError(env, null, ALERT_OBJECT_TYPE, `notify failed for ${admin.email}`, e instanceof Error ? e.message : String(e));
     }
 
     try {
@@ -113,7 +118,7 @@ export async function checkQbwcStale(env: Env): Promise<void> {
           `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#4b4e57;">Check the QuickBooks Web Connector app and QB Desktop machine — this alert repeats at most once every ${ALERT_THROTTLE_HOURS}h until sync resumes.</p>`,
       });
     } catch (e) {
-      console.error('[QBWC] stale-alert email failed for', admin.email, e instanceof Error ? e.message : e);
+      await logError(env, null, ALERT_OBJECT_TYPE, `email failed for ${admin.email}`, e instanceof Error ? e.message : String(e));
     }
-  }
+  }));
 }

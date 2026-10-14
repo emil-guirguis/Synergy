@@ -5,7 +5,6 @@ import { useAuth } from '../hooks/useAuth';
 
 const SupportLandingPage  = lazy(() => import('./pages/SupportLandingPage'));
 const SupportTicketsPage  = lazy(() => import('./pages/SupportTicketsPage'));
-const TicketDetailPage    = lazy(() => import('./pages/TicketDetailPage'));
 const SupportDevicesPage  = lazy(() => import('./pages/SupportDevicesPage'));
 const DocumentationsPage  = lazy(() => import('./pages/DocumentationsPage'));
 
@@ -39,7 +38,6 @@ const SupportRoutes: React.FC = () => (
       <Route path="/support"            element={<SupportLandingPage />} />
       <Route path="/support/documentations" element={<DocumentationsPage />} />
       <Route path="/support/tickets"    element={<SupportAuthGuard><SupportTicketsPage /></SupportAuthGuard>} />
-      <Route path="/support/tickets/:id" element={<SupportAuthGuard><TicketDetailPage /></SupportAuthGuard>} />
       <Route path="/support/devices"    element={<AdminSupportGuard><SupportDevicesPage /></AdminSupportGuard>} />
       <Route path="/support/*"          element={<Navigate to="/support" replace />} />
     </Routes>

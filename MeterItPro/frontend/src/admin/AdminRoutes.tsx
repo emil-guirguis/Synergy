@@ -12,7 +12,6 @@ const CostsPage             = lazy(() => import('./pages/CostsPage'));
 const DevicesPage           = lazy(() => import('./pages/DevicesPage'));
 const AdminSyncServersPage  = lazy(() => import('./pages/AdminSyncServersPage'));
 const SupportTicketsPage    = lazy(() => import('../support/pages/SupportTicketsPage'));
-const TicketDetailPage      = lazy(() => import('../support/pages/TicketDetailPage'));
 
 const Spinner = () => (
   <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
@@ -68,7 +67,6 @@ const AdminRoutes: React.FC = () => {
 
         {/* Support admin */}
         <Route path="/admin/support/tickets"     element={<SupportAdminGuard><SupportTicketsPage /></SupportAdminGuard>} />
-        <Route path="/admin/support/tickets/:id" element={<SupportAdminGuard><TicketDetailPage /></SupportAdminGuard>} />
 
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="/admin/*" element={<Navigate to="/admin/dashboard" replace />} />
