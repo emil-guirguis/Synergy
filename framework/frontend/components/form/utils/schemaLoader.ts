@@ -32,6 +32,9 @@ export interface BackendFieldDefinition {
   max: number | null;
   /** Numeric input increment; 1 = whole numbers only. */
   step?: number | null;
+  /** CSS width bounds — forms size the field, grids the column (e.g. a wrapped description). */
+  minWidth?: string | null;
+  maxWidth?: string | null;
   pattern: string | null;
   showOn?: string[];
   showIf?: { fieldName: string; value: any };
@@ -136,7 +139,7 @@ const LS_PREFIX = 'schema_cache_';
  * with an older version are discarded so backend schema-format changes
  * propagate immediately instead of waiting out the cache TTL.
  */
-const MIN_SCHEMA_VERSION = '1.7.0';
+const MIN_SCHEMA_VERSION = '1.7.1';
 
 function isStaleVersion(schema: BackendSchema): boolean {
   return (schema.version || '0.0.0').localeCompare(MIN_SCHEMA_VERSION, undefined, { numeric: true }) < 0;
@@ -283,6 +286,8 @@ function convertFieldDefinition(backendField: BackendFieldDefinition & { validat
     ...(backendField.min != null && { min: backendField.min }),
     ...(backendField.max != null && { max: backendField.max }),
     ...(backendField.step != null && { step: backendField.step }),
+    ...(backendField.minWidth && { minWidth: backendField.minWidth }),
+    ...(backendField.maxWidth && { maxWidth: backendField.maxWidth }),
     ...(backendField.pattern && { pattern: backendField.pattern }),
     ...(backendField.enumValues && { enumValues: backendField.enumValues }),
     ...(backendField.enumLabels && { enumLabels: backendField.enumLabels }),
@@ -616,6 +621,14 @@ export function useSchema(entityName: string, options?: { bypassCache?: boolean 
 
   React.useEffect(() => {
     let mounted = true;
+    // '' = "no schema wanted" (callers pass it to skip loading, e.g. a grid
+    // given its schema directly) — don't fetch /api/schema/ with no name.
+    if (!entityName) {
+      setSchema(null);
+      setLoading(false);
+      setError(null);
+      return () => { mounted = false; };
+    }
 
     async function load() {
       try {

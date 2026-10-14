@@ -160,7 +160,10 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
                 api={documentsApi}
                 storage={documentsStorage}
                 classifyDocType={classifyDocTypeForFile}
-                readOnly={readOnly}
+                schemaName="quoteGridDocument"
+                canCreate={scopeOf('quoteGridDocument:create') !== null}
+                canEdit={scopeOf('quoteGridDocument:write') !== null}
+                canDelete={scopeOf('quoteGridDocument:delete') !== null}
               />
             );
           }

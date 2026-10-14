@@ -6,10 +6,17 @@
  * (entityType, entityId). Rows are their own resource, saved the moment they
  * change — nothing here rides on the parent form's Save button.
  *
- * Flow for a new document: "+ Add" appends a draft row (description + type
- * editable) whose file cell is an upload icon. Picking a file uploads the bytes
- * straight to the storage bucket, then POSTs the metadata row; a failed metadata
- * write removes the just-uploaded object so the bucket doesn't collect orphans.
+ * Built on the framework ChildRowsGrid (one cell editable at a time, each row
+ * saving itself): Description and Type edit in place, File/Size/Uploaded are
+ * read-only. Columns come from the module's `<module>GridDocument` schema when
+ * `schemaName` is given (framework documentGridSchema — also what gives each
+ * module's documents their own Settings > Roles node and grants), else from
+ * the identical built-in DEFAULT_DOCUMENT_SCHEMA below.
+ *
+ * Flow for a new document: "+ Add" opens a file picker straight away. The bytes
+ * upload to the storage bucket, then the metadata row is POSTed (auto-typed via
+ * classifyDocType); a failed metadata write removes the just-uploaded object so
+ * the bucket doesn't collect orphans. Description/type are then edited in place.
  *
  * "Add Folder" is the bulk path: a webkitdirectory picker hands back every file
  * in the chosen folder (subfolders included) and, after a confirm, each one is
@@ -45,7 +52,6 @@ import {
   Alert,
   Box,
   Button,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -54,13 +60,6 @@ import {
   IconButton,
   LinearProgress,
   MenuItem,
-  Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
@@ -69,12 +68,8 @@ import {
   ListItemText,
   Menu,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import CloseIcon from '@mui/icons-material/Close';
 import ShareIcon from '@mui/icons-material/Share';
 import IosShareIcon from '@mui/icons-material/IosShare';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -90,6 +85,8 @@ import {
   type DocumentStorage,
   type DocumentsApi,
 } from './types';
+import { ChildRowsGrid, type ChildRowsApi } from '../components/datagrid/ChildRowsGrid';
+import type { ConvertedSchema } from '../components/form/utils/schemaLoader';
 import '../components/datagrid/EditableDataGrid.css';
 
 export interface DocumentsGridProps {
@@ -99,8 +96,16 @@ export interface DocumentsGridProps {
   entityId?: string | number | null;
   api: DocumentsApi;
   storage: DocumentStorage;
-  /** Hide every mutating control (upload / edit / delete). */
+  /** Hide every mutating control (upload / edit / delete). Superseded per action by
+   *  canCreate / canEdit / canDelete when those are passed. */
   readOnly?: boolean;
+  /** Per-action grants — e.g. orderGridDocument:create/write/delete. The API enforces them too. */
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  /** This module's documents grid schema (e.g. 'orderGridDocument', framework documentGridSchema).
+   *  Omit to use the built-in column set. */
+  schemaName?: string;
   /** Client-side guard; the API enforces its own limit too. Default 25MB. */
   maxFileSize?: number;
   /** Overrides the default oversize-file error text (still gated by maxFileSize). */
@@ -118,12 +123,6 @@ export interface DocumentsGridProps {
   /** Title bar above the grid (same chrome as EditableDataGrid's own `title`) — the schema
    *  section wrapping this field should be `bare: true` so BaseForm doesn't draw a second one. */
   title?: string;
-}
-
-interface DraftRow {
-  key: string;
-  description: string;
-  docType: DocType;
 }
 
 const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
@@ -351,19 +350,24 @@ async function runPool<T>(items: T[], limit: number, worker: (item: T) => Promis
   await Promise.all(lanes);
 }
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return '';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
-}
-
-function newDraft(defaultDocType: DocType = DEFAULT_DOC_TYPE): DraftRow {
-  const key =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return { key, description: '', docType: defaultDocType };
-}
+/** Built-in copy of framework/backend/api/base/documentGridSchema.ts, used when no `schemaName`
+ *  is given (an app that hasn't registered per-module document grid schemas). Same columns. */
+const DEFAULT_DOCUMENT_SCHEMA: ConvertedSchema = {
+  entityName: 'Document',
+  description: 'Documents',
+  formTabs: null,
+  relationships: {},
+  idFieldName: 'document_id',
+  parent: { entity: '', foreignKey: 'entity_id', label: 'Documents', actions: ['read', 'create', 'write', 'delete'] },
+  entityFields: {},
+  formFields: {
+    description: { type: 'textarea', default: '', label: 'Description', dbField: 'description', showOn: ['list', 'form'], maxWidth: '380px', maxLength: MAX_DESCRIPTION } as any,
+    doc_type: { type: 'select', default: DEFAULT_DOC_TYPE, label: 'Type', dbField: 'doc_type', showOn: ['list', 'form'], enumValues: [...DOC_TYPES], enumLabels: DOC_TYPE_LABELS } as any,
+    file_name: { type: 'string', default: null, label: 'File', dbField: 'file_name', readOnly: true, showOn: ['list', 'form'] } as any,
+    file_size: { type: 'number', default: null, label: 'Size', dbField: 'file_size', readOnly: true, showOn: ['list', 'form'] } as any,
+    created_at: { type: 'date', default: null, label: 'Uploaded', dbField: 'created_at', readOnly: true, showOn: ['list', 'form'] } as any,
+  },
+};
 
 export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   entityType,
@@ -371,6 +375,10 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   api,
   storage,
   readOnly = false,
+  canCreate: canCreateProp,
+  canEdit: canEditProp,
+  canDelete: canDeleteProp,
+  schemaName,
   maxFileSize = DEFAULT_MAX_FILE_SIZE,
   oversizeMessage,
   emptyMessage = 'No documents',
@@ -378,13 +386,9 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   visibleDocTypes,
   title = 'Documents',
 }) => {
-  const [rows, setRows] = useState<DocumentRecord[]>([]);
-  const [drafts, setDrafts] = useState<DraftRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [confirmRow, setConfirmRow] = useState<DocumentRecord | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
   const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
   const [shareRow, setShareRow] = useState<DocumentRecord | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -400,10 +404,10 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   // firing on child elements as the pointer crosses row boundaries.
   const [dragDepth, setDragDepth] = useState(0);
 
-  // One hidden input reused by every row; the draft it belongs to is stashed
-  // here at click time so the change handler knows which row to complete.
+  // "+ Add" opens this picker directly: a document row only exists once its
+  // file does, so there's no blank row to fill in first — description and
+  // type are edited in place afterwards like any other cell.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const pendingDraftRef = useRef<DraftRow | null>(null);
   // Its own input: webkitdirectory can't be flipped per click on a live element.
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const cancelFolderRef = useRef(false);
@@ -416,9 +420,18 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   // regardless of what, if anything, is focused.
   const gridHoverRef = useRef(false);
   const pasteHandlerRef = useRef<(e: ClipboardEvent) => void>(() => {});
+  // Rows by id, kept from the grid's own list/update calls — delete needs the
+  // storage path to drop the object after the metadata row goes.
+  const docsById = useRef(new Map<number, DocumentRecord>());
 
   const recordId = entityId != null && entityId !== '' ? String(entityId) : null;
-  const disabled = readOnly || !recordId;
+  // Per-action grants (<module>GridDocument:create/write/delete, or the old
+  // all-or-nothing readOnly when the app doesn't pass them). The API enforces
+  // the same split.
+  const canCreate = (canCreateProp ?? !readOnly) && !!recordId;
+  const canEdit = canEditProp ?? !readOnly;
+  const canDelete = canDeleteProp ?? !readOnly;
+  const disabled = !canCreate;
   const folderBusy = folderProgress !== null;
 
   /** Keep an auto-classified/manually-picked type inside visibleDocTypes when set. */
@@ -431,26 +444,36 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       ? oversizeMessage(file, maxFileSize)
       : `"${file.name}" is ${formatFileSize(file.size)} — the limit is ${formatFileSize(maxFileSize)}.`;
 
-  const load = useCallback(async () => {
-    if (!recordId) {
-      setRows([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      setRows(await api.list(entityType, recordId));
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load documents');
-    } finally {
-      setLoading(false);
-    }
-  }, [api, entityType, recordId]);
+  const reload = () => setReloadKey((k) => k + 1);
 
-  useEffect(() => {
-    void load();
-    setDrafts([]);
-  }, [load]);
+  /** The documents API in the shape ChildRowsGrid drives: rows load, edit and delete themselves. */
+  const gridApi = useMemo<ChildRowsApi>(() => ({
+    list: async (parentId) => {
+      const rows = await api.list(entityType, String(parentId));
+      docsById.current = new Map(rows.map((r) => [r.document_id, r]));
+      return rows;
+    },
+    create: async () => {
+      throw new Error('Documents are added by uploading a file');
+    },
+    update: async (_parentId, id, body) => {
+      const item = await api.update(Number(id), {
+        ...('description' in body ? { description: body.description ?? '' } : {}),
+        ...('doc_type' in body ? { docType: body.doc_type as DocType } : {}),
+      });
+      docsById.current.set(item.document_id, item);
+      return { item };
+    },
+    remove: async (_parentId, id) => {
+      const row = docsById.current.get(Number(id));
+      await api.remove(Number(id));
+      // Metadata first, object second: an orphaned object is sweepable, an
+      // orphaned row is a broken link in the grid.
+      if (row?.storage_path) await storage.remove(row.storage_path).catch(() => undefined);
+      docsById.current.delete(Number(id));
+      return {};
+    },
+  }), [api, storage, entityType]);
 
   // React's input typings don't carry the directory attributes and JSX would
   // warn on the unknown props - set them on the DOM node instead.
@@ -473,22 +496,12 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     return () => document.removeEventListener('paste', listener);
   }, []);
 
-  const patchDraft = (key: string, patch: Partial<DraftRow>) =>
-    setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
-
-  const pickFile = (draft: DraftRow) => {
-    pendingDraftRef.current = draft;
-    fileInputRef.current?.click();
-  };
-
   /** Upload bytes, then write the metadata row; roll the object back if that fails. */
   const handleFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     // Reset immediately so picking the same file twice still fires a change event.
     e.target.value = '';
-    const draft = pendingDraftRef.current;
-    pendingDraftRef.current = null;
-    if (!file || !draft || !recordId) return;
+    if (!file || !recordId) return;
 
     if (file.size > maxFileSize) {
       setError(sizeErrorFor(file));
@@ -496,12 +509,8 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     }
 
     const path = storagePathFor(entityType, recordId, file.name);
-    // Auto-classify only if the type dropdown is still untouched - a manual
-    // pick (including manually setting it back to "Other") always wins.
-    const docType = clampDocType(
-      draft.docType === DEFAULT_DOC_TYPE && classifyDocType ? classifyDocType(file) : draft.docType
-    );
-    setBusyKey(draft.key);
+    const docType = clampDocType(classifyDocType ? classifyDocType(file) : DEFAULT_DOC_TYPE);
+    setUploading(file.name);
     setError(null);
     try {
       await storage.upload(path, file);
@@ -512,7 +521,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           fileName: file.name,
           storageBucket: storage.bucket,
           storagePath: path,
-          description: draft.description || null,
+          description: null,
           docType,
           mimeType: file.type || null,
           fileSize: file.size,
@@ -521,12 +530,11 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         await storage.remove(path).catch(() => undefined);
         throw metaError;
       }
-      setDrafts((ds) => ds.filter((d) => d.key !== draft.key));
-      await load();
+      reload();
     } catch (err: any) {
       setError(err?.message || 'Upload failed');
     } finally {
-      setBusyKey(null);
+      setUploading(null);
     }
   };
 
@@ -797,7 +805,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     const cancelled = cancelFolderRef.current;
     cancelFolderRef.current = false;
     setFolderProgress(null);
-    await load();
+    reload();
 
     const notes: string[] = [];
     if (cancelled) notes.push('Upload cancelled - files already sent were kept.');
@@ -810,20 +818,6 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       notes.push(`Skipped (over ${formatFileSize(maxFileSize)}): ${head}${job.skipped.length > 3 ? '...' : ''}`);
     }
     setError(notes.length ? notes.join(' ') : null);
-  };
-
-  const saveRow = async (row: DocumentRecord, patch: { description?: string; docType?: DocType }) => {
-    setBusyKey(String(row.document_id));
-    try {
-      const updated = await api.update(row.document_id, patch);
-      setRows((rs) => rs.map((r) => (r.document_id === row.document_id ? updated : r)));
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to save document');
-      await load(); // put the visible value back in sync with the DB
-    } finally {
-      setBusyKey(null);
-    }
   };
 
   const openFile = async (row: DocumentRecord) => {
@@ -885,33 +879,39 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     closeShare();
   };
 
-  const confirmDelete = async () => {
-    if (!confirmRow) return;
-    setDeleting(true);
-    try {
-      await api.remove(confirmRow.document_id);
-      // Metadata first, object second: an orphaned object is sweepable, an
-      // orphaned row is a broken link in the grid.
-      if (confirmRow.storage_path) await storage.remove(confirmRow.storage_path).catch(() => undefined);
-      setConfirmRow(null);
-      await load();
-    } catch (e: any) {
-      setError(e?.message || 'Failed to delete document');
-    } finally {
-      setDeleting(false);
+  /** File column: open + share, then the name. Size gets the human-readable format. */
+  const renderCell = (row: Record<string, any>, column: string): React.ReactNode | undefined => {
+    if (column === 'file_size') {
+      return <div className="editable-data-grid__display">{formatFileSize(row.file_size)}</div>;
     }
+    if (column !== 'file_name') return undefined;
+    const doc = row as DocumentRecord;
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+        <Tooltip title="Open file">
+          <span>
+            <IconButton size="small" onClick={() => void openFile(doc)} disabled={!doc.storage_path}>
+              <OpenInNewIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Share">
+          <span>
+            <IconButton size="small" onClick={(e) => void onShare(doc, e.currentTarget)} disabled={!doc.storage_path}>
+              <ShareIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Typography
+          variant="body2"
+          sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          title={doc.file_name}
+        >
+          {doc.file_name}
+        </Typography>
+      </Box>
+    );
   };
-
-  const typeOptions = useMemo(
-    () => (visibleDocTypes ?? DOC_TYPES).map((t) => <MenuItem key={t} value={t}>{DOC_TYPE_LABELS[t]}</MenuItem>),
-    [visibleDocTypes]
-  );
-  const visibleRows = useMemo(
-    () => (visibleDocTypes ? rows.filter((r) => visibleDocTypes.includes(r.doc_type)) : rows),
-    [rows, visibleDocTypes]
-  );
-
-  const colCount = readOnly ? 5 : 6;
 
   return (
     <Box>
@@ -920,267 +920,81 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           {error}
         </Alert>
       )}
-      {!recordId && !readOnly && (
+      {!recordId && (
         <Alert severity="info" sx={{ mb: 1 }}>
           Save this record before attaching documents.
         </Alert>
       )}
 
-      {folderProgress && (
+      {(folderProgress || uploading) && (
         <Box sx={{ mb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
             <Typography variant="body2" color="text.secondary">
-              Uploading {folderProgress.done} of {folderProgress.total}...
+              {folderProgress ? `Uploading ${folderProgress.done} of ${folderProgress.total}...` : `Uploading ${uploading}...`}
             </Typography>
-            <Button size="small" onClick={() => { cancelFolderRef.current = true; }}>
-              Cancel
-            </Button>
+            {folderProgress && (
+              <Button size="small" onClick={() => { cancelFolderRef.current = true; }}>
+                Cancel
+              </Button>
+            )}
           </Box>
           <LinearProgress
-            variant="determinate"
-            value={folderProgress.total ? (folderProgress.done / folderProgress.total) * 100 : 0}
+            variant={folderProgress ? 'determinate' : 'indeterminate'}
+            value={folderProgress?.total ? (folderProgress.done / folderProgress.total) * 100 : 0}
           />
         </Box>
       )}
 
-      <Box className="editable-data-grid__wrapper">
-        <Box className="editable-data-grid__toolbar">
-          <Box className="editable-data-grid__toolbar-title">{title}</Box>
-          {!readOnly && (
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button
-                variant="contained"
-                color="primary"
-                size="small"
-                startIcon={<AddIcon fontSize="small" />}
-                onClick={() => setDrafts((ds) => [...ds, newDraft(visibleDocTypes?.[0])])}
-                disabled={disabled || folderBusy}
-                className="editable-data-grid__add-button"
-              >
-                Add
-              </Button>
-              <Tooltip title="Upload every file in a folder">
-                <span>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    size="small"
-                    startIcon={<DriveFolderUploadIcon fontSize="small" />}
-                    onClick={() => folderInputRef.current?.click()}
-                    disabled={disabled || folderBusy}
-                    className="editable-data-grid__add-button"
-                  >
-                    Folder
-                  </Button>
-                </span>
-              </Tooltip>
-            </Box>
-          )}
-        </Box>
-      <TableContainer
-        className="editable-data-grid__table editable-data-grid__table--inset"
-        onDragOver={onDragOver}
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onMouseEnter={() => { gridHoverRef.current = true; }}
-        onMouseLeave={() => { gridHoverRef.current = false; }}
-        sx={
-          dragDepth > 0
-            ? { outline: '2px dashed', outlineColor: 'primary.main', outlineOffset: '-2px', bgcolor: 'action.hover' }
-            : undefined
-        }
-      >
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: '38%' }}>Description</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: '14%' }}>Type</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: '28%' }}>File</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: '10%' }}>Size</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: '10%' }}>Uploaded</TableCell>
-              {!readOnly && (
-                <TableCell
-                  className="editable-data-grid__header-cell editable-data-grid__actions-header-cell"
-                  style={{ width: '60px' }}
-                />
-              )}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && visibleRows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={colCount} align="center" className="editable-data-grid__empty">
-                  <CircularProgress size={20} />
-                </TableCell>
-              </TableRow>
-            )}
-
-            {!loading && visibleRows.length === 0 && drafts.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={colCount} align="center" className="editable-data-grid__empty">
-                  {emptyMessage}
-                </TableCell>
-              </TableRow>
-            )}
-
-            {visibleRows.map((row) => {
-              const busy = busyKey === String(row.document_id);
-              return (
-                <TableRow key={row.document_id} className="editable-data-grid__row">
-                  <TableCell className="editable-data-grid__cell">
-                    <TextField
-                      defaultValue={row.description ?? ''}
-                      placeholder="Description"
-                      size="small"
-                      fullWidth
-                      multiline
-                      maxRows={4}
-                      variant="outlined"
-                      disabled={readOnly || busy}
-                      inputProps={{ maxLength: MAX_DESCRIPTION }}
-                      onBlur={(e) => {
-                        const next = e.target.value;
-                        if (next !== (row.description ?? '')) void saveRow(row, { description: next });
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell">
-                    <Select
-                      value={row.doc_type}
-                      size="small"
-                      fullWidth
-                      variant="outlined"
-                      disabled={readOnly || busy}
-                      onChange={(e) => void saveRow(row, { docType: e.target.value as DocType })}
-                    >
-                      {typeOptions}
-                    </Select>
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Tooltip title="Open file">
-                        <span>
-                          <IconButton size="small" onClick={() => void openFile(row)} disabled={!row.storage_path}>
-                            <OpenInNewIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Share">
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={(e) => void onShare(row, e.currentTarget)}
-                            disabled={!row.storage_path}
-                          >
-                            <ShareIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Typography
-                        variant="body2"
-                        sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                        title={row.file_name}
-                      >
-                        {row.file_name}
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell">
-                    <Typography variant="body2" color="text.secondary">{formatFileSize(row.file_size)}</Typography>
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell">
-                    <Typography variant="body2" color="text.secondary">{formatDate(row.created_at)}</Typography>
-                  </TableCell>
-                  {!readOnly && (
-                    <TableCell className="editable-data-grid__actions-cell">
-                      {busy ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        <Tooltip title="Delete document">
-                          <IconButton
-                            size="small"
-                            onClick={() => setConfirmRow(row)}
-                            className="editable-data-grid__delete-button"
-                          >
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  )}
-                </TableRow>
-              );
-            })}
-
-            {!readOnly &&
-              drafts.map((draft) => {
-                const busy = busyKey === draft.key;
-                return (
-                  <TableRow key={draft.key} className="editable-data-grid__row _unsaved">
-                    <TableCell className="editable-data-grid__cell">
-                      <TextField
-                        value={draft.description}
-                        placeholder="Description"
-                        size="small"
-                        fullWidth
-                        multiline
-                        maxRows={4}
-                        variant="outlined"
-                        autoFocus
-                        disabled={busy}
-                        inputProps={{ maxLength: MAX_DESCRIPTION }}
-                        onChange={(e) => patchDraft(draft.key, { description: e.target.value })}
-                      />
-                    </TableCell>
-                    <TableCell className="editable-data-grid__cell">
-                      <Select
-                        value={draft.docType}
-                        size="small"
-                        fullWidth
-                        variant="outlined"
-                        disabled={busy}
-                        onChange={(e) => patchDraft(draft.key, { docType: e.target.value as DocType })}
-                      >
-                        {typeOptions}
-                      </Select>
-                    </TableCell>
-                    <TableCell colSpan={3} className="editable-data-grid__cell">
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Tooltip title="Choose a file to upload">
-                          <span>
-                            <IconButton size="small" onClick={() => pickFile(draft)} disabled={busy || disabled}>
-                              <UploadFileIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                        <Typography variant="body2" color="text.secondary">
-                          {busy ? 'Uploading…' : 'Select a file'}
-                        </Typography>
-                        {busy && <CircularProgress size={14} />}
-                      </Box>
-                    </TableCell>
-                    <TableCell className="editable-data-grid__actions-cell">
-                      <Tooltip title="Discard row">
-                        <span>
-                          <IconButton
-                            size="small"
-                            disabled={busy}
-                            onClick={() => setDrafts((ds) => ds.filter((d) => d.key !== draft.key))}
-                            className="editable-data-grid__delete-button"
-                          >
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-          </TableBody>
-        </Table>
-      </TableContainer>
-      </Box>
+      {recordId && (
+        <ChildRowsGrid
+          schemaName={schemaName}
+          schema={schemaName ? undefined : DEFAULT_DOCUMENT_SCHEMA}
+          parentId={recordId}
+          api={gridApi}
+          title={title}
+          canCreate={canCreate}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          busy={folderBusy || !!uploading}
+          onAddClick={() => fileInputRef.current?.click()}
+          reloadKey={reloadKey}
+          emptyMessage={emptyMessage}
+          rowFilter={visibleDocTypes ? (r) => visibleDocTypes.includes(r.doc_type) : undefined}
+          enumOverrides={visibleDocTypes ? { doc_type: { values: visibleDocTypes, labels: DOC_TYPE_LABELS } } : { doc_type: { labels: DOC_TYPE_LABELS } }}
+          renderCell={renderCell}
+          deleteConfirmText={(r) => `Delete "${r.file_name}"? The file is removed from storage and cannot be recovered.`}
+          toolbarActions={canCreate ? (
+            <Tooltip title="Upload every file in a folder">
+              <span>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  size="small"
+                  startIcon={<DriveFolderUploadIcon fontSize="small" />}
+                  onClick={() => folderInputRef.current?.click()}
+                  disabled={folderBusy || !!uploading}
+                  className="editable-data-grid__add-button"
+                >
+                  Folder
+                </Button>
+              </span>
+            </Tooltip>
+          ) : undefined}
+          containerProps={{
+            onDragOver,
+            onDragEnter,
+            onDragLeave,
+            onDrop,
+            onMouseEnter: () => { gridHoverRef.current = true; },
+            onMouseLeave: () => { gridHoverRef.current = false; },
+          }}
+          containerSx={
+            dragDepth > 0
+              ? { outline: '2px dashed', outlineColor: 'primary.main', outlineOffset: '-2px', bgcolor: 'action.hover' }
+              : undefined
+          }
+        />
+      )}
 
       <input ref={fileInputRef} type="file" hidden onChange={handleFileChosen} />
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
@@ -1224,21 +1038,6 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           <Button onClick={closePendingFolder}>Cancel</Button>
           <Button onClick={() => pendingFolder && void uploadFolder(withDropNamesApplied(pendingFolder))} variant="contained">
             Upload
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={!!confirmRow} onClose={() => (deleting ? undefined : setConfirmRow(null))}>
-        <DialogTitle>Delete document</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Delete "{confirmRow?.file_name}"? The file is removed from storage and cannot be recovered.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmRow(null)} disabled={deleting}>Cancel</Button>
-          <Button onClick={() => void confirmDelete()} color="error" disabled={deleting}>
-            {deleting ? 'Deleting…' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

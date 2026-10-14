@@ -39,6 +39,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Env, execQuery, withTransaction } from '../db';
 import { authenticateToken, requirePermission, AuthVariables, visibleRepListIds } from '../middleware';
 import type { PermissionSet } from '@meterit/framework-backend/api/base/permissions';
+import { DOCUMENT_GRID_KEYS } from '../permissions';
 import {
   runAiChatLoop,
   AiChatTool,
@@ -636,10 +637,11 @@ function formatInvoiceBillTo(customerName: string | null, billAddr: any): string
 // map below only applies to the non-rep ('all' aichat:use) branch.
 
 /** Single required permission to even see a tool in the list. Tools needing a
- *  second permission (document:read, on top of the owning module's read
- *  permission) are listed in DOC_AWARE_TOOLS below. search_documents/
- *  search_document_contents aren't in this map — they're gated by
- *  document:read OR resource:read (either is enough), handled specially. */
+ *  second permission (that module's Documents grid read, on top of the owning
+ *  module's read permission) are listed in DOC_AWARE_TOOLS below.
+ *  search_documents/search_document_contents aren't in this map — they're
+ *  gated by any all-scope <module>GridDocument:read or resource:read, handled
+ *  specially (allowedDocEntityTypes). */
 const TOOL_PERMISSION: Record<string, string> = {
   search_orders: 'order:read',
   search_order_lines: 'order:read',
@@ -674,12 +676,17 @@ const TOOL_PERMISSION: Record<string, string> = {
 };
 
 /** Tools whose primary permission (above) resolves an order/quote by id, but
- *  which also surface its attachment metadata — require document:read too. */
-const DOC_AWARE_TOOLS = new Set(['search_orders_by_document', 'get_order_documents', 'get_quote_documents']);
+ *  which also surface its attachment metadata — require that module's
+ *  Documents grid read too (orderGridDocument:read / quoteGridDocument:read). */
+const DOC_AWARE_TOOLS: Record<string, string> = {
+  search_orders_by_document: `${DOCUMENT_GRID_KEYS.order}:read`,
+  get_order_documents: `${DOCUMENT_GRID_KEYS.order}:read`,
+  get_quote_documents: `${DOCUMENT_GRID_KEYS.quote}:read`,
+};
 
 function toolAllowed(name: string, permissions: PermissionSet): boolean {
   if (name === 'search_documents' || name === 'search_document_contents') {
-    return permissions.has('document:read') || permissions.has('resource:read');
+    return allowedDocEntityTypes(permissions).length > 0;
   }
   const perm = TOOL_PERMISSION[name];
   // Fail closed: a tool added to TOOLS later without an entry here is hidden
@@ -687,19 +694,24 @@ function toolAllowed(name: string, permissions: PermissionSet): boolean {
   // gating exists to close.
   if (!perm) return false;
   if (!permissions.has(perm)) return false;
-  if (DOC_AWARE_TOOLS.has(name) && !permissions.has('document:read')) return false;
+  if (DOC_AWARE_TOOLS[name] && !permissions.has(DOC_AWARE_TOOLS[name])) return false;
   return true;
 }
 
-/** entity_type values search_documents/search_document_contents may return,
- *  built from whichever of document:read/resource:read the caller holds.
+/** entity_type values search_documents/search_document_contents may return:
+ *  each module whose Documents grid read the caller holds at 'all' scope (a
+ *  free-text search across every record can't apply an own-scope filter, so
+ *  an own-scoped grant doesn't make that module searchable here), plus the
+ *  resource library with resource:read.
  *  Deliberately excludes 'support_ticket' (also stored in public.document) —
  *  those attachments are owned per-ticket (filer or assignee), not coverable
  *  by a flat permission allowlist, so they stay out of this tool entirely
  *  rather than risk exposing one caller's ticket to another. */
 function allowedDocEntityTypes(permissions: PermissionSet): string[] {
   const types: string[] = [];
-  if (permissions.has('document:read')) types.push('order', 'quote', 'invoice', 'inventory');
+  for (const entityType of ['order', 'quote', 'invoice', 'inventory'] as const) {
+    if (permissions.scopeOf(`${DOCUMENT_GRID_KEYS[entityType]}:read`) === 'all') types.push(entityType);
+  }
   if (permissions.has('resource:read')) types.push('resource');
   return types;
 }

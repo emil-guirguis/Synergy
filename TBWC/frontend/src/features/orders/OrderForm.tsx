@@ -90,7 +90,7 @@ function renderPlaceholderField(fieldDef: any, value: any, disabled: boolean, on
  */
 export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading = false }) => {
   const orders = useOrdersEnhanced();
-  const { user, isFieldVisible } = useAuth();
+  const { user, isFieldVisible, scopeOf } = useAuth();
   // Reps get a cut-down form: the general Order tab, Line Items, and (now)
   // Documents tabs. The other tabs carry visibleFor: ['admin'] in
   // orderSchema.ts, and BaseForm's `variant` filter drops any tab whose
@@ -108,7 +108,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   // relation already grants them over those users' orders (orders.ts's
   // ownOnly scoping). managed_sales_rep_list_ids is loadProfile()'s
   // pre-joined view of that relation (see middleware.ts).
-  const canWriteDocuments = isAdmin || (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
+  // Per action: orderGridDocument:create/write/delete (Settings > Roles >
+  // Order > Documents), plus the managing-rep carve-out documents.ts applies
+  // server-side. "Restricted" (rep-visible types, smaller size cap) = no
+  // write grant — the same test the API uses.
+  const isManagingRep = (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
+  const orderDocGrant = (action: 'create' | 'write' | 'delete') => scopeOf(`orderGridDocument:${action}`) !== null;
+  const restrictedOrderDocs = !orderDocGrant('write');
   // Settings > Roles > Order > Line Items > Columns (orderGridLine:read,
   // orderGridLineSchema.ts) can hide Rate/Amount independently of the
   // rep/admin split above — the server already strips them per that grant;
@@ -360,10 +366,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
                   api={documentsApi}
                   storage={documentsStorage}
                   classifyDocType={classifyDocTypeForFile}
-                  readOnly={!canWriteDocuments}
-                  visibleDocTypes={isAdmin ? undefined : REP_VISIBLE_DOC_TYPES}
-                  maxFileSize={isAdmin ? undefined : REP_MAX_FILE_SIZE}
-                  oversizeMessage={isAdmin ? undefined : repOversizeMessage}
+                  schemaName="orderGridDocument"
+                  canCreate={orderDocGrant('create') || isManagingRep}
+                  canEdit={orderDocGrant('write') || isManagingRep}
+                  canDelete={orderDocGrant('delete') || isManagingRep}
+                  visibleDocTypes={restrictedOrderDocs ? REP_VISIBLE_DOC_TYPES : undefined}
+                  maxFileSize={restrictedOrderDocs ? REP_MAX_FILE_SIZE : undefined}
+                  oversizeMessage={restrictedOrderDocs ? repOversizeMessage : undefined}
                 />
           );
         }

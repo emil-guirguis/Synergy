@@ -20,6 +20,10 @@ export const SupportTicketsPage: React.FC = () => {
           api={documentsApi}
           storage={documentsStorage}
           classifyDocType={classifyDocTypeForFile}
+          // Columns/roles node from supportGridDocument. Actions stay open:
+          // documents.ts also lets a ticket's own filer attach to it without
+          // the grid grant, which this page can't tell from the ticket id.
+          schemaName="supportGridDocument"
         />
       )}
     />

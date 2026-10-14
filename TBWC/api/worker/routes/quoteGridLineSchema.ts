@@ -30,7 +30,8 @@ export const quoteGridLineSchema = defineSchema({
       label: 'Item', dbField: 'qb_item_id', showOn: ['list', 'form'],
       referenceSearch: { endpoint: '/inventory', valueField: 'qb_item_id', labelField: 'full_name', displayField: 'item_name' },
     }),
-    description: field({ name: 'description', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Description', dbField: 'description', showOn: ['list', 'form'] }),
+    // Capped + wrapped in the grid (ChildRowsGrid reads maxWidth) — catalog descriptions run long.
+    description: field({ name: 'description', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Description', dbField: 'description', maxWidth: '380px', showOn: ['list', 'form'] }),
     // Whole units only (step 1) — enforced by routes/quotes.ts too.
     quantity: field({ name: 'quantity', order: 3, type: FieldTypes.NUMBER, default: 1, required: false, label: 'Qty', dbField: 'quantity', min: 0, step: 1, showOn: ['list', 'form'] }),
     rate: field({ name: 'rate', order: 4, type: FieldTypes.CURRENCY, default: 0, required: false, label: 'Rate', dbField: 'rate', showOn: ['list', 'form'] }),

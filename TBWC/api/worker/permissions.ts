@@ -20,6 +20,7 @@ import { orderGridLineSchema } from './routes/orderGridLineSchema';
 import { invoiceGridLineSchema } from './routes/invoiceGridLineSchema';
 import { paymentGridAppliedSchema } from './routes/paymentGridAppliedSchema';
 import { inventoryGridKitItemSchema } from './routes/inventoryGridKitItemSchema';
+import { documentGridSchema } from '@meterit/framework-backend/api/base/documentGridSchema';
 
 /** Child-row grid schemas by permission/schema key — see framework childRows.ts. */
 export const CHILD_SCHEMAS = {
@@ -29,7 +30,23 @@ export const CHILD_SCHEMAS = {
   invoiceGridLine: invoiceGridLineSchema,
   paymentGridApplied: paymentGridAppliedSchema,
   inventoryGridKitItem: inventoryGridKitItemSchema,
+  // Documents tab of each module (framework documents grid, public.document).
+  // Keyed by the document row's entity_type in DOCUMENT_GRID_KEYS below.
+  orderGridDocument: documentGridSchema('order'),
+  quoteGridDocument: documentGridSchema('quote'),
+  invoiceGridDocument: documentGridSchema('invoice'),
+  inventoryGridDocument: documentGridSchema('inventory'),
+  supportGridDocument: documentGridSchema('support'),
 };
+
+/** document.entity_type -> its Documents grid's permission key (routes/documents.ts, aiChat.ts). */
+export const DOCUMENT_GRID_KEYS = {
+  order: 'orderGridDocument',
+  quote: 'quoteGridDocument',
+  invoice: 'invoiceGridDocument',
+  inventory: 'inventoryGridDocument',
+  support_ticket: 'supportGridDocument',
+} as const;
 
 const STATIC_PERMISSIONS = [
   'order:read',
@@ -53,11 +70,9 @@ const STATIC_PERMISSIONS = [
   'user:write',
   'setting:read',
   'setting:write',
-  // Generic order/invoice/inventory file attachments (routes/documents.ts) —
-  // not the Resources library below, which looked identical until a role
-  // couldn't actually tell them apart in the tree.
-  'document:read',
-  'document:write',
+  // Per-record file attachments are no longer one flat document:read/write —
+  // each module's Documents grid is its own child schema below
+  // (orderGridDocument, quoteGridDocument, ...; migration 100).
   // The rep resource library (routes/docTypes.ts, nav: Utilities > Resources).
   // Used to be gated by document:read/write — same string as the unrelated
   // module above — which is why the roles tree only ever showed one "Document"

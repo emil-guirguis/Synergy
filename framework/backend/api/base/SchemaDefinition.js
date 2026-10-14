@@ -54,7 +54,9 @@ const FieldTypes = {
  * @param {string} [definition.placeholder] - Placeholder text
  * @param {Array<string>} [definition.filertable] - Filterable
  * @param {string} [definition.dbField] - Database column name (if different)
- * @param {Array<string>} [definition.enumValues] - Enum values for select fields
+ * @param {Array<string|number>} [definition.enumValues] - Enum values for select fields
+ * @param {Object<string|number, string>} [definition.enumLabels] - Display label per enum value
+ * @param {number} [definition.step] - Numeric input increment; 1 = whole numbers only
  * @param {number} [definition.minLength] - Minimum length for strings
  * @param {number} [definition.maxLength] - Maximum length for strings
  * @param {number} [definition.min] - Minimum value for numbers
@@ -85,7 +87,10 @@ const FieldTypes = {
  * @param {string} [definition.referenceSearch.endpoint] - REST list endpoint to search, relative to the app's
  *   API base (e.g. '/customers'); expected to support a `?search=` query param and return `{data: {items: [...]}}`.
  * @param {string} [definition.referenceSearch.valueField] - Row field to use as the picked option's value.
- * @param {string} [definition.referenceSearch.labelField] - Row field to display as the picked option's label.
+ * @param {string|Array<string>} [definition.referenceSearch.labelField] - Row field to display as the picked option's label
+ *   (or several, joined with spaces — e.g. ['first_name', 'last_name']).
+ * @param {string} [definition.referenceSearch.displayField] - In a grid row: the column already holding the current
+ *   value's label (e.g. quote_line.item_name), so the grid can show it without a lookup.
  * @param {Object} [definition.lineItemPicker] - Declares this field (expected OBJECT/array-shaped, e.g. an
  *   order/quote's `lines`) as an addable/removable line-item grid with an async item picker per row, instead
  *   of a fixed-columns editable grid over already-synced rows. Only meaningful while creating a new record.
@@ -211,6 +216,7 @@ function fieldRef(config) {
  * @param {string} [config.gridColumn] - CSS grid-column placement (e.g. '1 / -1' to span all columns of the tab's grid) — only applies when the tab is laid out as a CSS grid (see tab({ columns })).
  * @param {string} [config.gridRow] - CSS grid-row placement, paired with gridColumn for explicit multi-row layouts.
  * @param {boolean} [config.readOnly=false] - Render every field in this section disabled (same effect as readOnly on each field). UI-only — the API does not reject writes to these columns.
+ * @param {boolean} [config.horizontal=false] - Lay this section's fields out side by side instead of stacked.
  * @param {boolean} [config.bare=false] - Skip BaseForm's own title-bar/card chrome for this section (no `.base-form__section-title`, no card border). Use for a single-field section whose custom-rendered field (EditableDataGrid, DocumentsGrid, etc.) already draws its own title+action header — avoids a duplicate header stacked on top of it.
  * @returns {Object} Section definition
  */
@@ -274,6 +280,8 @@ function tab(config) {
  * @param {Object} [definition.entityFields] - Additional fields in entity (read-only, computed)
  * @param {Object} [definition.relationships] - Entity relationships
  * @param {Object} [definition.validation] - Entity-level validation rules
+ * @param {string} [definition.idFieldName] - Primary key column (e.g. 'quote_id').
+ * @param {Array<Object>} [definition.deleteRestrictions] - Block deleting a row while child rows reference it.
  * @param {string} [definition.titleField] - Name of the field whose value identifies a specific record (e.g. 'ref_number'). Drives the auto-generated "Edit {title} {value}" form header in EntityManagementPage.
  * @param {Object} [definition.parent] - Marks this as a child-row schema edited as a grid inside its parent's form
  *   (e.g. quote_line under quote). Drives the child-row CRUD helpers (childRows.ts), the child's own
@@ -369,7 +377,7 @@ function defineSchema(definition) {
           actions: definition.parent.actions || ['read', 'create', 'write', 'delete'],
         }
       : null,
-    version: '1.7.0', // Updated to include field `step` (whole-number grid columns)
+    version: '1.7.1', // Grid columns read field maxWidth (wrapped descriptions)
     generatedAt: new Date().toISOString(),
   };
 

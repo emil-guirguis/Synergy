@@ -170,14 +170,14 @@ describe('tool visibility', () => {
       { permission: 'invoice:read' },
       { permission: 'customer:read' },
       { permission: 'inventory:read' },
-      { permission: 'document:read' },
+      ...['order', 'quote', 'invoice', 'inventory'].map((k) => ({ permission: `${k}GridDocument:read` })),
     ]);
     mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'hi' }] });
     await post({ message: 'hi' });
     expect(toolNamesSent()).not.toContain('run_sql_query');
   });
 
-  it('search_documents is visible with resource:read alone (no document:read)', async () => {
+  it('search_documents is visible with resource:read alone (no Documents grid grant)', async () => {
     currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'resource:read' }]);
     mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'hi' }] });
     await post({ message: 'hi' });
@@ -185,7 +185,7 @@ describe('tool visibility', () => {
     expect(toolNamesSent()).toContain('search_document_contents');
   });
 
-  it('search_documents is hidden with neither document:read nor resource:read', async () => {
+  it('search_documents is hidden with neither a Documents grid grant nor resource:read', async () => {
     currentPermSet = grantSet([{ permission: 'aichat:use' }]);
     mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'hi' }] });
     await post({ message: 'hi' });
@@ -325,8 +325,20 @@ describe('search_documents candidate fallback', () => {
 });
 
 describe('document search entity-type scoping (allowedDocEntityTypes)', () => {
-  it('includes order/quote/invoice/inventory plus resource when both permissions are held', async () => {
-    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'document:read' }, { permission: 'resource:read' }]);
+  it('an own-scoped Documents grid read does not make that module searchable (free search cannot apply own scope)', async () => {
+    currentPermSet = grantSet([
+      { permission: 'aichat:use' },
+      { permission: 'orderGridDocument:read' },
+      { permission: 'quoteGridDocument:read', scope: 'own' },
+    ]);
+    scriptOneToolCall('search_documents', { text: 'guide' });
+    mockSearchDocumentsMetadata.mockResolvedValue({ matches: [], totalDocuments: 0 });
+    await post({ message: 'find the guide' });
+    expect(mockSearchDocumentsMetadata).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'guide', { entityTypes: ['order'] });
+  });
+
+  it('includes order/quote/invoice/inventory plus resource when every Documents grid read and resource:read are held', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, ...['order', 'quote', 'invoice', 'inventory'].map((k) => ({ permission: `${k}GridDocument:read` })), { permission: 'resource:read' }]);
     scriptOneToolCall('search_documents', { text: 'guide' });
     mockSearchDocumentsMetadata.mockResolvedValue({ matches: [], totalDocuments: 0 });
     await post({ message: 'find the guide' });
@@ -338,7 +350,7 @@ describe('document search entity-type scoping (allowedDocEntityTypes)', () => {
     );
   });
 
-  it('includes only resource when document:read is absent', async () => {
+  it('includes only resource when no Documents grid read is held', async () => {
     currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'resource:read' }]);
     scriptOneToolCall('search_document_contents', { text: 'guide' });
     mockSearchDocumentsContent.mockResolvedValue({ results: [], scanned: 0, truncated: false });

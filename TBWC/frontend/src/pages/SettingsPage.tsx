@@ -26,26 +26,20 @@ const ROLES_TAB_ENABLED = true;
 
 // Derived from the sidebar's own nav (components/layout/navConfig.ts), so a
 // new nav item with a requiredPermission just shows up here too — no second
-// place to hand-edit. Two manual overrides on top of that:
+// place to hand-edit. One manual override on top of that:
 //
 // - QuickBooks: NAV can't express this group at all — its sidebar visibility
 //   collapses to a single permission (inventory:read, see navConfig.ts)
 //   shared by three unrelated catalog modules, plus qbSync (a separate
 //   top-level nav item) that belongs in this group in the roles tree but not
 //   in the sidebar dropdown.
-// - Utilities: `document` (generic order/quote/invoice/inventory file
-//   attachments, routes/documents.ts) has no nav item of its own — it's
-//   cross-cutting, not tied to any single module's page — so it'd otherwise
-//   fall through to RolesForm's catalog-order fallback at the very end.
-//   Nested here instead, alongside Resources (the separate rep resource
-//   library, `resource`), since both are attachment/library features.
+// (Per-record file attachments used to be one flat `document` module nested
+// under Utilities here; each module's Documents grid is now its own child
+// node — Order > Documents, Quote > Documents, ... — so nothing to place.)
 const ROLE_ORDER = roleOrderFromNav(NAV).map((node) => {
   if (typeof node === 'string') return node;
   if (node.label === 'QuickBooks') {
     return { label: 'QuickBooks', modules: ['customer', 'inventory', 'payment', 'qbsync'] };
-  }
-  if (node.label === 'Utilities' && 'modules' in node) {
-    return { ...node, modules: [...node.modules, 'document'] };
   }
   return node;
 });

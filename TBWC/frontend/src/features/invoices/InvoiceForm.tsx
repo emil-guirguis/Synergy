@@ -21,7 +21,7 @@ interface InvoiceFormProps {
  */
 export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) => {
   const invoices = useInvoices();
-  const { isAdmin, isFieldVisible } = useAuth();
+  const { isFieldVisible, scopeOf } = useAuth();
   // Settings > Roles > Invoice > Line Items > Columns (invoiceGridLine:read).
   const hideLineAmounts = !isFieldVisible('invoiceGridLine:read', 'rate') || !isFieldVisible('invoiceGridLine:read', 'amount');
   const [freshInvoice, setFreshInvoice] = React.useState<Invoice | undefined>(invoice?.id ? undefined : invoice);
@@ -71,7 +71,10 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) =
               storage={documentsStorage}
               classifyDocType={classifyDocTypeForFile}
               // Reps get invoices view-only, attachments included.
-              readOnly={!isAdmin}
+              schemaName="invoiceGridDocument"
+              canCreate={scopeOf('invoiceGridDocument:create') !== null}
+              canEdit={scopeOf('invoiceGridDocument:write') !== null}
+              canDelete={scopeOf('invoiceGridDocument:delete') !== null}
             />
           );
         }

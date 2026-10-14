@@ -10,8 +10,27 @@
   white-space: nowrap;
 }
 
+/* Match fw list's "+ New" button look (flat, not MUI's pill radius). */
 .editable-data-grid__add-button {
   white-space: nowrap;
+  border-radius: 6px !important;
+  background: #2563eb !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 0.875rem !important;
+  padding: 0.5rem 1rem !important;
+  line-height: 1.5 !important;
+  box-shadow: none !important;
+}
+
+.editable-data-grid__add-button:hover {
+  background: #1d4ed8 !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3) !important;
+}
+
+.editable-data-grid__add-button.Mui-disabled {
+  background: rgba(0, 0, 0, 0.12) !important;
+  color: rgba(0, 0, 0, 0.26) !important;
 }
 
 .editable-data-grid__loading {
@@ -204,7 +223,7 @@ body[data-theme='dark'] .editable-data-grid__cell--editing,
    text, an outline only appears on hover/focus. */
 .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell,
 .editable-data-grid__wrapper--inline-inputs .editable-data-grid__actions-cell {
-  padding: 0 6px !important;
+  padding: 4px 6px !important;
   min-height: 0;
 }
 
@@ -354,4 +373,16 @@ body[data-theme='dark'] .editable-data-grid__wrapper--inline-inputs .editable-da
 
 .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiAutocomplete-root .MuiOutlinedInput-root .MuiAutocomplete-input {
   padding: 4px 8px !important;
+}
+
+/* Wrapped (textarea) columns: display wraps instead of ellipsising; the
+   multiline editor drops MUI's own root padding so its text sits exactly
+   where the wrapped display text was. */
+.editable-data-grid__display--wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiInputBase-multiline {
+  padding: 0 !important;
 }

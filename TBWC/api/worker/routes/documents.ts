@@ -8,10 +8,18 @@
  * TBWC-specific: auth middleware, which entity types are accepted, and the
  * response envelope. File bytes never pass through here: the browser uploads
  * straight to the Supabase `record-docs` bucket and posts the metadata back.
+ *
+ * Access is per module's Documents grid (migration 100): a row with
+ * entity_type 'order' needs orderGridDocument:read/create/write/delete, a
+ * quote's needs quoteGridDocument:*, etc. (permissions.ts DOCUMENT_GRID_KEYS).
+ * An own-scoped quote grant only reaches the caller's (and managed users')
+ * quotes. The managing-rep and own-support-ticket carve-outs below still
+ * apply on top for callers without the grid grant.
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, permissionsFor, requirePermission, visibleRepListIds } from '../middleware';
+import { AuthVariables, authenticateToken, permissionsFor, visibleRepListIds } from '../middleware';
+import { DOCUMENT_GRID_KEYS } from '../permissions';
 import {
   createDocument,
   deleteDocument,
@@ -27,7 +35,12 @@ app.use('*', authenticateToken);
 
 // Modules allowed to own documents. A new module adds its key here (and a
 // Documents tab in its schema) — no migration needed.
-const ENTITY_TYPES = ['order', 'quote', 'invoice', 'inventory', 'support_ticket'] as const;
+const ENTITY_TYPES = Object.keys(DOCUMENT_GRID_KEYS) as (keyof typeof DOCUMENT_GRID_KEYS)[];
+
+type GridAction = 'read' | 'create' | 'write' | 'delete';
+/** `<entity>GridDocument:<action>` for a document row's entity_type. */
+const gridPerm = (entityType: string, action: GridAction) =>
+  `${DOCUMENT_GRID_KEYS[entityType as keyof typeof DOCUMENT_GRID_KEYS]}:${action}`;
 
 function isEntityType(v: unknown): v is (typeof ENTITY_TYPES)[number] {
   return typeof v === 'string' && (ENTITY_TYPES as readonly string[]).includes(v);
@@ -53,28 +66,12 @@ function forbidden(c: any) {
   return c.json({ success: false, message: 'Insufficient permissions' }, 403);
 }
 
-// document:read/document:write (checked above by requirePermission, or by
-// resolveWriteAccess below for the mutating routes) is one flat grant
-// covering every module's attachments — it says nothing about whether the
-// caller can see or edit the *quote* a given row is attached to. An
-// employee has document:write 'all' but no quote:write at all (migrations
-// 040/042), so without this, they could add/delete documents on any quote
-// despite having no access to quotes themselves. Gated by permission
-// only, not by which quote — matching how every other permission check in
-// this file works (document:read/write themselves carry no row-level scope
-// either).
-function canAccessQuoteDocs(c: any, action: 'quote:read' | 'quote:write'): boolean {
-  return !!c.get('permissions')?.has(action);
-}
-
-/** True unless `action`'s grant is scoped to 'own' and `entityId`'s quote
- *  isn't one of the caller's visible reps' — canAccessQuoteDocs above only
- *  checks the boolean permission, never scope, so an own-scoped caller
- *  (quote:read/write 'own') could otherwise list/attach/edit/delete
- *  documents on ANY quote by id, not just their own, the same way
- *  orders.ts's ownOnly scoping gates its own table. */
-async function quoteOwnedByCaller(c: any, entityId: string, action: 'quote:read' | 'quote:write'): Promise<boolean> {
-  if (c.get('permissions')?.scopeOf(action) !== 'own') return true;
+/** True unless the caller's quoteGridDocument:<action> grant is scoped to
+ *  'own' and `entityId`'s quote isn't one of the caller's visible reps' —
+ *  own-scoped callers may only reach documents on their own quotes, the same
+ *  way orders.ts's ownOnly scoping gates its own table. */
+async function quoteOwnedByCaller(c: any, entityId: string, action: GridAction): Promise<boolean> {
+  if (c.get('permissions')?.scopeOf(gridPerm('quote', action)) !== 'own') return true;
   const { rows } = await execQuery(
     c.env,
     `SELECT 1 FROM public.quote WHERE quote_id::text = $1 AND sales_rep_list_id = ANY($2::text[])`,
@@ -84,13 +81,22 @@ async function quoteOwnedByCaller(c: any, entityId: string, action: 'quote:read'
   return rows.length > 0;
 }
 
+async function ensurePermissions(c: any) {
+  let permissions = c.get('permissions');
+  if (!permissions) {
+    permissions = await permissionsFor(c.env, c.get('user'));
+    c.set('permissions', permissions);
+  }
+  return permissions;
+}
+
 /**
  * Write access for one mutation, parking the resolved PermissionSet on the
  * context (same side effect requirePermission's own guard has) so
  * canAccessQuoteDocs above keeps working regardless of which branch below
  * grants access.
  *
- * A plain rep has no document:write grant at all (migrations/042-role-admin-
+ * A plain rep has no orderGridDocument grant (migrations/042-role-admin-
  * grants.sql) — but a "managing rep" (manages >=1 other user via the Users
  * form's Manages tab / public.user_manager, surfaced here as
  * managed_sales_rep_list_ids — see middleware.ts's loadProfile) may still
@@ -137,16 +143,18 @@ async function ownsSupportTicket(c: any, entityId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-async function resolveWriteAccess(c: any, entityType: string, entityId?: string): Promise<{ allowed: boolean; restrictedOrderDocs: boolean }> {
-  const user = c.get('user');
-  let permissions = c.get('permissions');
-  if (!permissions) {
-    permissions = await permissionsFor(c.env, user);
-    c.set('permissions', permissions);
+async function resolveWriteAccess(
+  c: any, entityType: string, entityId: string | undefined, action: Exclude<GridAction, 'read'>
+): Promise<{ allowed: boolean; restrictedOrderDocs: boolean }> {
+  if (!isEntityType(entityType)) return { allowed: false, restrictedOrderDocs: false };
+  const permissions = await ensurePermissions(c);
+  // "Full" document access for this module = the grid grant for this action.
+  const hasDocumentWrite = !!permissions.has(gridPerm(entityType, action));
+  if (entityType === 'quote' && hasDocumentWrite && entityId && !(await quoteOwnedByCaller(c, entityId, action))) {
+    return { allowed: false, restrictedOrderDocs: false };
   }
-  const hasDocumentWrite = !!permissions.has('document:write');
   const isManagingRepOrder = entityType === 'order' && !!entityId && !hasDocumentWrite && (await managesOrderRep(c, entityId));
-  // A rep/customer has no document:write grant at all (see comment above), but
+  // A rep/customer has no supportGridDocument:create grant, but
   // they should still be able to attach their own files to a ticket they
   // filed (e.g. a photo for an RMA) — scoped to exactly that ticket via
   // support_ticket.users_id, unlike isManagingRepOrder's broader carve-out.
@@ -158,25 +166,24 @@ async function resolveWriteAccess(c: any, entityType: string, entityId?: string)
   };
 }
 
-app.get('/', requirePermission('document:read'), async (c) => {
+app.get('/', async (c) => {
   const entityType = c.req.query('entity_type');
   const entityId = c.req.query('entity_id');
   if (!isEntityType(entityType)) return c.json({ success: false, message: 'Unknown entity_type' }, 400);
   if (!entityId) return c.json({ success: false, message: 'entity_id is required' }, 400);
-  if (entityType === 'quote') {
-    if (!canAccessQuoteDocs(c, 'quote:read')) return forbidden(c);
-    if (!(await quoteOwnedByCaller(c, entityId, 'quote:read'))) {
-      return c.json({ success: false, message: 'Not found' }, 404);
-    }
+  const permissions = await ensurePermissions(c);
+  if (!permissions.has(gridPerm(entityType, 'read'))) return forbidden(c);
+  if (entityType === 'quote' && !(await quoteOwnedByCaller(c, entityId, 'read'))) {
+    return c.json({ success: false, message: 'Not found' }, 404);
   }
 
   try {
     let rows = await listDocuments(execQuery, c.env, entityType, entityId);
     // Same restriction as the write side below, keyed off the same grant:
-    // document:write covers admin and employee alike, so only someone
-    // lacking it (plain rep, or a managing rep who only got order-doc access
-    // via that carve-out) has the internal doc types filtered out of reads.
-    if (entityType === 'order' && !c.get('permissions')?.has('document:write')) {
+    // only someone without orderGridDocument:write (plain rep, or a managing
+    // rep who only got order-doc access via that carve-out) has the internal
+    // doc types filtered out of reads.
+    if (entityType === 'order' && !permissions.has(gridPerm('order', 'write'))) {
       rows = rows.filter((r) => (REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(r.doc_type));
     }
     return c.json({ success: true, data: rows });
@@ -191,12 +198,8 @@ app.post('/', async (c) => {
   if (body.storageBucket !== 'record-docs') {
     return c.json({ success: false, message: 'Unknown storage bucket' }, 400);
   }
-  const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType, body.entityId);
+  const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType, body.entityId, 'create');
   if (!allowed) return forbidden(c);
-  if (body.entityType === 'quote') {
-    if (!canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
-    if (!(await quoteOwnedByCaller(c, body.entityId, 'quote:write'))) return forbidden(c);
-  }
   if (restrictedOrderDocs && !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)) {
     return c.json({ success: false, message: `doc_type must be one of: ${REP_VISIBLE_ORDER_DOC_TYPES.join(', ')}` }, 400);
   }
@@ -235,12 +238,8 @@ app.put('/:id', async (c) => {
     // regardless of which fields changed), so fetched unconditionally rather
     // than only when docType is set.
     const existing = await getDocument(execQuery, c.env, c.req.param('id'));
-    const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '', existing?.entity_id);
+    const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '', existing?.entity_id, 'write');
     if (!allowed) return forbidden(c);
-    if (existing?.entity_type === 'quote') {
-      if (!canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
-      if (!(await quoteOwnedByCaller(c, existing.entity_id, 'quote:write'))) return forbidden(c);
-    }
     if (
       body.docType !== undefined &&
       restrictedOrderDocs &&
@@ -267,12 +266,8 @@ app.delete('/:id', async (c) => {
   // to check.
   const existing = await getDocument(execQuery, c.env, c.req.param('id'));
   if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
-  const { allowed } = await resolveWriteAccess(c, existing.entity_type, existing.entity_id);
+  const { allowed } = await resolveWriteAccess(c, existing.entity_type, existing.entity_id, 'delete');
   if (!allowed) return forbidden(c);
-  if (existing.entity_type === 'quote') {
-    if (!canAccessQuoteDocs(c, 'quote:write')) return forbidden(c);
-    if (!(await quoteOwnedByCaller(c, existing.entity_id, 'quote:write'))) return forbidden(c);
-  }
   const row = await deleteDocument(execQuery, c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Document not found' }, 404);
   return c.json({ success: true, data: row });

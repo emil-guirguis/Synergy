@@ -194,6 +194,10 @@ export const InventoryForm: React.FC<InventoryFormProps> = ({ item, onCancel, lo
               api={documentsApi}
               storage={documentsStorage}
               classifyDocType={classifyDocTypeForFile}
+              schemaName="inventoryGridDocument"
+              canCreate={auth.scopeOf('inventoryGridDocument:create') !== null}
+              canEdit={auth.scopeOf('inventoryGridDocument:write') !== null}
+              canDelete={auth.scopeOf('inventoryGridDocument:delete') !== null}
             />
           );
         }

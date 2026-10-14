@@ -3,10 +3,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Controllable auth + a minimal PermissionSet stand-in (just .has(), which is
 // all this route reads off it) — real resolution is framework-tested
 // elsewhere (permissions.ts). No is_admin anywhere: documents.ts reads real
-// grants only (document:write covers admin and employee identically).
+// grants only — each module's Documents grid permission (<module>GridDocument:*,
+// migration 100), which covers admin and employee identically.
+const ALL_GRID = ['order', 'quote', 'invoice', 'inventory', 'support'].flatMap((k) =>
+  ['read', 'create', 'write', 'delete'].map((a) => `${k}GridDocument:${a}`)
+);
 let currentUser: any = { id: 'admin' };
-let currentGrants: string[] = ['document:read', 'document:write'];
-let fakeGrants: string[] = ['document:read', 'document:write', 'quote:read', 'quote:write'];
+let currentGrants: string[] = [];
+let fakeGrants: string[] = [...ALL_GRID];
 // Per-permission scope override — unset means 'all' for anything in fakeGrants.
 let fakeScopes: Record<string, 'own' | 'all'> = {};
 
@@ -77,20 +81,20 @@ const json = (method: string, body: any) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   currentUser = { id: 'admin' };
-  currentGrants = ['document:read', 'document:write'];
-  fakeGrants = ['document:read', 'document:write', 'quote:read', 'quote:write'];
+  currentGrants = [];
+  fakeGrants = [...ALL_GRID];
   fakeScopes = {};
 });
 
 describe('GET / — quote gate', () => {
-  it('403s an quote list for a caller with document:read but no quote:read', async () => {
-    fakeGrants = [];
+  it('403s a quote list for a caller without quoteGridDocument:read (order docs alone are not enough)', async () => {
+    fakeGrants = ['orderGridDocument:read'];
     const res = await req('/?entity_type=quote&entity_id=1');
     expect(res.status).toBe(403);
     expect(mockListDocuments).not.toHaveBeenCalled();
   });
 
-  it('200s an quote list for a caller holding quote:read', async () => {
+  it('200s a quote list for a caller holding quoteGridDocument:read', async () => {
     mockListDocuments.mockResolvedValue([{ document_id: 1, entity_type: 'quote' }]);
     const res = await req('/?entity_type=quote&entity_id=1');
     expect(res.status).toBe(200);
@@ -98,7 +102,7 @@ describe('GET / — quote gate', () => {
   });
 
   it('order lists are unaffected by the quote gate even with no quote grants', async () => {
-    fakeGrants = [];
+    fakeGrants = ['orderGridDocument:read', 'orderGridDocument:write'];
     mockListDocuments.mockResolvedValue([{ document_id: 1, entity_type: 'order', doc_type: 'packing_slip' }]);
     const res = await req('/?entity_type=order&entity_id=1');
     expect(res.status).toBe(200);
@@ -108,14 +112,14 @@ describe('GET / — quote gate', () => {
 describe('POST / — quote gate', () => {
   const body = { entityType: 'quote', storageBucket: 'record-docs', fileName: 'a.pdf' };
 
-  it('403s creating an quote document without quote:write', async () => {
-    fakeGrants = ['quote:read'];
+  it('403s creating a quote document without quoteGridDocument:create', async () => {
+    fakeGrants = ['quoteGridDocument:read', 'quoteGridDocument:write'];
     const res = await req('/', json('POST', body));
     expect(res.status).toBe(403);
     expect(mockCreateDocument).not.toHaveBeenCalled();
   });
 
-  it('201s when the caller holds quote:write', async () => {
+  it('201s when the caller holds quoteGridDocument:create', async () => {
     mockCreateDocument.mockResolvedValue({ document_id: 1, ...body });
     const res = await req('/', json('POST', body));
     expect(res.status).toBe(201);
@@ -131,8 +135,8 @@ describe('POST / — quote gate', () => {
 });
 
 describe('PUT /:id — quote gate', () => {
-  it('403s editing an quote document without quote:write, before any update is attempted', async () => {
-    fakeGrants = ['quote:read'];
+  it('403s editing a quote document without quoteGridDocument:write, before any update is attempted', async () => {
+    fakeGrants = ['quoteGridDocument:read', 'quoteGridDocument:create'];
     mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
     const res = await req('/1', json('PUT', { description: 'x' }));
     expect(res.status).toBe(403);
@@ -140,10 +144,10 @@ describe('PUT /:id — quote gate', () => {
   });
 
   it('allows editing an order document unaffected by the quote gate', async () => {
-    // No quote:* grant, but document:write is what actually lets an order
+    // No quote grid grant, but orderGridDocument:write is what lets an order
     // edit through (see resolveWriteAccess in documents.ts) — this proves
     // the quote gate specifically isn't what's blocking/allowing it.
-    fakeGrants = ['document:write'];
+    fakeGrants = ['orderGridDocument:write'];
     mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'order' });
     mockUpdateDocument.mockResolvedValue({ document_id: 1, entity_type: 'order' });
     const res = await req('/1', json('PUT', { description: 'x' }));
@@ -152,15 +156,15 @@ describe('PUT /:id — quote gate', () => {
 });
 
 describe('DELETE /:id — quote gate', () => {
-  it('403s deleting an quote document without quote:write, and never calls deleteDocument', async () => {
-    fakeGrants = ['quote:read'];
+  it('403s deleting a quote document without quoteGridDocument:delete, and never calls deleteDocument', async () => {
+    fakeGrants = ['quoteGridDocument:read', 'quoteGridDocument:write'];
     mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
     const res = await req('/1', { method: 'DELETE' });
     expect(res.status).toBe(403);
     expect(mockDeleteDocument).not.toHaveBeenCalled();
   });
 
-  it('deletes when the caller holds quote:write', async () => {
+  it('deletes when the caller holds quoteGridDocument:delete', async () => {
     mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
     mockDeleteDocument.mockResolvedValue({ document_id: 1, entity_type: 'quote' });
     const res = await req('/1', { method: 'DELETE' });
@@ -182,7 +186,7 @@ describe('DELETE /:id — quote gate', () => {
 describe('quote document ownership scoping (own scope)', () => {
   beforeEach(() => {
     currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
-    fakeScopes = { 'quote:read': 'own', 'quote:write': 'own' };
+    fakeScopes = Object.fromEntries(['read', 'create', 'write', 'delete'].map((a) => [`quoteGridDocument:${a}`, 'own']));
   });
 
   it("GET 404s a quote not belonging to the caller's visible reps", async () => {
@@ -232,7 +236,7 @@ describe('quote document ownership scoping (own scope)', () => {
   });
 });
 
-// A rep's order Documents tab: no document:write grant at all (the role
+// A rep's order Documents tab: no orderGridDocument write grants (the role
 // seed), type-filtered to REP_VISIBLE_ORDER_DOC_TYPES, and writable only via
 // the "managing rep" bypass (managed_sales_rep_list_ids non-empty — see
 // resolveWriteAccess in documents.ts).
@@ -241,8 +245,7 @@ describe('rep order documents', () => {
   const managingRep = { id: 'rep2', managed_sales_rep_list_ids: ['REP-2'] };
 
   beforeEach(() => {
-    currentGrants = ['document:read']; // rep role: read, never write
-    fakeGrants = []; // no document:write grant either way
+    fakeGrants = ['orderGridDocument:read']; // rep role: read, never write
   });
 
   it('GET hides non-rep-visible doc types from a plain rep', async () => {
@@ -257,7 +260,7 @@ describe('rep order documents', () => {
     expect(body.data).toEqual([{ document_id: 1, entity_type: 'order', doc_type: 'invoice' }]);
   });
 
-  it('POST is forbidden for a plain rep (no document:write, not managing anyone)', async () => {
+  it('POST is forbidden for a plain rep (no orderGridDocument:create, not managing anyone)', async () => {
     currentUser = rep;
     const res = await req(
       '/',
@@ -307,5 +310,25 @@ describe('rep order documents', () => {
     );
     expect(res.status).toBe(403);
     expect(mockCreateDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe('per-module Documents grid grants (migration 100)', () => {
+  it('invoice documents need invoiceGridDocument:read — holding every other module grant is not enough', async () => {
+    fakeGrants = ALL_GRID.filter((p) => !p.startsWith('invoiceGridDocument'));
+    const res = await req('/?entity_type=invoice&entity_id=1');
+    expect(res.status).toBe(403);
+    expect(mockListDocuments).not.toHaveBeenCalled();
+  });
+
+  it('create without delete: can attach, cannot remove', async () => {
+    fakeGrants = ['inventoryGridDocument:read', 'inventoryGridDocument:create'];
+    mockCreateDocument.mockResolvedValue({ document_id: 1, entity_type: 'inventory' });
+    const created = await req('/', json('POST', { entityType: 'inventory', entityId: '3', storageBucket: 'record-docs', fileName: 'a.pdf' }));
+    expect(created.status).toBe(201);
+    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'inventory', entity_id: '3' });
+    const del = await req('/1', { method: 'DELETE' });
+    expect(del.status).toBe(403);
+    expect(mockDeleteDocument).not.toHaveBeenCalled();
   });
 });
