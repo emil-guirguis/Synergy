@@ -375,14 +375,6 @@ body[data-theme='dark'] .editable-data-grid__wrapper--inline-inputs .editable-da
   padding: 4px 8px !important;
 }
 
-/* Wrapped (textarea) columns: display wraps instead of ellipsising; the
-   multiline editor drops MUI's own root padding so its text sits exactly
-   where the wrapped display text was. */
-.editable-data-grid__display--wrap {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
 .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiInputBase-multiline {
   padding: 0 !important;
 }

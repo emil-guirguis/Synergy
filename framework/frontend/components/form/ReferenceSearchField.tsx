@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Autocomplete, CircularProgress, TextField } from '@mui/material';
+import { Autocomplete, Box, CircularProgress, TextField } from '@mui/material';
 
 export interface ReferenceSearchOption {
   value: string | number;
   label: string;
+  /** Full source row behind this option, when the search impl provides one — lets a picker
+   *  default other fields (e.g. a catalog item's description) off the same pick. */
+  raw?: Record<string, any>;
 }
 
 export interface ReferenceSearchConfig {
@@ -14,6 +17,23 @@ export interface ReferenceSearchConfig {
   /** Row column holding the picked value's label (e.g. quote_line.item_name) — used by grids
    *  to show the current label without a lookup. */
   displayField?: string;
+  /** Raw source-row field (ReferenceSearchOption.raw) shown alongside the label in the open
+   *  dropdown list — e.g. a catalog item's code plus its sales description — so the list reads
+   *  "CODE — description" while the field itself still collapses to just the code once picked. */
+  descriptionField?: string;
+  /** Other columns on the same row to default from the picked option's raw row, as
+   *  { targetColumn: rawField } — e.g. { description: 'sales_desc', rate: 'sales_price' } on an
+   *  item picker, so Description and Rate stay in sync no matter which column's own search found
+   *  the match. Only a target whose raw field actually has a value is written. */
+  fillFields?: Record<string, string>;
+  /** Narrows the endpoint's own default multi-field search to just these columns — e.g. an item
+   *  picker searching only the code, not its description/category too. The endpoint decides which
+   *  names it actually honors (typically its own default search fields, for safety). */
+  searchFields?: string[];
+  /** The row field this picker actually writes the picked value into, when it differs from the
+   *  grid column's own name — e.g. a Description column that searches sales_desc but still picks
+   *  the same underlying qb_item_id as the Item column. Defaults to the column's own name. */
+  valueColumn?: string;
 }
 
 export interface ReferenceSearchFieldProps {
@@ -98,6 +118,34 @@ export const ReferenceSearchField: React.FC<ReferenceSearchFieldProps> = ({
       isOptionEqualToValue={(a, b) => a.value === b.value}
       getOptionLabel={(o) => o.label}
       filterOptions={(x) => x} // server already filtered by the search query
+      // The dropdown defaults to the input's own width, which crops a code + description
+      // option before it's readable. fit-content lets it grow to the longest option instead
+      // (capped below) — the documented MUI recipe for a popper wider than its anchor.
+      slotProps={{ popper: { style: { width: 'fit-content' } } }}
+      renderOption={(liProps, option) => {
+        const desc = config.descriptionField ? option.raw?.[config.descriptionField] : null;
+        if (!desc) {
+          return (
+            <li {...liProps} key={option.value} title={option.label}>
+              <Box component="span" sx={{ display: 'block', maxWidth: '480px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {option.label}
+              </Box>
+            </li>
+          );
+        }
+        return (
+          <li {...liProps} key={option.value} title={`${option.label} — ${desc}`}>
+            <Box sx={{ display: 'flex', width: '480px', gap: 1.5 }}>
+              <Box component="span" sx={{ flex: '0 0 120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {option.label}
+              </Box>
+              <Box component="span" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'text.secondary', borderLeft: '1px solid', borderColor: 'divider', pl: 1.5 }}>
+                {desc}
+              </Box>
+            </Box>
+          </li>
+        );
+      }}
       renderInput={(params) => (
         <TextField
           {...params}

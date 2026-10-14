@@ -15,8 +15,11 @@ export async function tbwcReferenceSearch(
   const headers: Record<string, string> = {};
   const token = tokenStorage.getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  const searchFieldsParam = config.searchFields?.length
+    ? `&searchFields=${encodeURIComponent(config.searchFields.join(','))}`
+    : '';
   const res = await fetch(
-    `${API_BASE_URL}${config.endpoint}?search=${encodeURIComponent(query)}&limit=10`,
+    `${API_BASE_URL}${config.endpoint}?search=${encodeURIComponent(query)}&limit=10${searchFieldsParam}`,
     { headers }
   );
   if (!res.ok) return [];
@@ -27,5 +30,5 @@ export async function tbwcReferenceSearch(
   const labelOf = (item: any) => labelFields.map((f) => item[f]).filter((v) => v != null && v !== '').join(' ');
   return items
     .filter((item) => item[valueField] != null)
-    .map((item) => ({ value: item[valueField], label: labelOf(item) || String(item[valueField]) }));
+    .map((item) => ({ value: item[valueField], label: labelOf(item) || String(item[valueField]), raw: item }));
 }

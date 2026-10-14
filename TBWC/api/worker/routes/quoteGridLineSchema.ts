@@ -28,10 +28,25 @@ export const quoteGridLineSchema = defineSchema({
     qb_item_id: field({
       name: 'qb_item_id', order: 1, type: FieldTypes.SELECT, default: null, required: false,
       label: 'Item', dbField: 'qb_item_id', showOn: ['list', 'form'],
-      referenceSearch: { endpoint: '/inventory', valueField: 'qb_item_id', labelField: 'full_name', displayField: 'item_name' },
+      referenceSearch: {
+        endpoint: '/inventory', valueField: 'qb_item_id', labelField: 'full_name', displayField: 'item_name',
+        descriptionField: 'sales_desc', searchFields: ['full_name'],
+        fillFields: { description: 'sales_desc', rate: 'sales_price' },
+      },
     }),
-    // Capped + wrapped in the grid (ChildRowsGrid reads maxWidth) — catalog descriptions run long.
-    description: field({ name: 'description', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false, label: 'Description', dbField: 'description', maxWidth: '380px', showOn: ['list', 'form'] }),
+    // Capped (ChildRowsGrid reads maxWidth) — catalog descriptions run long. Also a catalog
+    // picker, searching sales_desc instead of the code — picking from either this cell or Item
+    // above sets the same underlying qb_item_id (valueColumn), so Item/Description/Rate stay
+    // in sync no matter which one the rep actually searched by.
+    description: field({
+      name: 'description', order: 2, type: FieldTypes.TEXTAREA, default: '', required: false,
+      label: 'Description', dbField: 'description', maxWidth: '380px', showOn: ['list', 'form'],
+      referenceSearch: {
+        endpoint: '/inventory', valueField: 'qb_item_id', labelField: 'full_name', displayField: 'description',
+        descriptionField: 'sales_desc', searchFields: ['sales_desc'], valueColumn: 'qb_item_id',
+        fillFields: { item_name: 'full_name', rate: 'sales_price' },
+      },
+    }),
     // Whole units only (step 1) — enforced by routes/quotes.ts too.
     quantity: field({ name: 'quantity', order: 3, type: FieldTypes.NUMBER, default: 1, required: false, label: 'Qty', dbField: 'quantity', min: 0, step: 1, showOn: ['list', 'form'] }),
     rate: field({ name: 'rate', order: 4, type: FieldTypes.CURRENCY, default: 0, required: false, label: 'Rate', dbField: 'rate', showOn: ['list', 'form'] }),

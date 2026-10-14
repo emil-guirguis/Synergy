@@ -164,8 +164,14 @@ export const orderSchema = defineSchema({
             field({
               name: 'lines', order: 1, type: FieldTypes.OBJECT, default: null, dbField: 'lines', showOn: ['form'],
               lineItemPicker: {
-                itemSearch: { endpoint: '/inventory', valueField: 'list_id', labelField: 'full_name' },
+                itemSearch: { endpoint: '/inventory', valueField: 'list_id', labelField: 'full_name', descriptionField: 'sales_desc', searchFields: ['full_name'] },
+                // Picks the same item by searching its description instead of its code — the
+                // Description cell becomes a second picker into the same line, not free text.
+                descSearch: { endpoint: '/inventory', valueField: 'list_id', labelField: 'full_name', descriptionField: 'sales_desc', searchFields: ['sales_desc'] },
                 descField: 'desc', quantityField: 'quantity', rateField: 'rate',
+                // Always re-derived from the picked item's own row, regardless of which cell's
+                // search found it, so Item/Description/Rate never fall out of sync.
+                fillFields: { item: 'full_name', desc: 'sales_desc', rate: 'sales_price' },
               },
             }),
           ],

@@ -22,9 +22,17 @@ import './EditableDataGrid.css';
 
 export interface LineItemPickerConfig {
   itemSearch: ReferenceSearchConfig;
+  /** Same shape as itemSearch, for picking the same underlying item by searching its description
+   *  instead of its code (e.g. { ...itemSearch, searchFields: ['sales_desc'] }). When set, the
+   *  Description cell becomes a second picker into the same line rather than free text. */
+  descSearch?: ReferenceSearchConfig;
   descField: string;
   quantityField: string;
   rateField: string;
+  /** Raw fields to copy onto the line from whichever picker's result (itemSearch or descSearch),
+   *  as { lineKey: rawField } — e.g. { item: 'full_name', desc: 'sales_desc', rate: 'sales_price' },
+   *  so Item/Description/Rate stay in sync no matter which cell's search found the match. */
+  fillFields?: Record<string, string>;
 }
 
 export interface PickableLineItemsGridProps {
@@ -119,15 +127,36 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
     onChange(lines.filter((_, i) => i !== index));
   }, [lines, onChange]);
 
-  /** Spreadsheet-style Enter: same column, next row; past the last row adds a new line.
-   *  Shift+Enter is left alone (newline in the description). */
-  const handleEnter = (row: number, col: string) => (e: React.KeyboardEvent) => {
-    if (e.key !== 'Enter' || e.shiftKey || disabled) return;
-    e.preventDefault(); // also stops the implicit <form> submit
+  /** Applies a picked option from either the Item or Description cell — both pick the same
+   *  underlying item, so either one sets itemValue/item and whatever fillFields declares
+   *  (typically desc + rate), always off the option's raw row rather than its own label/value
+   *  (which differ: Description's own pick labels/searches by sales_desc, not full_name). */
+  const applyPick = useCallback((index: number, option: ReferenceSearchOption | null) => {
+    const patch: Record<string, any> = { itemValue: option?.value ?? null, item: option?.label ?? null };
+    for (const [target, rawField] of Object.entries(config.fillFields ?? {})) {
+      if (option?.raw?.[rawField] != null) patch[target] = option.raw[rawField];
+    }
+    updateLine(index, patch);
+  }, [config, updateLine]);
+
+  const COLS = ['item', 'desc', 'qty', 'rate'] as const;
+
+  /** Enter and Tab both step to the next cell to the right; past the last column of the last
+   *  row, either one adds a new line. Shift+Enter is left alone (newline in the description);
+   *  Shift+Tab is left alone (native backward tab). */
+  const handleStepKeyDown = (row: number, col: typeof COLS[number]) => (e: React.KeyboardEvent) => {
+    if (disabled || e.shiftKey) return;
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+    e.preventDefault(); // also stops the implicit <form> submit on Enter
+    const colIdx = COLS.indexOf(col);
+    if (colIdx < COLS.length - 1) {
+      focusCell(row, COLS[colIdx + 1]);
+      return;
+    }
     if (row + 1 < lines.length) {
-      focusCell(row + 1, col);
+      focusCell(row + 1, COLS[0]);
     } else {
-      pendingFocusRef.current = { row: row + 1, col };
+      pendingFocusRef.current = { row: row + 1, col: COLS[0] };
       addLine();
     }
   };
@@ -184,37 +213,53 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
                   className={`editable-data-grid__row${baselineRef.current.has(line) ? '' : ' editable-data-grid__row--changed'}`}
                 >
                   <TableCell className="editable-data-grid__cell" data-line-row={i} data-line-col="item">
-                    <ReferenceSearchField
-                      config={config.itemSearch}
-                      search={search}
-                      disabled={disabled}
-                      value={line.itemValue ?? null}
-                      valueLabel={line.item ?? null}
-                      placeholder="Search item…"
-                      onChange={(option) => updateLine(i, { itemValue: option?.value ?? null, item: option?.label ?? null })}
-                    />
+                    <div onKeyDown={handleStepKeyDown(i, 'item')}>
+                      <ReferenceSearchField
+                        config={config.itemSearch}
+                        search={search}
+                        disabled={disabled}
+                        value={line.itemValue ?? null}
+                        valueLabel={line.item ?? null}
+                        placeholder="Search item…"
+                        onChange={(option) => applyPick(i, option)}
+                      />
+                    </div>
                   </TableCell>
                   <TableCell className="editable-data-grid__cell" data-line-row={i} data-line-col="desc">
-                    <TextField
-                      size="small"
-                      fullWidth
-                      onKeyDown={handleEnter(i, 'desc')}
-                      multiline={editingDescIndex === i}
-                      maxRows={4}
-                      variant="outlined"
-                      onFocus={() => setEditingDescIndex(i)}
-                      onBlur={() => setEditingDescIndex(null)}
-                      placeholder="Description"
-                      disabled={disabled}
-                      value={line[config.descField] ?? ''}
-                      onChange={(e) => updateLine(i, { [config.descField]: e.target.value })}
-                    />
+                    {config.descSearch ? (
+                      <div onKeyDown={handleStepKeyDown(i, 'desc')}>
+                        <ReferenceSearchField
+                          config={config.descSearch}
+                          search={search}
+                          disabled={disabled}
+                          value={line.itemValue ?? null}
+                          valueLabel={line[config.descField] ?? null}
+                          placeholder="Search description…"
+                          onChange={(option) => applyPick(i, option)}
+                        />
+                      </div>
+                    ) : (
+                      <TextField
+                        size="small"
+                        fullWidth
+                        onKeyDown={handleStepKeyDown(i, 'desc')}
+                        multiline={editingDescIndex === i}
+                        maxRows={4}
+                        variant="outlined"
+                        onFocus={() => setEditingDescIndex(i)}
+                        onBlur={() => setEditingDescIndex(null)}
+                        placeholder="Description"
+                        disabled={disabled}
+                        value={line[config.descField] ?? ''}
+                        onChange={(e) => updateLine(i, { [config.descField]: e.target.value })}
+                      />
+                    )}
                   </TableCell>
                   <TableCell className="editable-data-grid__cell" data-line-row={i} data-line-col="qty">
                     <TextField
                       size="small"
                       fullWidth
-                      onKeyDown={handleEnter(i, 'qty')}
+                      onKeyDown={handleStepKeyDown(i, 'qty')}
                       variant="outlined"
                       placeholder="Qty"
                       type="number"
@@ -228,7 +273,7 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
                     <TextField
                       size="small"
                       fullWidth
-                      onKeyDown={handleEnter(i, 'rate')}
+                      onKeyDown={handleStepKeyDown(i, 'rate')}
                       variant="outlined"
                       placeholder="Rate"
                       type="number"

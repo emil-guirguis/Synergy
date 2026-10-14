@@ -306,7 +306,7 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     return null;
   };
 
-  /** Tab/Shift+Tab across editable cells; Enter = same column next row (adds one past the end); Esc = revert. */
+  /** Tab/Shift+Tab and Enter both step to the next editable cell to the right (wrapping to the next row); Enter adds a row past the end; Esc = revert. */
   const handleKeyDown = (rowIndex: number, col: Column) => (e: React.KeyboardEvent) => {
     const row = shown[rowIndex];
     if (e.key === 'Escape') {
@@ -325,14 +325,14 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault(); // also stops the implicit <form> submit
-      const next = shown[rowIndex + 1];
-      if (next) {
-        if (isEditable(next, col)) beginEdit(next, col);
-        else setActiveCell(null);
+      const target = stepCell(rowIndex, col.name, 1);
+      if (target) {
+        beginEdit(target.row, target.col);
       } else if (canCreate && !onAddClick) {
         const key = addRow();
-        editStartRef.current = defaults[col.name];
-        setActiveCell({ key, col: col.name });
+        const firstEditable = columns.find((c) => !c.readOnly) ?? col;
+        editStartRef.current = defaults[firstEditable.name];
+        setActiveCell({ key, col: firstEditable.name });
       } else {
         setActiveCell(null);
       }
@@ -389,8 +389,9 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
       const text = displayText(row, col);
       return (
         <div
-          className={`editable-data-grid__display${editable ? ' editable-data-grid__display--editable' : ''}${col.type === 'textarea' ? ' editable-data-grid__display--wrap' : ''}`}
+          className={`editable-data-grid__display${editable ? ' editable-data-grid__display--editable' : ''}`}
           style={col.maxWidth ? { maxWidth: col.maxWidth } : undefined}
+          title={text || undefined}
           // mousedown, not click: claims the active cell before the current
           // input's blur fires, so moving within the row doesn't save it early.
           onMouseDown={editable ? (e) => { e.preventDefault(); beginEdit(row, col); } : undefined}
@@ -409,20 +410,28 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     };
 
     if (col.referenceSearch && search) {
-      const label = col.referenceSearch.displayField ? row.values[col.referenceSearch.displayField] : null;
+      const refConfig = col.referenceSearch;
+      const valueCol = refConfig.valueColumn ?? col.name;
+      const label = refConfig.displayField ? row.values[refConfig.displayField] : null;
       return (
         <div onBlur={onBlur} onKeyDown={onKeyDown}>
           <ReferenceSearchField
-            config={col.referenceSearch}
+            config={refConfig}
             search={search}
             autoFocus
-            value={value ?? null}
+            value={row.values[valueCol] ?? null}
             valueLabel={label ?? null}
             placeholder={`Search ${col.label.toLowerCase()}…`}
-            onChange={(option) => setValue(row.key, {
-              [col.name]: option?.value ?? null,
-              ...(col.referenceSearch?.displayField ? { [col.referenceSearch.displayField]: option?.label ?? null } : {}),
-            })}
+            onChange={(option) => {
+              const patch: Record<string, any> = {
+                [valueCol]: option?.value ?? null,
+                ...(refConfig.displayField ? { [refConfig.displayField]: option?.label ?? null } : {}),
+              };
+              for (const [target, rawField] of Object.entries(refConfig.fillFields ?? {})) {
+                if (option?.raw?.[rawField] != null) patch[target] = option.raw[rawField];
+              }
+              setValue(row.key, patch);
+            }}
           />
         </div>
       );

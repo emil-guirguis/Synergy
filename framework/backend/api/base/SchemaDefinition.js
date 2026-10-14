@@ -91,12 +91,29 @@ const FieldTypes = {
  *   (or several, joined with spaces — e.g. ['first_name', 'last_name']).
  * @param {string} [definition.referenceSearch.displayField] - In a grid row: the column already holding the current
  *   value's label (e.g. quote_line.item_name), so the grid can show it without a lookup.
+ * @param {string} [definition.referenceSearch.descriptionField] - Raw source-row field shown alongside the label
+ *   in the open dropdown list (e.g. a catalog item's sales_desc next to its code).
+ * @param {Object} [definition.referenceSearch.fillFields] - Other columns on the same row to default from the
+ *   picked option's raw row, as { targetColumn: rawField } (e.g. { description: 'sales_desc', rate: 'sales_price' }).
+ * @param {Array<string>} [definition.referenceSearch.searchFields] - Narrows the endpoint's own default
+ *   multi-field search to just these columns (e.g. an item picker searching only the code).
+ * @param {string} [definition.referenceSearch.valueColumn] - The row field this picker actually writes the
+ *   picked value into, when it differs from the field's own name (e.g. a Description field that searches
+ *   sales_desc but still picks the line's qb_item_id). Defaults to the field's own name.
  * @param {Object} [definition.lineItemPicker] - Declares this field (expected OBJECT/array-shaped, e.g. an
  *   order/quote's `lines`) as an addable/removable line-item grid with an async item picker per row, instead
  *   of a fixed-columns editable grid over already-synced rows. Only meaningful while creating a new record.
- * @param {Object} [definition.lineItemPicker.itemSearch] - Same shape as referenceSearch, for picking each
- *   line's item (e.g. { endpoint: '/inventory', valueField: 'full_name', labelField: 'full_name' }).
- * @param {string} [definition.lineItemPicker.descField] - Line object key for the free-text description.
+ * @param {Object} [definition.lineItemPicker.itemSearch] - Same shape as referenceSearch (including
+ *   descriptionField/searchFields), for picking each line's item by code (e.g. { endpoint: '/inventory',
+ *   valueField: 'full_name', labelField: 'full_name' }).
+ * @param {Object} [definition.lineItemPicker.descSearch] - Same shape as itemSearch, but for picking the
+ *   same underlying item by searching its description instead — e.g. { ...itemSearch, searchFields: ['sales_desc'] }.
+ *   When present, the Description cell becomes a second picker into the same line, not free text.
+ * @param {Object} [definition.lineItemPicker.fillFields] - Raw fields to copy onto the line from whichever
+ *   picker's result (itemSearch or descSearch), as { lineKey: rawField } — e.g.
+ *   { item: 'full_name', desc: 'sales_desc', rate: 'sales_price' }, so Item/Description/Rate stay in sync
+ *   no matter which cell's search found the match.
+ * @param {string} [definition.lineItemPicker.descField] - Line object key for the description.
  * @param {string} [definition.lineItemPicker.quantityField] - Line object key for quantity.
  * @param {string} [definition.lineItemPicker.rateField] - Line object key for unit rate.
  * @param {Array<Object>} [definition.gridColumns] - Purely descriptive: for a field whose value is an array of
@@ -377,7 +394,7 @@ function defineSchema(definition) {
           actions: definition.parent.actions || ['read', 'create', 'write', 'delete'],
         }
       : null,
-    version: '1.7.1', // Grid columns read field maxWidth (wrapped descriptions)
+    version: '1.7.2', // referenceSearch: fillFields/valueColumn/searchFields (item/description cross-fill)
     generatedAt: new Date().toISOString(),
   };
 

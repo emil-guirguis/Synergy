@@ -52,10 +52,12 @@ export interface BackendFieldDefinition {
   /** Editable only while the record is new (no id yet) — see SchemaDefinition.js's field(). */
   createOnly?: boolean;
   /** Declares this field as an async search-as-you-type picker instead of a static dropdown. */
-  referenceSearch?: { endpoint: string; valueField?: string; labelField?: string | string[]; displayField?: string };
+  referenceSearch?: { endpoint: string; valueField?: string; labelField?: string | string[]; displayField?: string; descriptionField?: string; fillFields?: Record<string, string>; searchFields?: string[]; valueColumn?: string };
   /** Declares this field as an addable/removable line-item grid with an async item picker per row. */
   lineItemPicker?: {
-    itemSearch: { endpoint: string; valueField?: string; labelField?: string };
+    itemSearch: { endpoint: string; valueField?: string; labelField?: string; descriptionField?: string; searchFields?: string[] };
+    descSearch?: { endpoint: string; valueField?: string; labelField?: string; descriptionField?: string; searchFields?: string[] };
+    fillFields?: Record<string, string>;
     descField: string;
     quantityField: string;
     rateField: string;
@@ -139,7 +141,7 @@ const LS_PREFIX = 'schema_cache_';
  * with an older version are discarded so backend schema-format changes
  * propagate immediately instead of waiting out the cache TTL.
  */
-const MIN_SCHEMA_VERSION = '1.7.1';
+const MIN_SCHEMA_VERSION = '1.7.2';
 
 function isStaleVersion(schema: BackendSchema): boolean {
   return (schema.version || '0.0.0').localeCompare(MIN_SCHEMA_VERSION, undefined, { numeric: true }) < 0;

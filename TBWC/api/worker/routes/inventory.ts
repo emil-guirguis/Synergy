@@ -39,19 +39,26 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
   // image_status value answers it (auto and approved both have a picture;
   // pending, rejected and none don't). Keep it out of whereFromQuery's generic
   // pass and turn it into the NULL check below.
-  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['hasImage'] });
+  const { where: fieldWhere, whereLike } = whereFromQuery(q, { likeFields: LIKE_FIELDS, extraReserved: ['hasImage', 'searchFields'] });
   // Deleted in QB (see qbwc/objects/listDeleted.ts) — the row survives because
   // kit_items/quote_line point at it, but it is out of the live catalog.
   const where: Record<string, any> = { ...fieldWhere, qb_deleted_at: null };
   if (q.hasImage === 'true') where.image_url = NOT_NULL;
   if (q.hasImage === 'false') where.image_url = null;
+  // A caller (e.g. an item picker) can narrow the default multi-field search to a subset of
+  // SEARCH — e.g. just the item code, not its description/category too. Intersected against
+  // SEARCH rather than trusted outright, so a request can't probe an arbitrary column.
+  const requestedSearchFields = q.searchFields ? q.searchFields.split(',').map((f) => f.trim()) : null;
+  const searchFields = requestedSearchFields
+    ? SEARCH.filter((f) => requestedSearchFields.includes(f))
+    : SEARCH;
   const result = await findAll(c.env, {
     table: TABLE,
     primaryKey: PK,
     page: q.page ? parseInt(q.page, 10) : 1,
     limit: q.limit ? parseInt(q.limit, 10) : 25,
     search: q.search,
-    searchFields: SEARCH,
+    searchFields: searchFields.length > 0 ? searchFields : SEARCH,
     sortBy: q.sortBy,
     sortOrder: q.sortOrder,
     orderBy: q.sortBy ? undefined : `"${TABLE}".name ASC`,
