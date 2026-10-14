@@ -4,6 +4,7 @@ import type { SidebarSectionProps } from '../sidebar/Sidebar';
 import { useSchema } from './utils/schemaLoader';
 import { useSchemaForm } from './hooks/useSchemaForm';
 import { useFormTabs } from './hooks/useFormTabs';
+import { useReportDirty } from './FormDirtyContext';
 import { FormTabs } from './FormTabs';
 import { ValidationFieldSelect } from '../validationfieldselect/ValidationFieldSelect';
 import { FormField } from '../formfield/FormField';
@@ -197,6 +198,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
     onLegacySubmit,
     onCancel,
   });
+  useReportDirty('baseForm', (form?.dirtyFields?.size ?? 0) > 0);
 
   // Determine the active tab - use state if set, otherwise use first tab from schema
   const effectiveActiveTab = React.useMemo(() => {
@@ -546,6 +548,10 @@ export const BaseForm: React.FC<BaseFormProps> = ({
       // section({ readOnly: true }) — disable every field in the section without
       // repeating readOnly on each field definition.
       const sectionReadOnly = !!(sectionData as any)?.readOnly;
+      // section({ bare: true }) — the field's own component (EditableDataGrid,
+      // DocumentsGrid, etc.) draws its own title+action header, so skip this
+      // section's title bar/card chrome entirely to avoid a duplicate header.
+      const sectionBare = !!(sectionData as any)?.bare;
 
       const sectionStyle: React.CSSProperties = {};
       if (tabUseFlexbox) {
@@ -562,31 +568,35 @@ export const BaseForm: React.FC<BaseFormProps> = ({
         <div
           key={sectionTitle}
           data-section={sectionTitle}
-          className={`${className}__section${tabUseFlexbox ? ' base-form__section--flex' : ''}`}
+          className={`${className}__section${tabUseFlexbox ? ' base-form__section--flex' : ''}${sectionBare ? ' base-form__section--bare' : ''}`}
           style={Object.keys(sectionStyle).length > 0 ? sectionStyle : undefined}
         >
-          <h3 className={`${className}__section-title base-form__section-title`}>
-            {getSectionIcon(sectionTitle)}
-            {sectionTitle}
-            {visibleFields.includes('documents') && (
-              <Tooltip title="Drag files here, or hover the grid and press Ctrl+V to paste a copied file.">
-                <InfoOutlinedIcon sx={{ fontSize: 16, ml: 0.5, color: 'text.secondary', cursor: 'help', verticalAlign: 'text-bottom' }} />
-              </Tooltip>
-            )}
-            {/address/i.test(sectionTitle) && (() => {
-              const d = form?.formData || {};
-              const parts = [d.street, d.street2, d.city, d.state, d.zip, d.country].filter(Boolean);
-              if (parts.length === 0) return null;
-              const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(', '))}`;
-              return (
-                <a href={url} target="_blank" rel="noopener noreferrer" title="Open in Google Maps" className="base-form__section-title__maps-link">
-                  <img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=16" alt="Google Maps" />
-                </a>
-              );
-            })()}
-          </h3>
-          {sectionData?.description && (
-            <p className="base-form__section-description">{sectionData.description}</p>
+          {!sectionBare && (
+            <>
+              <h3 className={`${className}__section-title base-form__section-title`}>
+                {getSectionIcon(sectionTitle)}
+                {sectionTitle}
+                {visibleFields.includes('documents') && (
+                  <Tooltip title="Drag files here, or hover the grid and press Ctrl+V to paste a copied file.">
+                    <InfoOutlinedIcon sx={{ fontSize: 16, ml: 0.5, color: 'text.secondary', cursor: 'help', verticalAlign: 'text-bottom' }} />
+                  </Tooltip>
+                )}
+                {/address/i.test(sectionTitle) && (() => {
+                  const d = form?.formData || {};
+                  const parts = [d.street, d.street2, d.city, d.state, d.zip, d.country].filter(Boolean);
+                  if (parts.length === 0) return null;
+                  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(', '))}`;
+                  return (
+                    <a href={url} target="_blank" rel="noopener noreferrer" title="Open in Google Maps" className="base-form__section-title__maps-link">
+                      <img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=16" alt="Google Maps" />
+                    </a>
+                  );
+                })()}
+              </h3>
+              {sectionData?.description && (
+                <p className="base-form__section-description">{sectionData.description}</p>
+              )}
+            </>
           )}
           <div className={sectionHorizontal ? 'base-form__fields-row' : undefined}>
             {visibleFields.map(fieldName => {

@@ -89,6 +89,7 @@ export const RegistersGrid: React.FC<RegistersGridProps> = ({
   return (
     <div className="registers-grid registers-grid--readonly">
       <EditableDataGrid
+        title="Registers"
         data={gridData}
         columns={columns}
         loading={loading}

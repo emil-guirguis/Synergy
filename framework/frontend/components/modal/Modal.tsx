@@ -1,9 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import Button from '@mui/material/Button';
 import './Modal.css';
 
 export interface ModalProps {
@@ -25,6 +30,12 @@ export interface ModalProps {
   crumb?: string;
   /** Share icon shown to the left of Cancel/Close — omit to hide it. */
   onShare?: () => void;
+  /**
+   * Unsaved changes: Save gets a highlighted state, and the user-initiated
+   * close paths (Cancel / ✕ / Escape) ask before discarding. `onClose` called
+   * by the caller itself (e.g. after a successful save) is not intercepted.
+   */
+  isDirty?: boolean;
 }
 
 /**
@@ -60,8 +71,19 @@ export const Modal: React.FC<ModalProps> = ({
   titleIcon,
   crumb,
   onShare,
+  isDirty = false,
 }) => {
   const { isMobile } = useResponsive();
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  const requestClose = React.useCallback(() => {
+    if (isDirty) setConfirmDiscard(true);
+    else onClose();
+  }, [isDirty, onClose]);
+
+  useEffect(() => {
+    if (!isOpen) setConfirmDiscard(false);
+  }, [isOpen]);
 
   // Auto full screen on mobile
   const shouldFullScreen = fullScreen || isMobile;
@@ -69,8 +91,9 @@ export const Modal: React.FC<ModalProps> = ({
   // Handle escape key
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen && !loading) {
-        onClose();
+      // MUI popups (Autocomplete listbox, the discard dialog itself) handle their own Escape.
+      if (event.key === 'Escape' && isOpen && !loading && !confirmDiscard && !event.defaultPrevented) {
+        requestClose();
       }
     };
 
@@ -84,7 +107,7 @@ export const Modal: React.FC<ModalProps> = ({
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, loading, onClose]);
+  }, [isOpen, loading, requestClose, confirmDiscard]);
 
   if (!isOpen) return null;
 
@@ -143,7 +166,7 @@ export const Modal: React.FC<ModalProps> = ({
               <button
                 type="button"
                 className="modal__cancel-btn"
-                onClick={onClose}
+                onClick={requestClose}
                 disabled={loading}
               >
                 Cancel
@@ -152,9 +175,10 @@ export const Modal: React.FC<ModalProps> = ({
             {showSaveButton && (
               <button
                 type="button"
-                className="modal__save-btn"
+                className={`modal__save-btn${isDirty ? ' modal__save-btn--dirty' : ''}`}
                 onClick={onSave ?? handleDefaultSave}
                 disabled={loading}
+                title={isDirty ? 'Unsaved changes' : undefined}
               >
                 <CheckRoundedIcon sx={{ fontSize: 18 }} />
                 {saveLabel}
@@ -164,7 +188,7 @@ export const Modal: React.FC<ModalProps> = ({
             <button
               type="button"
               className="modal__close"
-              onClick={onClose}
+              onClick={requestClose}
               disabled={loading}
               aria-label="Close modal"
             >
@@ -204,6 +228,23 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
         )}
       </div>
+
+      <Dialog open={confirmDiscard} onClose={() => setConfirmDiscard(false)} maxWidth="xs">
+        <DialogTitle>Discard changes?</DialogTitle>
+        <DialogContent>You have unsaved changes. Close without saving?</DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDiscard(false)} autoFocus>Keep editing</Button>
+          <Button
+            color="error"
+            onClick={() => {
+              setConfirmDiscard(false);
+              onClose();
+            }}
+          >
+            Discard
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };

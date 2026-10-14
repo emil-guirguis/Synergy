@@ -169,3 +169,123 @@ describe('DELETE /:id', () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ---- Line items: per-row child routes under quoteGridLine:* (migration 094) ----
+
+/** Answer execQuery by SQL shape; anything unmatched resolves to no rows. */
+function routeSql(handlers: [RegExp, (params: any[]) => any[]][]) {
+  mockExecQuery.mockImplementation(async (...a: any[]) => {
+    // execQuery(env, sql, params, label) vs transaction q(sql, params)
+    const [sql, params] = typeof a[0] === 'string' ? [a[0], a[1]] : [a[1], a[2]];
+    for (const [re, fn] of handlers) if (re.test(sql)) return { rows: fn(params ?? []), rowCount: 1 };
+    return { rows: [], rowCount: 0 };
+  });
+}
+const lineSqls = () => mockExecQuery.mock.calls.map((a: any[]) => (typeof a[0] === 'string' ? a[0] : a[1]) as string);
+const json = (method: string, body: any): RequestInit => ({
+  method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
+
+describe('line items', () => {
+  beforeEach(() => {
+    mockFindById.mockResolvedValue({ quote_id: 7, sales_rep_list_id: 'REP-OTHER' });
+  });
+
+  it('catalog derives quoteGridLine:read/create/write/delete from quoteGridLineSchema', () => {
+    expect(PERMISSIONS).toEqual(expect.arrayContaining(['quoteGridLine:read', 'quoteGridLine:create', 'quoteGridLine:write', 'quoteGridLine:delete']));
+  });
+
+  it('quote:write alone does not allow adding a line', async () => {
+    currentPermSet = resolvePermissions([{ permission: 'quote:write', scope: 'all', hiddenFields: [] }], null, PERMISSIONS);
+    const res = await req('/7/lines', json('POST', { quantity: 1 }));
+    expect(res.status).toBe(403);
+    expect(mockExecQuery).not.toHaveBeenCalled();
+  });
+
+  it('quoteGridLine:write alone allows editing a line without quote:write', async () => {
+    currentPermSet = resolvePermissions([{ permission: 'quoteGridLine:write', scope: 'all', hiddenFields: [] }], null, PERMISSIONS);
+    routeSql([
+      [/FOR UPDATE/, () => [{ quote_line_id: 3, quote_id: 7, quantity: '1', rate: '5', qb_item_id: null, item_name: 'Custom' }]],
+      [/UPDATE public\.quote_line/, () => [{ quote_line_id: 3, quote_id: 7, quantity: 2, rate: 5, amount: 10 }]],
+      [/UPDATE public\.quote SET total/, () => [{ total: '10.00' }]],
+    ]);
+    const res = await req('/7/lines/3', json('PUT', { quantity: 2 }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.parent).toEqual({ total: '10.00' });
+  });
+
+  it('own-scoped quoteGridLine grant 404s on another rep\'s quote', async () => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    currentPermSet = resolvePermissions([{ permission: 'quoteGridLine:create', scope: 'own', hiddenFields: [] }], null, PERMISSIONS);
+    const res = await req('/7/lines', json('POST', { quantity: 1 }));
+    expect(res.status).toBe(404);
+    expect(mockExecQuery).not.toHaveBeenCalled();
+  });
+
+  it('POST computes amount, takes item_name from qb_item, ignores client amount/item_name, re-sums total', async () => {
+    let inserted: any[] = [];
+    routeSql([
+      [/FROM public\.qb_item/, () => [{ full_name: 'Meter:16-Element' }]],
+      [/MAX\(line_order\)/, () => [{ n: 4 }]],
+      [/INSERT INTO public\.quote_line/, (p) => { inserted = p; return [{ quote_line_id: 11, quote_id: 7 }]; }],
+      [/UPDATE public\.quote SET total/, () => [{ total: '30.00' }]],
+    ]);
+    const res = await req('/7/lines', json('POST', {
+      qb_item_id: 99, quantity: 3, rate: 10, amount: 999999, item_name: 'Spoofed', quote_id: 1, quote_line_id: 1,
+    }));
+    expect(res.status).toBe(201);
+    const insertSql = lineSqls().find((s) => s.includes('INSERT INTO public.quote_line'))!;
+    expect(insertSql).toMatch(/\(quote_id, .*line_order\)/);
+    expect(inserted[0]).toBe(7); // FK from the URL, not the body's quote_id
+    expect(inserted).toContain(30); // amount = 3 * 10
+    expect(inserted).toContain('Meter:16-Element');
+    expect(inserted).not.toContain(999999);
+    expect(inserted).not.toContain('Spoofed');
+    expect(inserted[inserted.length - 1]).toBe(4); // next line_order
+    expect((await res.json()).data.parent).toEqual({ total: '30.00' });
+  });
+
+  it('400s on an item id that is not in the catalog', async () => {
+    routeSql([[/MAX\(line_order\)/, () => [{ n: 0 }]]]);
+    const res = await req('/7/lines', json('POST', { qb_item_id: 12345, quantity: 1, rate: 1 }));
+    expect(res.status).toBe(400);
+    expect(lineSqls().some((s) => s.includes('INSERT INTO public.quote_line'))).toBe(false);
+  });
+
+  it('400s a fractional quantity (whole units only)', async () => {
+    routeSql([[/MAX\(line_order\)/, () => [{ n: 0 }]]]);
+    const res = await req('/7/lines', json('POST', { quantity: 2.5, rate: 1 }));
+    expect(res.status).toBe(400);
+    expect(lineSqls().some((s) => s.includes('INSERT INTO public.quote_line'))).toBe(false);
+  });
+
+  it('404s editing a line that belongs to a different quote', async () => {
+    routeSql([]); // SELECT ... WHERE quote_line_id AND quote_id FOR UPDATE finds nothing
+    const res = await req('/7/lines/3', json('PUT', { quantity: 2 }));
+    expect(res.status).toBe(404);
+  });
+
+  it('DELETE needs quoteGridLine:delete', async () => {
+    currentPermSet = resolvePermissions([{ permission: 'quoteGridLine:write', scope: 'all', hiddenFields: [] }], null, PERMISSIONS);
+    const res = await req('/7/lines/3', { method: 'DELETE' });
+    expect(res.status).toBe(403);
+  });
+
+  it('DELETE removes the row and returns the re-summed total', async () => {
+    routeSql([
+      [/DELETE FROM public\.quote_line/, () => [{ quote_line_id: 3 }]],
+      [/UPDATE public\.quote SET total/, () => [{ total: '0.00' }]],
+    ]);
+    const res = await req('/7/lines/3', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.parent).toEqual({ total: '0.00' });
+  });
+
+  it('quote PUT no longer accepts lines or total', async () => {
+    routeSql([]);
+    const res = await req('/7', json('PUT', { lines: [{ desc: 'x' }], total: 1 }));
+    expect(res.status).toBe(400);
+    expect(lineSqls().some((s) => /quote_line|SET total/.test(s))).toBe(false);
+  });
+});

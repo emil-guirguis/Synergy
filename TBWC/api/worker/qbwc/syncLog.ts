@@ -165,7 +165,8 @@ export async function logError(
   env: Env,
   ticket: string | null,
   objectType: string,
-  message: string
+  message: string,
+  detail?: string | null
 ): Promise<void> {
   try {
     await insertRun(env, {
@@ -175,6 +176,7 @@ export async function logError(
       statusCode: null,
       rowsProcessed: 0,
       error: message,
+      detail: detail ?? null,
     });
   } catch (e) {
     console.error('[QBWC] sync log write failed:', e);

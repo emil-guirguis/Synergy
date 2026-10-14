@@ -171,6 +171,7 @@ export const TenantCostsGrid: React.FC<Props> = ({ tenantId }) => {
         </Box>
       )}
       <EditableDataGrid
+        title="Costs"
         data={gridData}
         columns={COLUMNS}
         loading={loading}

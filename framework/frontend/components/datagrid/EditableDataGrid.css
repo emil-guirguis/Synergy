@@ -1,7 +1,7 @@
 .editable-data-grid {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   background: transparent;
 }
 
@@ -11,8 +11,7 @@
 }
 
 .editable-data-grid__add-button {
-  min-width: unset;
-  padding: 2px 6px !important;
+  white-space: nowrap;
 }
 
 .editable-data-grid__loading {
@@ -26,42 +25,98 @@
 }
 
 .editable-data-grid__table {
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: var(--editable-grid-max-height, 480px);
+  border: 1px solid var(--color-border, #e5e7eb);
 }
 
-.editable-data-grid__header-cell {
+/* Table sits inside .editable-data-grid__wrapper's own card chrome (title bar
+   + table share one border/radius) — the table itself goes borderless so the
+   two don't double up. */
+.editable-data-grid__table--inset {
+  border: none;
+  border-radius: 0;
+}
+
+/* Card wrapper used when `title` is set: title bar + table rendered as one
+   continuous card, matching BaseList's toolbar-over-table look. */
+.editable-data-grid__wrapper {
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.editable-data-grid__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface, #ffffff);
+}
+
+.editable-data-grid__toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9375rem;
   font-weight: 600;
-  background: rgba(0, 0, 0, 0.04);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
-  color: rgba(0, 0, 0, 0.87);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--color-text-primary, #111827);
+}
+
+.editable-data-grid__toolbar-info {
+  font-size: 16px;
+  color: var(--color-text-secondary, #6b7280);
+  cursor: help;
+}
+
+/* sticky: stays put while .editable-data-grid__table's own body scrolls
+   (max-height + overflow-y: auto above) */
+.editable-data-grid__header-cell {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 600;
+  background: var(--color-background-alt, #f3f4f6);
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-text-secondary, #6b7280);
+  font-size: 13px;
   padding: 12px !important;
 }
 
 .editable-data-grid__row {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
 }
 
 .editable-data-grid__row:last-child {
   border-bottom: none;
 }
 
-.editable-data-grid__row:hover {
-  background-color: rgba(0, 0, 0, 0.02);
+/* Zebra striping — a hair lighter than the hover tint below so hovering
+   still reads as a distinct state on every row, striped or not. */
+.editable-data-grid__row:nth-of-type(even) {
+  background-color: var(--color-background, #fafafa);
 }
 
-/* Fixed cell height prevents any bounce when switching edit/view modes */
+.editable-data-grid__row:hover {
+  background-color: var(--color-background-alt, #f3f4f6);
+}
+
+/* min-height (not height) so a wrapped multiline description can grow the row
+   instead of clipping — table-cell boxes still stretch to the row's tallest
+   cell either way, so single-line cells are unaffected. */
 .editable-data-grid__cell {
-  padding: 0 12px !important;
-  height: 52px;
+  padding: 8px 12px !important;
+  min-height: 52px;
   cursor: pointer;
   position: relative;
   font-size: 14px;
-  color: rgba(0, 0, 0, 0.87);
+  color: var(--color-text-primary, #111827);
   vertical-align: middle;
 }
 
@@ -75,16 +130,22 @@
 
 .editable-data-grid__cell-dropdown-icon {
   font-size: 10px;
-  color: rgba(0, 0, 0, 0.38);
+  color: var(--color-text-secondary, #6b7280);
   flex-shrink: 0;
 }
 
 .editable-data-grid__cell--editable:hover {
-  background-color: rgba(0, 0, 0, 0.03);
+  background-color: var(--color-background-alt, #f3f4f6);
 }
 
+/* Same pale-yellow active-field highlight as BaseForm.css's focused inputs. */
 .editable-data-grid__cell--editing {
-  background-color: rgba(25, 118, 210, 0.04);
+  background-color: #fffde7;
+}
+
+body[data-theme='dark'] .editable-data-grid__cell--editing,
+.dark .editable-data-grid__cell--editing {
+  background-color: rgba(255, 235, 59, 0.12);
 }
 
 .editable-data-grid__input {
@@ -101,25 +162,25 @@
 }
 
 .editable-data-grid__actions-cell {
-  padding: 0 12px !important;
-  height: 52px;
-  text-align: center;
+  padding: 8px 12px !important;
+  min-height: 52px;
+  text-align: right;
+  white-space: nowrap;
   vertical-align: middle;
 }
 
 .editable-data-grid__delete-button {
-  opacity: 0.4;
-  transition: opacity 0.15s ease;
+  color: var(--color-text-secondary, #6b7280);
 }
 
 .editable-data-grid__delete-button:hover {
-  opacity: 1;
+  color: var(--color-error, #dc2626);
+  background-color: var(--color-error-light, rgba(220, 38, 38, 0.08));
 }
 
 .editable-data-grid__empty {
   padding: 48px 16px;
-  color: rgba(0, 0, 0, 0.38);
-  font-style: italic;
+  color: var(--color-text-secondary, #6b7280);
   font-size: 15px;
   text-align: center;
 }
@@ -134,6 +195,163 @@
 }
 
 .editable-data-grid__row._unsaved .editable-data-grid__cell {
-  border-left: 3px solid rgba(0, 0, 0, 0.2);
+  border-left: 3px solid var(--color-primary, #4f46e5);
   padding-left: 9px !important;
+}
+
+/* Inline-input grids (PickableLineItemsGrid): inputs live in the cells
+   permanently, so strip their outlined-box chrome — cells read as plain grid
+   text, an outline only appears on hover/focus. */
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell,
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__actions-cell {
+  padding: 0 6px !important;
+  min-height: 0;
+}
+
+/* MUI small inputs pad 8.5px top/bottom (Autocomplete ~6px) — trim so rows sit
+   near 36px instead of ~56px. */
+.editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-root,
+.editable-data-grid__wrapper--inline-inputs .MuiAutocomplete-root .MuiOutlinedInput-root {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-input,
+.editable-data-grid__wrapper--inline-inputs .MuiAutocomplete-root .MuiOutlinedInput-root .MuiAutocomplete-input {
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiInputBase-multiline {
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiInputBase-inputMultiline {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__delete-button {
+  padding: 2px;
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-root {
+  font-size: 14px;
+  background: transparent;
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-notchedOutline {
+  border-color: transparent;
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
+  border-color: var(--color-border, #e5e7eb);
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: var(--color-primary, #4f46e5);
+  border-width: 1px;
+}
+
+/* Focus tint on the input itself, not the whole cell — same pale yellow as
+   BaseForm.css's focused fields. */
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-root.Mui-focused {
+  background-color: #fffde7;
+}
+
+body[data-theme='dark'] .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-root.Mui-focused,
+.dark .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-root.Mui-focused {
+  background-color: rgba(255, 235, 59, 0.12);
+}
+
+/* BaseForm.css gives every TextField/FormControl inside a form
+   margin-bottom: 20px, min-height: 40px and 8px 12px input padding, all
+   !important — right for form fields, wrong for grid cells (it left a band
+   under each input and made rows ~70px). These selectors out-specify
+   `div.base-form div.MuiFormControl-root` (0,2,2) and `.base-form
+   .MuiOutlinedInput-input` (0,2,0). */
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell div.MuiFormControl-root,
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell div.MuiTextField-root {
+  margin: 0 !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-root {
+  min-height: 0 !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-input {
+  padding: 4px 8px !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-input {
+  text-overflow: ellipsis;
+}
+
+/* Autocomplete arrow only on row hover / while open */
+.editable-data-grid__wrapper--inline-inputs .MuiAutocomplete-popupIndicator {
+  visibility: hidden;
+}
+
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__row:hover .MuiAutocomplete-popupIndicator,
+.editable-data-grid__wrapper--inline-inputs .Mui-focused .MuiAutocomplete-popupIndicator {
+  visibility: visible;
+}
+
+/* No number spinners */
+.editable-data-grid__wrapper--inline-inputs input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+.editable-data-grid__wrapper--inline-inputs input[type='number']::-webkit-outer-spin-button,
+.editable-data-grid__wrapper--inline-inputs input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Added/edited since the form opened (PickableLineItemsGrid) — inset bar so
+   the cell layout doesn't shift. */
+.editable-data-grid__row--changed > td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-primary, #4f46e5);
+}
+
+/* ---- One-active-cell grids (ChildRowsGrid) ----
+   Non-active cells render this display box; the active cell renders an input.
+   Both are 4px 8px padding + 1px border + one 1.4375em line (MUI's input
+   line-height) at 14px, so switching a cell into edit mode doesn't move the
+   text or change the row height, and every row's values share one baseline. */
+.editable-data-grid__display {
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.4375em;
+  min-height: calc(1.4375em + 10px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-primary, #111827);
+}
+
+.editable-data-grid__display--editable {
+  cursor: text;
+}
+
+.editable-data-grid__display--editable:hover {
+  border-color: var(--color-border, #e5e7eb);
+}
+
+.editable-data-grid__placeholder {
+  color: var(--color-text-secondary, #9ca3af);
+}
+
+/* Autocomplete editor: same inner box as the plain inputs (its own defaults
+   pad the root and shrink the input). Keeps MUI's right padding for the arrow. */
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiAutocomplete-root .MuiOutlinedInput-root {
+  padding-left: 0 !important;
+}
+
+.editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiAutocomplete-root .MuiOutlinedInput-root .MuiAutocomplete-input {
+  padding: 4px 8px !important;
 }

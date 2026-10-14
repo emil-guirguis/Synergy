@@ -10,13 +10,18 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { getKitItems, saveKitItems, searchInventoryItems } from '../../services/kitItemsService';
 import { formatCurrency } from '@meterit/framework-frontend/utils';
+import { selectOnFocus } from '@meterit/framework-frontend/components/datagrid/';
 import type { Inventory, KitItem } from '../../types/inventory';
 
 interface KitItemsPanelProps {
   /** The KIT — the qb_item row this form is editing. */
   item?: Inventory;
-  /** Saving is admin-only (PUT /api/inventory/:id/kit-items). Others get a read-only list. */
+  /** inventoryGridKitItem:create / :write / :delete (Settings > Roles > Inventory > Kit Items) —
+   *  the PUT enforces the same split server-side. All false = read-only list. */
+  canAdd: boolean;
+  /** Qty, required, group names, drag to reorder / regroup. */
   canEdit: boolean;
+  canDelete: boolean;
 }
 
 /** One line as the grid holds it. `key` is local and stable across a drag; the server owns kit_items_id. */
@@ -108,7 +113,7 @@ const groupLabel = (g: number | null, desc: string | null) =>
  * point here. Dropping a row onto another row moves it there AND adopts that
  * row's group; dropping onto a group header appends it to that group.
  */
-export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) => {
+export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canAdd, canEdit, canDelete }) => {
   const kitId = item?.qb_item_id;
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -152,7 +157,7 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
   // Debounced catalog search for the picker. The kit itself is filtered out —
   // the DB rejects a self-referencing line (kit_items_no_self_check).
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canAdd) return;
     let cancelled = false;
     setSearching(true);
     const t = setTimeout(async () => {
@@ -166,7 +171,7 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
       }
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [search, canEdit, kitId]);
+  }, [search, canAdd, kitId]);
 
   /** Apply a new list locally, then persist it — draining any list queued behind an in-flight save. */
   const mutate = useCallback((next: Row[]) => {
@@ -317,14 +322,15 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
     return <Typography variant="body2" color="text.secondary">Save the item before adding kit contents.</Typography>;
   }
 
-  const colSpan = canEdit ? 9 : 7;
+  const colSpan = 7 + (canEdit ? 1 : 0) + (canDelete ? 1 : 0);
 
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-      {canEdit && (
+      {(canAdd || canEdit) && (
         <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
+          {canAdd && (<>
           <Autocomplete
             sx={{ flex: 1, minWidth: 280 }}
             size="small"
@@ -359,6 +365,8 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
           <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={addPicked} disabled={!picked}>
             Add
           </Button>
+          </>)}
+          {canEdit && (
           <Tooltip title="Names a new group and puts the last row in it — then drag other rows into it">
             <span>
               <Button size="small" onClick={() => setGroupDialogOpen(true)} disabled={!rows.length}>
@@ -366,6 +374,7 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
               </Button>
             </span>
           </Tooltip>
+          )}
           {saving && <CircularProgress size={18} />}
         </Stack>
       )}
@@ -397,7 +406,7 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
                 <TableCell sx={{ width: 90 }} align="right">On Hand</TableCell>
               </Tooltip>
               <TableCell sx={{ width: '14%' }} align="right">Price</TableCell>
-              {canEdit && <TableCell sx={{ width: 44 }} />}
+              {canDelete && <TableCell sx={{ width: 44 }} />}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -408,7 +417,7 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
               <TableRow>
                 <TableCell colSpan={colSpan}>
                   <Typography variant="body2" color="text.secondary">
-                    No items in this kit yet.{canEdit ? ' Search for one above.' : ''}
+                    No items in this kit yet.{canAdd ? ' Search for one above.' : ''}
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -502,6 +511,7 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
                         key={`${row.key}-${row.qty}`}
                         size="small"
                         type="number"
+                        onFocus={selectOnFocus}
                         defaultValue={showQty(row.qty)}
                         onBlur={(e) => setQty(row.key, e.target.value)}
                         // A drag started on the input would move the row
@@ -547,7 +557,7 @@ export const KitItemsPanel: React.FC<KitItemsPanelProps> = ({ item, canEdit }) =
                     )}
                   </TableCell>
                   <TableCell align="right">{money(row.item_price)}</TableCell>
-                  {canEdit && (
+                  {canDelete && (
                     <TableCell>
                       <IconButton size="small" sx={{ p: 0.5 }} onClick={() => removeRow(row.key)} aria-label="Remove from kit">
                         <DeleteIcon fontSize="small" />

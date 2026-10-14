@@ -177,7 +177,14 @@ export const InventoryForm: React.FC<InventoryFormProps> = ({ item, onCancel, lo
           return <InventoryImagePanel item={item} canReview={isAdmin} />;
         }
         if (fieldName === 'kit_items') {
-          return <KitItemsPanel item={item} canEdit={isAdmin} />;
+          return (
+            <KitItemsPanel
+              item={item}
+              canAdd={auth.scopeOf('inventoryGridKitItem:create') !== null}
+              canEdit={auth.scopeOf('inventoryGridKitItem:write') !== null}
+              canDelete={auth.scopeOf('inventoryGridKitItem:delete') !== null}
+            />
+          );
         }
         if (fieldName === 'documents') {
           return (

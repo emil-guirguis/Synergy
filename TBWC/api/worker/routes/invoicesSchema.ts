@@ -56,6 +56,8 @@ export const invoicesSchema = defineSchema({
         section({
           name: 'Line Items',
           order: 1,
+          // OrderLinesGrid (title="Line Items") draws its own header — bare avoids a duplicate.
+          bare: true,
           fields: [
             field({ name: 'lines', order: 1, type: FieldTypes.JSON, default: null, required: false, readOnly: true, label: 'Lines', dbField: 'lines', showOn: ['form'] }),
           ],
@@ -69,6 +71,8 @@ export const invoicesSchema = defineSchema({
         section({
           name: 'Documents',
           order: 1,
+          // DocumentsGrid draws its own title+Add/Folder header — bare avoids a duplicate.
+          bare: true,
           fields: [
             // No dbField — UI-only anchor. TBWC's InvoiceForm renders the shared
             // framework DocumentsGrid here; rows live in public.document keyed by

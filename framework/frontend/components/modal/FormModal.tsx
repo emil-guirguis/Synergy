@@ -22,6 +22,8 @@ export interface FormModalProps<T = any> {
   moduleIcon?: string;
   /** Share icon shown to the left of Cancel/Close — omit to hide it. */
   onShare?: () => void;
+  /** Unsaved changes — highlights Save and confirms before Cancel/Escape discards them. */
+  isDirty?: boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export function FormModal<T = any>({
   crumb,
   moduleIcon,
   onShare,
+  isDirty = false,
 }: FormModalProps<T>) {
   const resolvedIcon = titleIcon ?? (moduleIcon ? getIconElement(moduleIcon) : undefined);
   // Wrapper to handle form submission from modal save button
@@ -71,6 +74,7 @@ export function FormModal<T = any>({
       titleIcon={resolvedIcon}
       crumb={crumb}
       onShare={onShare}
+      isDirty={isDirty}
     >
       {children}
     </Modal>

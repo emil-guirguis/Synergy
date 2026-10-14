@@ -159,6 +159,7 @@ export const TenantEquipmentGrid: React.FC<Props> = ({ tenantId }) => {
 
   return (
     <EditableDataGrid
+      title="Equipment"
       data={gridData}
       columns={columns}
       loading={loading}

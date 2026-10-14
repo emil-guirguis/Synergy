@@ -75,6 +75,9 @@ const moduleOf = (permission: string) => permission.split(':')[0];
 const actionOf = (permission: string) => permission.split(':').slice(1).join(':');
 const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** Child-row grids (schema `parent`, e.g. Quote > Line Items) read as grid verbs, not CRUD. */
+const CHILD_ACTION_LABELS: Record<string, string> = { read: 'View', create: 'Add', write: 'Edit', delete: 'Delete' };
+
 /**
  * Settings > Roles: pick a role, tick what it may do. Shared by every app —
  * each one passes its own permission catalog and its own API callbacks, the
@@ -148,9 +151,24 @@ const RolesForm: React.FC<RolesFormProps> = ({
   // (e.g. Utilities > Notifications). Anything in the catalog that `order`
   // doesn't mention (new permission, or an app that passes no `order` at
   // all) is appended at the end in catalog order, so nothing is ever lost.
+  // Child-row schemas (schema.parent set, e.g. quoteGridLine under quote) render
+  // inside their parent's node, not at the top level. Known once each
+  // module's schema has loaded (the effect above fetches them all).
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, [string, string[], string?][]>();
+    for (const [module, permissions] of byModule) {
+      const parent = fieldSchemas[module]?.parent;
+      if (!parent || !byModule.some(([m]) => m === parent.entity)) continue;
+      if (!map.has(parent.entity)) map.set(parent.entity, []);
+      map.get(parent.entity)!.push([module, permissions, parent.label ?? undefined]);
+    }
+    return map;
+  }, [byModule, fieldSchemas]);
+
   const tree = useMemo(() => {
     const permsByModule = new Map(byModule);
     const used = new Set<string>();
+    for (const kids of childrenByParent.values()) for (const [m] of kids) used.add(m);
 
     const topNodes: (
       | { kind: 'module'; module: string; label?: string; permissions: string[] }
@@ -185,7 +203,7 @@ const RolesForm: React.FC<RolesFormProps> = ({
     }
 
     return topNodes;
-  }, [byModule, order]);
+  }, [byModule, order, childrenByParent]);
 
   const dirty = useMemo(() => {
     if (!selected) return false;
@@ -242,7 +260,7 @@ const RolesForm: React.FC<RolesFormProps> = ({
     });
   };
 
-  const renderPermissionRow = (permission: string, depth: number) => {
+  const renderPermissionRow = (permission: string, depth: number, actionLabels?: Record<string, string>) => {
     const grant = draft.get(permission);
     return (
       <Box
@@ -253,7 +271,9 @@ const RolesForm: React.FC<RolesFormProps> = ({
           size="small" checked={!!grant} disabled={loading}
           onChange={() => toggle(permission)}
         />
-        <Typography variant="body2" sx={{ width: 110 }}>{titleCase(actionOf(permission))}</Typography>
+        <Typography variant="body2" sx={{ width: 110 }}>
+          {actionLabels?.[actionOf(permission)] ?? titleCase(actionOf(permission))}
+        </Typography>
         <Select
           size="small" value={grant?.scope ?? 'all'} disabled={!grant || loading}
           sx={{ width: 130 }}
@@ -402,7 +422,7 @@ const RolesForm: React.FC<RolesFormProps> = ({
    *  grouped by the form's own tabs when it has any (findable the same way
    *  the form itself reads), grid-type fields (gridColumns) expanding into
    *  one row per column instead of one row for the whole field. */
-  const renderFormSection = (module: string, readPerm: string, writePerm: string | undefined, depth: number) => {
+  const renderFormSection = (module: string, readPerm: string, writePerm: string | undefined, depth: number, sectionTitle = 'Form') => {
     const key = `form:${module}`;
     const isOpen = !!open[key];
     const schema = fieldSchemas[module];
@@ -445,7 +465,7 @@ const RolesForm: React.FC<RolesFormProps> = ({
         >
           {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
           <TuneIcon fontSize="small" color="action" />
-          <Typography variant="body2" color="text.secondary">Form</Typography>
+          <Typography variant="body2" color="text.secondary">{sectionTitle}</Typography>
           {fieldsTotal > 0 && (
             <Typography variant="caption" color="text.secondary">
               {fieldsGranted}/{fieldsTotal}
@@ -538,19 +558,27 @@ const RolesForm: React.FC<RolesFormProps> = ({
     return { granted, total: units.length };
   };
 
-  /** A module's header count, folding its fields in alongside its actions. */
-  const moduleCounts = (permissions: string[]) => {
+  /** A module's header count, folding its fields in alongside its actions —
+   *  and its child grids' (e.g. Quote's Line Items), so a parent's count
+   *  covers everything nested under it. */
+  const moduleCounts = (permissions: string[]): { granted: number; total: number } => {
     const readPerm = permissions.find((p) => actionOf(p) === 'read');
     const writePerm = permissions.find((p) => actionOf(p) === 'write');
     const fields = readPerm ? fieldCounts(moduleOf(readPerm), readPerm, writePerm) : { granted: 0, total: 0 };
-    return {
+    const own = {
       granted: permissions.filter((p) => draft.has(p)).length + fields.granted,
       total: permissions.length + fields.total,
     };
+    const module = permissions[0] ? moduleOf(permissions[0]) : '';
+    return (childrenByParent.get(module) ?? []).reduce((acc, [, childPerms]) => {
+      const c = moduleCounts(childPerms);
+      return { granted: acc.granted + c.granted, total: acc.total + c.total };
+    }, own);
   };
 
-  const renderModuleNode = (module: string, permissions: string[], depth: number, label?: string) => {
+  const renderModuleNode = (module: string, permissions: string[], depth: number, label?: string, isChild = false) => {
     const key = `module:${module}`;
+    const children = childrenByParent.get(module) ?? [];
     const isOpen = !!open[key];
     const { granted: grantedCount, total: totalCount } = moduleCounts(permissions);
     const readPerm = permissions.find((p) => actionOf(p) === 'read');
@@ -574,8 +602,22 @@ const RolesForm: React.FC<RolesFormProps> = ({
         </Box>
         <Divider />
         <Collapse in={isOpen} unmountOnExit>
-          {renderListSection(module, permissions, readPerm, depth)}
-          {readPerm && renderFormSection(module, readPerm, writePerm, depth)}
+          {isChild ? (
+            // A grid has no list screen of its own — its actions sit directly
+            // under it, and its columns are its fields.
+            <>
+              {permissions.map((permission) => renderPermissionRow(permission, depth, CHILD_ACTION_LABELS))}
+              {readPerm && renderFormSection(module, readPerm, writePerm, depth, 'Columns')}
+            </>
+          ) : (
+            <>
+              {renderListSection(module, permissions, readPerm, depth)}
+              {readPerm && renderFormSection(module, readPerm, writePerm, depth)}
+            </>
+          )}
+          {children.map(([child, childPerms, childLabel]) =>
+            renderModuleNode(child, childPerms, depth + 1, childLabel, true)
+          )}
         </Collapse>
       </Box>
     );

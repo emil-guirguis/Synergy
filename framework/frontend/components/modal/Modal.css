@@ -317,3 +317,16 @@
 }
 .modal__crumb { color: #9aa0a6; font-weight: 400; }
 .modal__save-btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Unsaved changes: dot before the label + soft ring so Save reads as "pending" */
+.modal__save-btn--dirty {
+  box-shadow: 0 0 0 3px var(--color-primary-light, rgba(79, 70, 229, 0.25));
+}
+
+.modal__save-btn--dirty::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fbbf24;
+}

@@ -1,14 +1,14 @@
 import React from 'react';
 import { Alert, Box, CircularProgress } from '@mui/material';
 import { BaseForm, ReferenceSearchField } from '@meterit/framework-frontend/components/form';
-import { PickableLineItemsGrid } from '@meterit/framework-frontend/components/datagrid/';
+import { ChildRowsGrid } from '@meterit/framework-frontend/components/datagrid/';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
-import { useQuotesEnhanced } from './quotesStore';
+import { useQuotesEnhanced, quoteLinesApi } from './quotesStore';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { tbwcReferenceSearch } from '../../shared/referenceSearch';
 import { useAuth } from '../../hooks/useAuth';
-import type { Quote, QuoteLine } from '../../types/quote';
+import type { Quote } from '../../types/quote';
 
 interface PendingCustomer {
   list_id: string;
@@ -40,9 +40,17 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
   const canWriteQuotes = scopeOf('quote:write') !== null;
   const variant = canWriteQuotes ? 'admin' : 'rep';
   const readOnly = !canWriteQuotes;
-  const [freshQuote, setFreshQuote] = React.useState<Quote | undefined>(quote?.id ? undefined : quote);
+  // Line items have their own grants (quoteGridLine:*, migration 094) — Settings >
+  // Roles > Quote > Line Items — independent of quote:write on the header.
+  const canAddLines = scopeOf('quoteGridLine:create') !== null;
+  const canEditLines = scopeOf('quoteGridLine:write') !== null;
+  const canDeleteLines = scopeOf('quoteGridLine:delete') !== null;
+  // New quote: pre-fill txn_date with today, visibly set the moment the form
+  // opens — mirrors OrderList's onCreate prefill (routes/quotes.ts's POST /
+  // default is just the fallback if this is ever skipped).
+  const withTodayDefault = (q?: Quote) => (q?.id ? q : { ...q, txn_date: q?.txn_date ?? new Date().toISOString().slice(0, 10) } as Quote);
+  const [freshQuote, setFreshQuote] = React.useState<Quote | undefined>(quote?.id ? undefined : withTodayDefault(quote));
   const [fetching, setFetching] = React.useState(!!quote?.id);
-  const [pendingLines, setPendingLines] = React.useState<QuoteLine[] | null>(null);
   const [pendingCustomer, setPendingCustomer] = React.useState<PendingCustomer | null>(null);
 
   const reload = React.useCallback((id: string | number) => {
@@ -56,7 +64,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
 
   React.useEffect(() => {
     if (!quote?.id) {
-      setFreshQuote(quote);
+      setFreshQuote(withTodayDefault(quote));
       setFetching(false);
       return;
     }
@@ -65,18 +73,15 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
   }, [quote?.id]);
 
   // BaseForm's fieldsToClean strips 'lines' and 'customer_list_id' from every
-  // save (same rationale as OrderForm's 'lines' — neither has a dbField
-  // BaseForm's generic onChange plumbing would round-trip correctly: lines
-  // needs its own add/remove/pick-item state, and customer_list_id is a
-  // one-time picker with no visible input of its own once picked). Wrapping
-  // create/update to splice the pending picker state back in means a
-  // create/PUT only ever carries them when the picker/grid was actually
-  // touched this session.
+  // save: lines save themselves per row (ChildRowsGrid -> /quotes/:id/lines),
+  // never with the header, and customer_list_id is a one-time picker with no
+  // visible input of its own once picked. Wrapping create/update to splice
+  // the pending customer back in means a create/PUT only carries it when the
+  // picker was actually touched this session.
   const applyPending = React.useCallback((data: any) => ({
     ...data,
-    ...(pendingLines ? { lines: pendingLines } : {}),
     ...(pendingCustomer ? { customer_list_id: pendingCustomer.list_id, customer_name: pendingCustomer.name } : {}),
-  }), [pendingLines, pendingCustomer]);
+  }), [pendingCustomer]);
 
   const formStore = React.useMemo(() => ({
     ...quotes,
@@ -105,7 +110,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
         variant={variant}
         isDisabled={readOnly}
         fieldsToClean={['id', 'lines', 'documents', 'customer_list_id']}
-        renderCustomField={(fieldName, fieldDef, value, error, _isDisabled, onChange) => {
+        renderCustomField={(fieldName, fieldDef, _value, error, _isDisabled, onChange) => {
           if (fieldName === 'customer_list_id') {
             return (
               <ReferenceSearchField
@@ -127,13 +132,20 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
             );
           }
           if (fieldName === 'lines') {
+            // Rows need a quote_id to hang off — same rule as Documents below.
+            if (!freshQuote?.id) {
+              return <Alert severity="info">Save the quote before adding line items.</Alert>;
+            }
             return (
-              <PickableLineItemsGrid
-                lines={pendingLines ?? value ?? []}
-                config={fieldDef.lineItemPicker}
-                disabled={readOnly}
+              <ChildRowsGrid
+                schemaName="quoteGridLine"
+                parentId={freshQuote.id}
+                api={quoteLinesApi}
                 search={tbwcReferenceSearch}
-                onChange={setPendingLines}
+                canCreate={canAddLines}
+                canEdit={canEditLines}
+                canDelete={canDeleteLines}
+                totalField="amount"
               />
             );
           }

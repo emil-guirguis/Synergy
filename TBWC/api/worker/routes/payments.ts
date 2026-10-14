@@ -13,6 +13,7 @@ import { Env } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { paymentsSchema } from './paymentsSchema';
+import { applyEmbeddedGrid } from '@meterit/framework-backend/api/base/childRows';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -39,13 +40,14 @@ app.get('/', async (c) => {
     where,
     whereLike,
   });
-  return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
+  const items = result.rows.map((r: any) => applyEmbeddedGrid(c.get('permissions'), 'paymentGridApplied', 'applied_to', r));
+  return c.json({ success: true, data: { items, total: result.pagination.total } });
 });
 
 app.get('/:id', async (c) => {
   const row = await findById(c.env, TABLE, PK, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Payment not found' }, 404);
-  return c.json({ success: true, data: row });
+  return c.json({ success: true, data: applyEmbeddedGrid(c.get('permissions'), 'paymentGridApplied', 'applied_to', row) });
 });
 
 export default app;

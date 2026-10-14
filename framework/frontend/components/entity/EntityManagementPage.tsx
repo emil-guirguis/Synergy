@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { FormModal } from '../modal/FormModal';
 import { useSchema } from '../form/utils/schemaLoader';
+import { FormDirtyContext, useFormDirtyTracker } from '../form/FormDirtyContext';
 import { ShareMenu, useShareTarget, type SharePerson } from '../share';
 
 export interface EntityManagementPageProps<T = any> {
@@ -101,26 +102,30 @@ export function EntityManagementPage<T = any>({
   const [showForm, setShowForm] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const { shareTarget, openShare, closeShare } = useShareTarget();
+  const { isDirty, reset: resetDirty, contextValue: dirtyContext } = useFormDirtyTracker();
 
   const handleEdit = useCallback((entity: T) => {
     setSelected(entity);
     setCreateDefaults(null);
     setShowForm(true);
     setFormKey(k => k + 1);
-  }, []);
+    resetDirty();
+  }, [resetDirty]);
 
   const handleCreate = useCallback((initial?: Partial<T>) => {
     setSelected(null);
     setCreateDefaults(initial ?? null);
     setShowForm(true);
     setFormKey(k => k + 1);
-  }, []);
+    resetDirty();
+  }, [resetDirty]);
 
   const handleClose = useCallback(() => {
     setShowForm(false);
     setSelected(null);
     setCreateDefaults(null);
-  }, []);
+    resetDirty();
+  }, [resetDirty]);
 
   // Only fetch when schemaName is given and no explicit editLabel override —
   // useSchema's own cache means a sibling BaseForm using the same schemaName
@@ -155,9 +160,10 @@ export function EntityManagementPage<T = any>({
         saveLabel={saveLabel}
         size={modalSize}
         onShare={canShare && selected ? handleShareClick : undefined}
+        isDirty={isDirty}
       >
         {showForm && (
-          <React.Fragment key={formKey}>
+          <FormDirtyContext.Provider key={formKey} value={dirtyContext}>
             {renderForm({
               // Cast: createDefaults is only ever a Partial<T> (see onCreate's
               // JSDoc above) — renderForm's own type stays T for every other
@@ -167,7 +173,7 @@ export function EntityManagementPage<T = any>({
               onCancel: handleClose,
               isNew: selected === null,
             })}
-          </React.Fragment>
+          </FormDirtyContext.Provider>
         )}
       </FormModal>
 

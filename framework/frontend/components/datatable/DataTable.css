@@ -221,6 +221,25 @@
   color: var(--color-text-primary, #111827) !important;
 }
 
+/* Last row checked/clicked into (view/edit/etc) — stays highlighted when a
+   form modal closes so the user can see what they were just working on. */
+.data-table__row--active,
+.data-table__table--striped tbody tr.data-table__row--active:nth-child(even),
+.data-table__table--striped tbody tr.data-table__row--active:nth-child(odd) {
+  background: var(--color-info-light, #dbeafe) !important;
+  box-shadow: inset 4px 0 0 var(--color-primary, #3b82f6);
+}
+
+.data-table__row--active .data-table__cell {
+  color: var(--color-text-primary, #111827) !important;
+  font-weight: 500;
+}
+
+.data-table__card--active {
+  background: var(--color-info-light, #dbeafe);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), inset 4px 0 0 var(--color-primary, #3b82f6);
+}
+
 /* Ensure text remains readable on striped rows */
 .data-table__table--striped tbody tr:nth-child(even) .data-table__cell {
   color: var(--color-text-primary, #111827);

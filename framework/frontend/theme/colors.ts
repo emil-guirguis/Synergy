@@ -50,7 +50,7 @@ export const lightColorTokens = {
   onSuccessContainer: '#14532D',
 
   // Neutral Colors
-  background: '#FAFAFA',
+  background: '#F5F5F7',
   surface: '#FFFFFF',
   surfaceVariant: '#F3F4F6',
   outline: '#E5E7EB',

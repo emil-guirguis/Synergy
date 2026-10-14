@@ -651,7 +651,7 @@ const TOOL_PERMISSION: Record<string, string> = {
   get_quote: 'quote:read',
   create_quote: 'quote:write',
   set_quote_job_name: 'quote:write',
-  add_quote_line: 'quote:write',
+  add_quote_line: 'quoteGridLine:create',
   search_invoices: 'invoice:read',
   search_invoice_lines: 'invoice:read',
   // invoices.ts is read-only (synced from QB, nobody writes there) — there is
@@ -1298,7 +1298,7 @@ ${guard.statement}
         const itemName = typeof toolInput.itemName === 'string' ? toolInput.itemName.trim() : '';
         if (!itemName) return JSON.stringify({ error: 'itemName is required' });
         const quantity = Number(toolInput.quantity);
-        if (!Number.isFinite(quantity) || quantity <= 0) return JSON.stringify({ error: 'quantity must be a positive number' });
+        if (!Number.isInteger(quantity) || quantity <= 0) return JSON.stringify({ error: 'quantity must be a whole number greater than zero' });
         const qbItemId = Number.isFinite(Number(toolInput.qbItemId)) ? Number(toolInput.qbItemId) : null;
         const description = typeof toolInput.description === 'string' ? toolInput.description : null;
 
@@ -1310,7 +1310,7 @@ ${guard.statement}
         );
         const quote = quoteRows.rows[0];
         if (!quote) return JSON.stringify({ error: 'Quote not found' });
-        if (permissions.scopeOf('quote:write') === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
+        if (permissions.scopeOf('quoteGridLine:create') === 'own' && (!quote.sales_rep_list_id || !visibleRepListIds(user).includes(quote.sales_rep_list_id))) {
           return JSON.stringify({ error: 'Quote not found' });
         }
 

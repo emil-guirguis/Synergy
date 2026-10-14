@@ -26,6 +26,7 @@ import { quoteSchema } from './quoteSchema';
 import { customersSchema } from './customersSchema';
 import { invoicesSchema } from './invoicesSchema';
 import { paymentsSchema } from './paymentsSchema';
+import { CHILD_SCHEMAS } from '../permissions';
 import { supportTicketSchema } from '@meterit/framework-backend/api/base/supportTicketSchema';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -40,6 +41,7 @@ const schemas: Record<string, any> = {
   invoice: invoicesSchema,
   payment: paymentsSchema,
   support_ticket: supportTicketSchema,
+  ...CHILD_SCHEMAS,
 };
 
 /** Load active QB sales reps as SELECT enum values + labels ("BW - Bob Wilson"). */

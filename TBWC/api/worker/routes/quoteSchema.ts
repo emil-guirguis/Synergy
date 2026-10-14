@@ -56,10 +56,12 @@ export const quoteSchema = defineSchema({
             // identity now always comes through a LEFT JOIN against
             // qb_sales_rep (routes/quotes.ts), keyed by this ID; enumValues
             // injected at serve time (routes/schema.ts salesRepListIdOptions),
-            // same mechanism as orderSchema's field of the same name.
+            // same mechanism as orderSchema's field of the same name. Unlike
+            // order's (still readOnly — QB-synced there), quote has no QB
+            // source for this at all, so it's directly editable via PUT.
             field({
               name: 'sales_rep_list_id', order: 4, type: FieldTypes.SELECT, default: null, required: false,
-              readOnly: true, label: 'Sales Rep', dbField: 'sales_rep_list_id', enumValues: [], showOn: ['list', 'form'],
+              label: 'Sales Rep', dbField: 'sales_rep_list_id', enumValues: [], showOn: ['list', 'form'],
             }),
             // TBWC-owned, manually entered — no QB source, same as
             // qb_sales_order.job_name (migration 020/076).
@@ -106,20 +108,13 @@ export const quoteSchema = defineSchema({
         section({
           name: 'Line Items',
           order: 1,
+          // PickableLineItemsGrid draws its own title+Add header — bare avoids a duplicate.
+          bare: true,
           fields: [
-            // No dbField write-back — rendered by QuoteForm's renderCustomField
-            // as an editable add/remove grid (admin only) via framework's
-            // PickableLineItemsGrid; reps see it read-only.
-            field({
-              name: 'lines', order: 1, type: FieldTypes.OBJECT, default: null, dbField: 'lines', showOn: ['form'],
-              lineItemPicker: {
-                // valueField is qb_item_id (qb_item's real PK) — not list_id,
-                // which qb_item doesn't have; quote_line.qb_item_id (migration
-                // 072) is what this ultimately writes to.
-                itemSearch: { endpoint: '/inventory', valueField: 'qb_item_id', labelField: 'full_name' },
-                descField: 'desc', quantityField: 'quantity', rateField: 'rate',
-              },
-            }),
+            // UI-only anchor (no dbField): QuoteForm renders framework's
+            // ChildRowsGrid here, driven by quoteGridLineSchema.ts — rows save
+            // themselves per row via /quotes/:id/lines under quoteGridLine:*.
+            field({ name: 'lines', order: 1, type: FieldTypes.OBJECT, default: null, showOn: ['form'] }),
           ],
         }),
       ],
@@ -144,6 +139,8 @@ export const quoteSchema = defineSchema({
         section({
           name: 'Documents',
           order: 1,
+          // DocumentsGrid draws its own title+Add/Folder header — bare avoids a duplicate.
+          bare: true,
           fields: [
             // No dbField — UI-only anchor, same as orderSchema's Documents tab.
             // Rows live in public.document keyed by (entity_type='quote',

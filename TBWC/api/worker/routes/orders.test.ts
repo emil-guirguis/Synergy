@@ -531,3 +531,39 @@ describe('order email routes — ownership scoping (notOwnedRow)', () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ---- lines follow their own grid grant (orderGridLine:read, migration 097) ----
+describe('GET /:id lines (orderGridLine:read)', () => {
+  const ORDER = {
+    qb_sales_order_id: 1, sales_rep_list_id: 'REP-123', qb_deleted_at: null,
+    lines: [{ item: 'CT-100', desc: 'Split core', quantity: 4, rate: 25, amount: 100 }],
+  };
+  beforeEach(() => {
+    currentUser = { id: 'rep1', sales_rep_list_id: 'REP-123' };
+    mockFindById.mockResolvedValue(structuredClone(ORDER));
+    mockExecQuery.mockResolvedValue({ rows: [] });
+  });
+
+  it('redacts each line by the grid grant (reps: no rate/amount)', async () => {
+    currentPermSet = resolvePermissions([
+      { permission: 'order:read', scope: 'own', hiddenFields: [] },
+      { permission: 'orderGridLine:read', scope: 'own', hiddenFields: ['rate', 'amount'] },
+    ], null, PERMISSIONS);
+    const body = await (await req('/1')).json();
+    expect(body.data.lines).toEqual([{ item: 'CT-100', desc: 'Split core', quantity: 4 }]);
+  });
+
+  it('drops lines entirely without orderGridLine:read', async () => {
+    currentPermSet = resolvePermissions([{ permission: 'order:read', scope: 'own', hiddenFields: [] }], null, PERMISSIONS);
+    const body = await (await req('/1')).json();
+    expect(body.data.qb_sales_order_id).toBe(1);
+    expect(body.data.lines).toBeUndefined();
+  });
+
+  it('full grid grant returns lines untouched', async () => {
+    currentUser = { id: 'admin', sales_rep_list_id: null };
+    currentPermSet = fullAccess(PERMISSIONS);
+    const body = await (await req('/1')).json();
+    expect(body.data.lines).toEqual(ORDER.lines);
+  });
+});

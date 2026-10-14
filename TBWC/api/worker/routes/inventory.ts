@@ -133,11 +133,51 @@ const KIT_ITEMS_SELECT = `SELECT k.kit_items_id, k.qb_item_id, k.item_id, k.grou
       ORDER BY k.group_id NULLS FIRST, k.order_by, k.kit_items_id`;
 
 /**
- * Kit contents. `qb_item_id` is the KIT, `item_id` the child line — both FK to
- * qb_item (migration 028). Readable by any approved user: reps need to see
- * what is in a kit before quoting it.
+ * What a replace-all kit save actually does, relative to what's stored — so
+ * the PUT can require inventoryGridKitItem:create/delete/write for exactly the
+ * kinds of change it carries, even though the grid sends the whole list.
+ * Rows are matched by item_id (the n-th occurrence of an item to the n-th);
+ * `changed` = a matched row's qty/required/group differs, or the matched rows'
+ * relative order differs (adding or removing rows alone never counts as an
+ * edit, even though it renumbers order_by below it).
  */
-app.get('/:id/kit-items', requirePermission('inventory:read'), async (c) => {
+export function diffKitItems(
+  existing: { item_id: any; group_id: any; group_desc: any; qty: any; required: any }[],
+  incoming: { item_id: number; group_id: number | null; group_desc: string | null; qty: number; required: boolean }[]
+): { added: boolean; removed: boolean; changed: boolean } {
+  const pool = new Map<number, { row: (typeof existing)[number]; seq: number }[]>();
+  existing.forEach((row, seq) => {
+    const id = Number(row.item_id);
+    if (!pool.has(id)) pool.set(id, []);
+    pool.get(id)!.push({ row, seq });
+  });
+  let added = false;
+  let changed = false;
+  const matchedSeq: number[] = [];
+  for (const l of incoming) {
+    const match = pool.get(l.item_id)?.shift();
+    if (!match) { added = true; continue; }
+    matchedSeq.push(match.seq);
+    const r = match.row;
+    if (
+      Number(r.qty) !== l.qty ||
+      (r.required !== false) !== l.required ||
+      (r.group_id == null ? null : Number(r.group_id)) !== l.group_id ||
+      (r.group_desc ?? null) !== l.group_desc
+    ) changed = true;
+  }
+  const removed = [...pool.values()].some((left) => left.length > 0);
+  if (matchedSeq.some((s, i) => i > 0 && s < matchedSeq[i - 1])) changed = true;
+  return { added, removed, changed };
+}
+
+/**
+ * Kit contents. `qb_item_id` is the KIT, `item_id` the child line — both FK to
+ * qb_item (migration 028). Gated by the grid's own inventoryGridKitItem:read
+ * (migration 098 granted it to every inventory:read holder — reps need to see
+ * what is in a kit before quoting it).
+ */
+app.get('/:id/kit-items', requirePermission('inventoryGridKitItem:read'), async (c) => {
   const rows = await execQuery(
     c.env,
     KIT_ITEMS_SELECT,
@@ -148,7 +188,10 @@ app.get('/:id/kit-items', requirePermission('inventory:read'), async (c) => {
 });
 
 /**
- * Replace a kit's contents wholesale. Admin only.
+ * Replace a kit's contents wholesale. Needs inventoryGridKitItem:create /
+ * :delete / :write for whichever of add / remove / edit the new list implies
+ * (diffKitItems above) — a role can e.g. reorder and re-quantity a kit
+ * without being able to drop lines from it.
  *
  * Replace-all rather than per-row CRUD because the grid's unit of work is the
  * whole ordering: one drag rewrites `order_by` on every row below it and can
@@ -157,7 +200,7 @@ app.get('/:id/kit-items', requirePermission('inventory:read'), async (c) => {
  * `order_by` is assigned server-side from array position within each group —
  * the client's job is the order, not the numbering.
  */
-app.put('/:id/kit-items', requirePermission('inventory:write'), async (c) => {
+app.put('/:id/kit-items', requirePermission('inventoryGridKitItem:read'), async (c) => {
   const kitId = c.req.param('id');
   const kit = await execQuery(
     c.env,
@@ -230,6 +273,18 @@ app.put('/:id/kit-items', requirePermission('inventory:write'), async (c) => {
     if (!groupNames.get(key) && l.group_desc) groupNames.set(key, l.group_desc);
   }
   for (const l of lines) l.group_desc = groupNames.get(String(l.group_id)) ?? null;
+
+  const current = await execQuery(c.env, KIT_ITEMS_SELECT, [kitId], 'inventory kit items before save');
+  const diff = diffKitItems(current.rows, lines);
+  const perms = c.get('permissions');
+  const missing = [
+    diff.added && !perms.has('inventoryGridKitItem:create') && 'add',
+    diff.removed && !perms.has('inventoryGridKitItem:delete') && 'remove',
+    diff.changed && !perms.has('inventoryGridKitItem:write') && 'edit',
+  ].filter(Boolean);
+  if (missing.length) {
+    return c.json({ success: false, message: `Insufficient permissions to ${missing.join('/')} kit items` }, 403);
+  }
 
   await withTransaction(c.env, async (q) => {
     await q(`DELETE FROM kit_items WHERE qb_item_id = $1::bigint`, [kitId]);

@@ -172,6 +172,30 @@ export const createLightTheme = (colorOverrides?: ColorTokenOverrides): ReturnTy
           },
         },
       },
+      MuiAppBar: {
+        styleOverrides: {
+          root: {
+            boxShadow: 'none',
+            borderBottom: `1px solid ${lightColorTokens.outline}`,
+          },
+        },
+      },
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            borderRadius: 12,
+          },
+        },
+      },
+      MuiTableRow: {
+        styleOverrides: {
+          root: {
+            '&:hover': {
+              backgroundColor: lightColorTokens.surfaceVariant,
+            },
+          },
+        },
+      },
     },
   };
 
@@ -320,6 +344,30 @@ export const createDarkTheme = (colorOverrides?: ColorTokenOverrides): ReturnTyp
           paper: {
             borderRadius: 28,
             boxShadow: elevationShadows.level3,
+          },
+        },
+      },
+      MuiAppBar: {
+        styleOverrides: {
+          root: {
+            boxShadow: 'none',
+            borderBottom: `1px solid ${darkColorTokens.outline}`,
+          },
+        },
+      },
+      MuiPaper: {
+        styleOverrides: {
+          root: {
+            borderRadius: 12,
+          },
+        },
+      },
+      MuiTableRow: {
+        styleOverrides: {
+          root: {
+            '&:hover': {
+              backgroundColor: darkColorTokens.surfaceVariant,
+            },
           },
         },
       },

@@ -147,6 +147,9 @@ export const orderSchema = defineSchema({
         section({
           name: 'Line Items',
           order: 1,
+          // Both UIs this field can render (OrderLinesGrid, PickableLineItemsGrid)
+          // draw their own title+Add header now — bare avoids a duplicate.
+          bare: true,
           fields: [
             // No dbField write-back — rendered by OrderForm's renderCustomField.
             // Two UIs share this one field depending on order_type: a normal
@@ -154,20 +157,12 @@ export const orderSchema = defineSchema({
             // sync-only); a hold_for_release order gets an addable/removable
             // grid with an item picker (framework's PickableLineItemsGrid,
             // same as quoteSchema.ts's lines) since there's no QB source to
-            // build rows from. gridColumns mirrors OrderLinesGrid.tsx's own
-            // COLUMNS — kept in sync by hand (the grid isn't schema-driven),
-            // purely so Settings > Roles can list Rate/Amount as their own
-            // field-security rows (addressed as lines[].rate / lines[].amount,
-            // same as the existing hidden_fields entries for reps — migration 040).
+            // build rows from. Column-level security for these lines lives on
+            // their own grid schema (orderGridLineSchema.ts, orderGridLine:read)
+            // — Settings > Roles > Order > Line Items — not on order:read's old
+            // lines[].rate keys (moved by migration 097).
             field({
               name: 'lines', order: 1, type: FieldTypes.OBJECT, default: null, dbField: 'lines', showOn: ['form'],
-              gridColumns: [
-                { key: 'item', label: 'Item' },
-                { key: 'desc', label: 'Description' },
-                { key: 'quantity', label: 'Qty' },
-                { key: 'rate', label: 'Rate' },
-                { key: 'amount', label: 'Amount' },
-              ],
               lineItemPicker: {
                 itemSearch: { endpoint: '/inventory', valueField: 'list_id', labelField: 'full_name' },
                 descField: 'desc', quantityField: 'quantity', rateField: 'rate',
@@ -283,6 +278,8 @@ export const orderSchema = defineSchema({
         section({
           name: 'Documents',
           order: 1,
+          // DocumentsGrid draws its own title+Add/Folder header — bare avoids a duplicate.
+          bare: true,
           fields: [
             // No dbField — UI-only anchor. TBWC's OrderForm renders the shared
             // framework DocumentsGrid here; rows live in public.document keyed by

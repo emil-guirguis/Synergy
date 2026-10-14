@@ -26,6 +26,9 @@ export function DataTable<T extends Record<string, any>>({
 }: DataTableProps<T>) {
   const { isMobile, isTablet } = useResponsive();
   const [selectedItems, setSelectedItems] = useState<T[]>([]);
+  // Last row the user checked/clicked into (view/edit/etc) — kept highlighted
+  // across a form modal open/close since this component never unmounts for that.
+  const [activeId, setActiveId] = useState<any>(null);
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: 'asc' | 'desc';
@@ -101,9 +104,10 @@ export function DataTable<T extends Record<string, any>>({
     const newSelection = checked
       ? [...selectedItems, item]
       : selectedItems.filter(selected => selected.id !== item.id);
-    
+
     setSelectedItems(newSelection);
     onSelect?.(newSelection);
+    setActiveId(item.id);
   }, [selectedItems, onSelect]);
 
   // Handle bulk actions
@@ -160,8 +164,6 @@ export function DataTable<T extends Record<string, any>>({
     const hasActions = onView || onPreview || onEdit || onShare || onDelete;
     if (!hasActions) return null;
 
-    console.log('[DataTable] Rendering actions for item:', item, { onView: !!onView, onPreview: !!onPreview, onEdit: !!onEdit, onShare: !!onShare, onDelete: !!onDelete });
-
     return (
       <div className="data-table__actions">
         {onView && (
@@ -170,6 +172,7 @@ export function DataTable<T extends Record<string, any>>({
             className="data-table__action-btn data-table__action-btn--view"
             onClick={(e) => {
               e.stopPropagation();
+              setActiveId(item.id);
               onView(item);
             }}
             title="View"
@@ -183,6 +186,7 @@ export function DataTable<T extends Record<string, any>>({
             className="data-table__action-btn data-table__action-btn--preview"
             onClick={(e) => {
               e.stopPropagation();
+              setActiveId(item.id);
               onPreview(item);
             }}
             title="Preview Report"
@@ -196,6 +200,7 @@ export function DataTable<T extends Record<string, any>>({
             className="data-table__action-btn data-table__action-btn--edit"
             onClick={(e) => {
               e.stopPropagation();
+              setActiveId(item.id);
               onEdit(item);
             }}
             title="Edit"
@@ -209,6 +214,7 @@ export function DataTable<T extends Record<string, any>>({
             className="data-table__action-btn data-table__action-btn--share"
             onClick={(e) => {
               e.stopPropagation();
+              setActiveId(item.id);
               onShare(item);
             }}
             title="Share"
@@ -289,8 +295,8 @@ export function DataTable<T extends Record<string, any>>({
             sortedData.map((item, index) => (
               <div
                 key={item.id || index}
-                className={`data-table__card ${(onRowClick || onView || onEdit) ? 'data-table__card--clickable' : ''}`}
-                onClick={(onRowClick || onView || onEdit) ? () => (onRowClick ?? onView ?? onEdit)!(item) : undefined}
+                className={`data-table__card ${(onRowClick || onView || onEdit) ? 'data-table__card--clickable' : ''} ${activeId != null && item.id === activeId ? 'data-table__card--active' : ''}`}
+                onClick={(onRowClick || onView || onEdit) ? () => { setActiveId(item.id); (onRowClick ?? onView ?? onEdit)!(item); } : undefined}
               >
                 {onSelect && (
                   <div className="data-table__card-select">
@@ -474,8 +480,8 @@ export function DataTable<T extends Record<string, any>>({
               sortedData.map((item, index) => (
                 <tr
                   key={item.id || index}
-                  className={`data-table__row ${(onRowClick || onView || onEdit) ? 'data-table__row--clickable' : ''}`}
-                  onClick={(onRowClick || onView || onEdit) ? () => (onRowClick ?? onView ?? onEdit)!(item) : undefined}
+                  className={`data-table__row ${(onRowClick || onView || onEdit) ? 'data-table__row--clickable' : ''} ${activeId != null && item.id === activeId ? 'data-table__row--active' : ''}`}
+                  onClick={(onRowClick || onView || onEdit) ? () => { setActiveId(item.id); (onRowClick ?? onView ?? onEdit)!(item); } : undefined}
                 >
                   {onSelect && (
                     <td className="data-table__cell data-table__cell--select">

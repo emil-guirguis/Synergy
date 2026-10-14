@@ -9,7 +9,11 @@ export interface ReferenceSearchOption {
 export interface ReferenceSearchConfig {
   endpoint: string;
   valueField?: string;
-  labelField?: string;
+  /** Result field shown as the option label — or several, joined with spaces (e.g. first + last name). */
+  labelField?: string | string[];
+  /** Row column holding the picked value's label (e.g. quote_line.item_name) — used by grids
+   *  to show the current label without a lookup. */
+  displayField?: string;
 }
 
 export interface ReferenceSearchFieldProps {
@@ -21,6 +25,8 @@ export interface ReferenceSearchFieldProps {
   valueLabel?: string | null;
   disabled?: boolean;
   error?: string;
+  /** Focus the input on mount — e.g. a grid cell that just entered edit mode. */
+  autoFocus?: boolean;
   config: ReferenceSearchConfig;
   /** Performs the actual search — apps supply this (their own API base + auth headers), the
    *  field itself has no idea how to reach the network. Resolve to [] on error or no match. */
@@ -38,7 +44,7 @@ export interface ReferenceSearchFieldProps {
  * clobber a faster later one).
  */
 export const ReferenceSearchField: React.FC<ReferenceSearchFieldProps> = ({
-  label, placeholder, value, valueLabel, disabled, error, config, search, onChange,
+  label, placeholder, value, valueLabel, disabled, error, autoFocus, config, search, onChange,
 }) => {
   const [inputValue, setInputValue] = useState(valueLabel ?? '');
   const [open, setOpen] = useState(false);
@@ -97,6 +103,7 @@ export const ReferenceSearchField: React.FC<ReferenceSearchFieldProps> = ({
           {...params}
           label={label}
           placeholder={placeholder}
+          autoFocus={autoFocus}
           error={!!error}
           helperText={error}
           size="small"

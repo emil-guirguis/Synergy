@@ -9,13 +9,23 @@
  * their own plus every user they manage's (public.user_manager, flat one
  * level — see middleware.ts's visibleRepListIds), read-only — no
  * quote:write grant for non-admins (migration 056).
+ *
+ * Line items are their own child resource (quoteGridLineSchema.ts), saved one row
+ * at a time through /:id/lines[/:lineId] under their own quoteGridLine:*
+ * permissions — the quote's POST/PUT no longer carry `lines`, and `total` is
+ * never client-writable (always SUM(quote_line.amount)).
  */
 import { Hono } from 'hono';
 import { Env, execQuery, withTransaction } from '../db';
 import { AuthVariables, authenticateToken, requirePermission, visibleRepListIds } from '../middleware';
-import { redactRow, redactRows } from '@meterit/framework-backend/api/base/permissions';
+import { redactRow, redactRows, stripNonEditable } from '@meterit/framework-backend/api/base/permissions';
+import {
+  listChildren, createChild, updateChild, deleteChild,
+  ChildRowNotFoundError, ChildRowValidationError, type ChildRowsConfig, type TxQuery,
+} from '@meterit/framework-backend/api/base/childRows';
 import { findAll, findById, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { quoteSchema } from './quoteSchema';
+import { quoteGridLineSchema } from './quoteGridLineSchema';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -42,56 +52,58 @@ function ownOnly(c: any): boolean {
   return c.get('permissions')?.scopeOf('quote:read') === 'own';
 }
 
-type TxQuery = (text: string, params?: any[]) => Promise<{ rows: any[]; rowCount: number | null }>;
+const money = (n: number) => Math.round(n * 100) / 100;
 
-/** Line shape PickableLineItemsGrid reads/writes — see quoteSchema.ts's lineItemPicker. */
-function toLineRow(l: any, order: number) {
-  return [
-    Number.isFinite(Number(l?.itemValue)) ? Number(l.itemValue) : null,
-    l?.item ?? null,
-    l?.desc ?? null,
-    Number(l?.quantity) || 0,
-    Number(l?.rate) || 0,
-    (Number(l?.quantity) || 0) * (Number(l?.rate) || 0),
-    order,
-  ];
-}
-
-/** Replaces every quote_line row for `quoteId` with `lines` and recomputes quote.total. */
-async function replaceLines(q: TxQuery, quoteId: number | string, lines: any[]): Promise<void> {
-  await q(`DELETE FROM public.quote_line WHERE quote_id = $1`, [quoteId]);
-  for (let i = 0; i < lines.length; i++) {
-    const [qbItemId, item, desc, quantity, rate, amount, order] = toLineRow(lines[i], i);
-    await q(
-      `INSERT INTO public.quote_line (quote_id, qb_item_id, item_name, description, quantity, rate, amount, line_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [quoteId, qbItemId, item, desc, quantity, rate, amount, order]
+/**
+ * quote_line writes: amount is always quantity * rate, item_name always comes
+ * from qb_item for a catalog pick (never trusted from the client), and the
+ * quote's total is re-summed in the same transaction as every change.
+ */
+const LINE_CONFIG: ChildRowsConfig = {
+  schema: quoteGridLineSchema,
+  prepare: async (row: Record<string, any>, q: TxQuery) => {
+    const quantity = Number(row.quantity ?? 1);
+    const rate = Number(row.rate ?? 0);
+    if (!Number.isInteger(quantity) || quantity < 0) throw new ChildRowValidationError('Qty must be a whole number');
+    if (!Number.isFinite(rate)) throw new ChildRowValidationError('rate must be a number');
+    const out: Record<string, any> = { ...row, quantity, rate, amount: money(quantity * rate) };
+    if (row.qb_item_id != null && row.qb_item_id !== '') {
+      const item = await q(`SELECT full_name FROM public.qb_item WHERE qb_item_id = $1`, [row.qb_item_id]);
+      if (!item.rows[0]) throw new ChildRowValidationError('Unknown item — pick one from the search results');
+      out.item_name = item.rows[0].full_name;
+    } else {
+      out.qb_item_id = null;
+    }
+    return out;
+  },
+  afterChange: async (q: TxQuery, quoteId: string | number) => {
+    const r = await q(
+      `UPDATE public.quote SET total = COALESCE((SELECT SUM(amount) FROM public.quote_line WHERE quote_id = $1), 0)
+       WHERE quote_id = $1 RETURNING total`,
+      [quoteId]
     );
+    return { total: r.rows[0]?.total ?? null };
+  },
+};
+
+/**
+ * The quote a line route acts on, or null (-> 404) when it doesn't exist or
+ * the caller's grant for `permission` is own-scoped and the quote isn't
+ * theirs (or a managed user's) — line ownership is the parent quote's.
+ */
+async function quoteForLines(c: any, permission: string): Promise<any | null> {
+  const existing = await findById(c.env, TABLE, PK, c.req.param('id'));
+  if (!existing) return null;
+  if (c.get('permissions').scopeOf(permission) === 'own') {
+    if (!existing.sales_rep_list_id || !visibleRepListIds(c.get('user')).includes(existing.sales_rep_list_id)) return null;
   }
-  await q(
-    `UPDATE public.quote SET total = COALESCE((SELECT SUM(amount) FROM public.quote_line WHERE quote_id = $1), 0)
-     WHERE quote_id = $1`,
-    [quoteId]
-  );
+  return existing;
 }
 
-/** Quote lines in the shape the frontend's PickableLineItemsGrid expects. */
-async function fetchLines(env: Env, quoteId: number | string): Promise<any[]> {
-  const r = await execQuery(
-    env,
-    `SELECT qb_item_id, item_name, description, quantity, rate, amount
-       FROM public.quote_line WHERE quote_id = $1 ORDER BY line_order ASC`,
-    [quoteId],
-    'quotes.fetchLines'
-  );
-  return r.rows.map((row) => ({
-    item: row.item_name,
-    itemValue: row.qb_item_id,
-    desc: row.description,
-    quantity: row.quantity,
-    rate: row.rate,
-    amount: row.amount,
-  }));
+function lineError(c: any, err: unknown) {
+  if (err instanceof ChildRowNotFoundError) return c.json({ success: false, message: 'Line not found' }, 404);
+  if (err instanceof ChildRowValidationError) return c.json({ success: false, message: err.message }, 400);
+  throw err;
 }
 
 /**
@@ -154,7 +166,6 @@ app.get('/:id', requirePermission('quote:read'), async (c) => {
   if (ownOnly(c) && (!row.sales_rep_list_id || !visibleRepListIds(user).includes(row.sales_rep_list_id))) {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
-  row.lines = await fetchLines(c.env, row.quote_id);
   return c.json({ success: true, data: redactRow(c.get('permissions'), 'quote:read', row) });
 });
 
@@ -168,7 +179,6 @@ app.post('/', requirePermission('quote:write'), async (c) => {
   if (!customer) {
     return c.json({ success: false, message: 'Unknown customer — pick one from the search results' }, 400);
   }
-  const lines = Array.isArray(body.lines) ? body.lines : [];
   const quoteId = await withTransaction(c.env, async (q) => {
     const r = await q(
       // No sales_rep column write — identity is sales_rep_list_id alone now,
@@ -192,12 +202,15 @@ app.post('/', requirePermission('quote:write'), async (c) => {
         body.po_date ?? null,
       ]
     );
-    const quoteId = r.rows[0].quote_id;
-    if (lines.length > 0) await replaceLines(q, quoteId, lines);
-    return quoteId;
+    const newQuoteId = r.rows[0].quote_id;
+    // Quote # needs the id, so it can't go in the INSERT above — backfill
+    // right after in the same transaction unless the caller supplied one.
+    if (!body.ref_number) {
+      await q(`UPDATE public.quote SET ref_number = $1 WHERE quote_id = $2`, [`Q-${newQuoteId}`, newQuoteId]);
+    }
+    return newQuoteId;
   });
   const row = await findById(c.env, TABLE, PK, quoteId, undefined, REP_SELECT, REP_JOIN);
-  row.lines = await fetchLines(c.env, quoteId);
   return c.json({ success: true, data: redactRow(c.get('permissions'), 'quote:read', row) }, 201);
 });
 
@@ -229,29 +242,22 @@ app.put('/:id', requirePermission('quote:write'), async (c) => {
   if ('txn_date' in body) cols.txn_date = body.txn_date;
   if ('memo' in body) cols.memo = body.memo;
   if ('status' in body) cols.status = body.status;
+  if ('sales_rep_list_id' in body) cols.sales_rep_list_id = body.sales_rep_list_id;
   if ('ref_number' in body) cols.ref_number = body.ref_number;
   if ('job_name' in body) cols.job_name = body.job_name;
   if ('engineer_name' in body) cols.engineer_name = body.engineer_name;
   if ('po_date' in body) cols.po_date = body.po_date;
-  if ('total' in body) cols.total = body.total;
-  const newLines = 'lines' in body ? (Array.isArray(body.lines) ? body.lines : []) : null;
   const keys = Object.keys(cols);
-  if (keys.length === 0 && newLines === null) {
+  if (keys.length === 0) {
     return c.json({ success: false, message: 'No editable fields in request' }, 400);
   }
 
-  await withTransaction(c.env, async (q) => {
-    if (keys.length > 0) {
-      const assignments = keys.map((k, i) => `${k} = $${i + 1}`);
-      const values = keys.map((k) => cols[k]);
-      values.push(id);
-      await q(`UPDATE public.${TABLE} SET ${assignments.join(', ')} WHERE ${PK} = $${values.length}`, values);
-    }
-    if (newLines !== null) await replaceLines(q, id, newLines);
-  });
+  const assignments = keys.map((k, i) => `${k} = $${i + 1}`);
+  const values = keys.map((k) => cols[k]);
+  values.push(id);
+  await execQuery(c.env, `UPDATE public.${TABLE} SET ${assignments.join(', ')} WHERE ${PK} = $${values.length}`, values, 'quotes.update');
 
   const row = await findById(c.env, TABLE, PK, id, undefined, REP_SELECT, REP_JOIN);
-  row.lines = await fetchLines(c.env, id);
   return c.json({ success: true, data: row });
 });
 
@@ -270,6 +276,50 @@ app.delete('/:id', requirePermission('quote:delete'), async (c) => {
   }
   const r = await execQuery(c.env, `DELETE FROM public.${TABLE} WHERE ${PK} = $1 RETURNING *`, [id], 'quotes.delete');
   return c.json({ success: true, data: r.rows[0] });
+});
+
+// ---- Line items (child rows, quoteGridLine:* — see quoteGridLineSchema.ts) ----
+
+app.get('/:id/lines', requirePermission('quoteGridLine:read'), async (c) => {
+  const quote = await quoteForLines(c, 'quoteGridLine:read');
+  if (!quote) return c.json({ success: false, message: 'Quote not found' }, 404);
+  const rows = await listChildren(execQuery, c.env, LINE_CONFIG, quote.quote_id);
+  return c.json({ success: true, data: { items: redactRows(c.get('permissions'), 'quoteGridLine:read', rows) } });
+});
+
+app.post('/:id/lines', requirePermission('quoteGridLine:create'), async (c) => {
+  const quote = await quoteForLines(c, 'quoteGridLine:create');
+  if (!quote) return c.json({ success: false, message: 'Quote not found' }, 404);
+  const body = stripNonEditable(c.get('permissions'), 'quoteGridLine:write', await c.req.json().catch(() => ({})));
+  try {
+    const { row, parent } = await createChild(withTransaction, c.env, LINE_CONFIG, quote.quote_id, body);
+    return c.json({ success: true, data: { item: redactRow(c.get('permissions'), 'quoteGridLine:read', row), parent } }, 201);
+  } catch (err) {
+    return lineError(c, err);
+  }
+});
+
+app.put('/:id/lines/:lineId', requirePermission('quoteGridLine:write'), async (c) => {
+  const quote = await quoteForLines(c, 'quoteGridLine:write');
+  if (!quote) return c.json({ success: false, message: 'Quote not found' }, 404);
+  const body = stripNonEditable(c.get('permissions'), 'quoteGridLine:write', await c.req.json().catch(() => ({})));
+  try {
+    const { row, parent } = await updateChild(withTransaction, c.env, LINE_CONFIG, quote.quote_id, c.req.param('lineId'), body);
+    return c.json({ success: true, data: { item: redactRow(c.get('permissions'), 'quoteGridLine:read', row), parent } });
+  } catch (err) {
+    return lineError(c, err);
+  }
+});
+
+app.delete('/:id/lines/:lineId', requirePermission('quoteGridLine:delete'), async (c) => {
+  const quote = await quoteForLines(c, 'quoteGridLine:delete');
+  if (!quote) return c.json({ success: false, message: 'Quote not found' }, 404);
+  try {
+    const { parent } = await deleteChild(withTransaction, c.env, LINE_CONFIG, quote.quote_id, c.req.param('lineId'));
+    return c.json({ success: true, data: { parent } });
+  } catch (err) {
+    return lineError(c, err);
+  }
 });
 
 export default app;

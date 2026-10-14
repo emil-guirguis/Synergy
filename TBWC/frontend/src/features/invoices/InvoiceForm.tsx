@@ -21,7 +21,9 @@ interface InvoiceFormProps {
  */
 export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) => {
   const invoices = useInvoices();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isFieldVisible } = useAuth();
+  // Settings > Roles > Invoice > Line Items > Columns (invoiceGridLine:read).
+  const hideLineAmounts = !isFieldVisible('invoiceGridLine:read', 'rate') || !isFieldVisible('invoiceGridLine:read', 'amount');
   const [freshInvoice, setFreshInvoice] = React.useState<Invoice | undefined>(invoice?.id ? undefined : invoice);
   const [fetching, setFetching] = React.useState(!!invoice?.id);
 
@@ -59,7 +61,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) =
       showTabs={true}
       fieldsToClean={['id', 'lines', 'linked_txn', 'documents']}
       renderCustomField={(fieldName, _fieldDef, value) => {
-        if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshInvoice?.total} />;
+        if (fieldName === 'lines') return <OrderLinesGrid lines={value} total={freshInvoice?.total} hideAmounts={hideLineAmounts} />;
         if (fieldName === 'documents') {
           return (
             <DocumentsGrid

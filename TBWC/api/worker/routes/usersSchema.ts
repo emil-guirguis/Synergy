@@ -143,6 +143,9 @@ export const usersSchema = defineSchema({
         section({
           name: 'Manages',
           order: 1,
+          // ManagedUsersGrid (EditableDataGrid with title="Manages") draws its
+          // own title+Add header — bare avoids stacking a second one above it.
+          bare: true,
           fields: [
             // UI-only — rendered by UserForm.tsx's renderCustomField as
             // ManagedUsersGrid, not a real column (see 'documents'/'lines' on

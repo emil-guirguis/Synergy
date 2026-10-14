@@ -3,6 +3,7 @@ import { Box, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { formatCurrency as formatCurrencyConfigured } from '@meterit/framework-frontend/utils';
 import { usePayments } from './paymentStore';
+import { useAuth } from '../../hooks/useAuth';
 import type { Payment } from '../../types/payment';
 
 interface PaymentFormProps {
@@ -22,6 +23,9 @@ function formatCurrency(value: number | null): string {
  */
 export const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onCancel }) => {
   const payments = usePayments();
+  const { isFieldVisible } = useAuth();
+  // Settings > Roles > Payment > Applied To > Columns (paymentGridApplied:read).
+  const showAppliedAmount = isFieldVisible('paymentGridApplied:read', 'amount');
   const [freshPayment, setFreshPayment] = React.useState<Payment | undefined>(payment?.id ? undefined : payment);
   const [fetching, setFetching] = React.useState(!!payment?.id);
 
@@ -70,7 +74,7 @@ export const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onCancel }) =
               <TableRow>
                 <TableCell>Ref #</TableCell>
                 <TableCell>Type</TableCell>
-                <TableCell align="right">Amount</TableCell>
+                {showAppliedAmount && <TableCell align="right">Amount</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -78,7 +82,7 @@ export const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onCancel }) =
                 <TableRow key={row.txn_id ?? i}>
                   <TableCell>{row.ref_number}</TableCell>
                   <TableCell>{row.txn_type}</TableCell>
-                  <TableCell align="right">{formatCurrency(row.amount)}</TableCell>
+                  {showAppliedAmount && <TableCell align="right">{formatCurrency(row.amount)}</TableCell>}
                 </TableRow>
               ))}
             </TableBody>

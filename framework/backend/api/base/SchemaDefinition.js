@@ -121,6 +121,8 @@ function field(definition) {
     maxLength: definition.maxLength !== undefined ? definition.maxLength : null,
     min: definition.min !== undefined ? definition.min : null,
     max: definition.max !== undefined ? definition.max : null,
+    // Numeric increment for inputs; 1 = whole numbers only (grids round the display and strip decimals).
+    step: definition.step !== undefined ? definition.step : null,
     pattern: definition.pattern || null,
     showOn: definition.showOn || null,
     showIf: definition.showIf || null,
@@ -209,6 +211,7 @@ function fieldRef(config) {
  * @param {string} [config.gridColumn] - CSS grid-column placement (e.g. '1 / -1' to span all columns of the tab's grid) — only applies when the tab is laid out as a CSS grid (see tab({ columns })).
  * @param {string} [config.gridRow] - CSS grid-row placement, paired with gridColumn for explicit multi-row layouts.
  * @param {boolean} [config.readOnly=false] - Render every field in this section disabled (same effect as readOnly on each field). UI-only — the API does not reject writes to these columns.
+ * @param {boolean} [config.bare=false] - Skip BaseForm's own title-bar/card chrome for this section (no `.base-form__section-title`, no card border). Use for a single-field section whose custom-rendered field (EditableDataGrid, DocumentsGrid, etc.) already draws its own title+action header — avoids a duplicate header stacked on top of it.
  * @returns {Object} Section definition
  */
 function section(config) {
@@ -227,6 +230,7 @@ function section(config) {
     visibleFor: config.visibleFor || null,
     gridColumn: config.gridColumn || null,
     gridRow: config.gridRow || null,
+    bare: config.bare || false,
   };
 }
 
@@ -271,6 +275,16 @@ function tab(config) {
  * @param {Object} [definition.relationships] - Entity relationships
  * @param {Object} [definition.validation] - Entity-level validation rules
  * @param {string} [definition.titleField] - Name of the field whose value identifies a specific record (e.g. 'ref_number'). Drives the auto-generated "Edit {title} {value}" form header in EntityManagementPage.
+ * @param {Object} [definition.parent] - Marks this as a child-row schema edited as a grid inside its parent's form
+ *   (e.g. quote_line under quote). Drives the child-row CRUD helpers (childRows.ts), the child's own
+ *   permissions (childSchemaPermissions, also childRows.ts) and its node under the parent in the roles tree.
+ * @param {string} definition.parent.entity - Parent schema/permission module key (e.g. 'quote').
+ * @param {string} [definition.parent.foreignKey] - Column on this table pointing at the parent's PK (e.g. 'quote_id').
+ * @param {string} [definition.parent.field] - Instead of a table: the parent column holding the rows as a jsonb
+ *   array (e.g. qb_sales_order.lines). Read-only grids synced from elsewhere; see applyEmbeddedGrid() in childRows.ts.
+ * @param {string} [definition.parent.label] - Display label for the grid / roles-tree node (e.g. 'Line Items').
+ * @param {string} [definition.parent.orderField] - Integer column holding row order (e.g. 'line_order').
+ * @param {Array<string>} [definition.parent.actions] - Permission actions, default ['read','create','write','delete'].
  * @returns {Object} Schema definition with utilities
  */
 function defineSchema(definition) {
@@ -345,7 +359,17 @@ function defineSchema(definition) {
     deleteRestrictions: definition.deleteRestrictions || [],
     idFieldName: definition.idFieldName || null,
     titleField: definition.titleField || null,
-    version: '1.5.0', // Updated to include tab columns (count|template) + rows / section gridColumn+gridRow
+    parent: definition.parent
+      ? {
+          entity: definition.parent.entity,
+          foreignKey: definition.parent.foreignKey || null,
+          field: definition.parent.field || null,
+          label: definition.parent.label || null,
+          orderField: definition.parent.orderField || null,
+          actions: definition.parent.actions || ['read', 'create', 'write', 'delete'],
+        }
+      : null,
+    version: '1.7.0', // Updated to include field `step` (whole-number grid columns)
     generatedAt: new Date().toISOString(),
   };
 

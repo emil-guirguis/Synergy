@@ -98,6 +98,8 @@ export const inventorySchema = defineSchema({
         section({
           name: 'Documents',
           order: 1,
+          // DocumentsGrid draws its own title+Add/Folder header — bare avoids a duplicate.
+          bare: true,
           fields: [
             // No dbField — UI-only anchor. TBWC's InventoryForm renders the shared
             // framework DocumentsGrid here; rows live in public.document keyed by

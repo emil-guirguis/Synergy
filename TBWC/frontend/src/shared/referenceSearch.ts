@@ -23,8 +23,9 @@ export async function tbwcReferenceSearch(
   const data = await res.json().catch(() => null);
   const items: any[] = data?.data?.items ?? [];
   const valueField = config.valueField ?? 'value';
-  const labelField = config.labelField ?? 'label';
+  const labelFields = Array.isArray(config.labelField) ? config.labelField : [config.labelField ?? 'label'];
+  const labelOf = (item: any) => labelFields.map((f) => item[f]).filter((v) => v != null && v !== '').join(' ');
   return items
     .filter((item) => item[valueField] != null)
-    .map((item) => ({ value: item[valueField], label: item[labelField] ?? String(item[valueField]) }));
+    .map((item) => ({ value: item[valueField], label: labelOf(item) || String(item[valueField]) }));
 }

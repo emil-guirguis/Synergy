@@ -30,6 +30,8 @@ export interface BackendFieldDefinition {
   maxLength: number | null;
   min: number | null;
   max: number | null;
+  /** Numeric input increment; 1 = whole numbers only. */
+  step?: number | null;
   pattern: string | null;
   showOn?: string[];
   showIf?: { fieldName: string; value: any };
@@ -47,7 +49,7 @@ export interface BackendFieldDefinition {
   /** Editable only while the record is new (no id yet) — see SchemaDefinition.js's field(). */
   createOnly?: boolean;
   /** Declares this field as an async search-as-you-type picker instead of a static dropdown. */
-  referenceSearch?: { endpoint: string; valueField?: string; labelField?: string };
+  referenceSearch?: { endpoint: string; valueField?: string; labelField?: string | string[]; displayField?: string };
   /** Declares this field as an addable/removable line-item grid with an async item picker per row. */
   lineItemPicker?: {
     itemSearch: { endpoint: string; valueField?: string; labelField?: string };
@@ -134,7 +136,7 @@ const LS_PREFIX = 'schema_cache_';
  * with an older version are discarded so backend schema-format changes
  * propagate immediately instead of waiting out the cache TTL.
  */
-const MIN_SCHEMA_VERSION = '1.5.0';
+const MIN_SCHEMA_VERSION = '1.7.0';
 
 function isStaleVersion(schema: BackendSchema): boolean {
   return (schema.version || '0.0.0').localeCompare(MIN_SCHEMA_VERSION, undefined, { numeric: true }) < 0;
@@ -280,6 +282,7 @@ function convertFieldDefinition(backendField: BackendFieldDefinition & { validat
     ...(backendField.maxLength != null && { maxLength: backendField.maxLength }),
     ...(backendField.min != null && { min: backendField.min }),
     ...(backendField.max != null && { max: backendField.max }),
+    ...(backendField.step != null && { step: backendField.step }),
     ...(backendField.pattern && { pattern: backendField.pattern }),
     ...(backendField.enumValues && { enumValues: backendField.enumValues }),
     ...(backendField.enumLabels && { enumLabels: backendField.enumLabels }),
@@ -357,6 +360,18 @@ export interface ConvertedSchema {
   idFieldName?: string | null;
   /** Name of the field that identifies a specific record (e.g. 'ref_number'). */
   titleField?: string | null;
+  /** Set on a child-row schema (e.g. quoteGridLine under quote) — see SchemaDefinition.js's `parent`. */
+  parent?: SchemaParent | null;
+}
+
+export interface SchemaParent {
+  entity: string;
+  foreignKey?: string | null;
+  /** Rows live in this parent column as a jsonb array instead of their own table. */
+  field?: string | null;
+  label?: string | null;
+  orderField?: string | null;
+  actions: string[];
 }
 
 /**
@@ -415,6 +430,7 @@ export function convertSchema(backendSchema: BackendSchema): ConvertedSchema {
     relationships: backendSchema.relationships,
     idFieldName,
     titleField: (backendSchema as any).titleField || null,
+    parent: (backendSchema as any).parent || null,
   };
 }
 

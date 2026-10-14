@@ -109,12 +109,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   // ownOnly scoping). managed_sales_rep_list_ids is loadProfile()'s
   // pre-joined view of that relation (see middleware.ts).
   const canWriteDocuments = isAdmin || (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
-  // Settings > Roles' field-security grid (Order > Fields > Line Items) can
-  // hide Rate/Amount independently of the rep/admin split above — defaults
-  // to visible for everyone until a role's order:read grant says otherwise,
-  // so this is additive to readOnly, never narrower than it already was.
+  // Settings > Roles > Order > Line Items > Columns (orderGridLine:read,
+  // orderGridLineSchema.ts) can hide Rate/Amount independently of the
+  // rep/admin split above — the server already strips them per that grant;
+  // this just drops the empty columns. Additive to readOnly, never narrower.
   const hideLineAmounts =
-    readOnly || !isFieldVisible('order:read', 'lines[].rate') || !isFieldVisible('order:read', 'lines[].amount');
+    readOnly || !isFieldVisible('orderGridLine:read', 'rate') || !isFieldVisible('orderGridLine:read', 'amount');
   // Same field-security grid, one level up: Settings > Roles > Order > Fields
   // has a checkbox per tab (addressed as tab:<Name>, see RolesForm.tsx) that
   // feeds straight into BaseForm's own hiddenTabs prop — on top of, not

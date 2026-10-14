@@ -40,6 +40,7 @@ import { lockStaleReps } from './reverification';
 import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
 import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
 import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSearch';
+import { checkQbwcStale } from './qbwc/staleAlert';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -143,6 +144,11 @@ export default {
     ctx.waitUntil(
       backfillDocumentIndex(execQuery, env).catch((err) =>
         console.error('[cron] backfillDocumentIndex failed:', err instanceof Error ? err.message : err)
+      )
+    );
+    ctx.waitUntil(
+      checkQbwcStale(env).catch((err) =>
+        console.error('[cron] checkQbwcStale failed:', err instanceof Error ? err.message : err)
       )
     );
   },

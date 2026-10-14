@@ -73,7 +73,11 @@ app.post('/', async (c) => {
       const expectUser = (c.env.QBWC_USERNAME || DEV_QBWC_USERNAME).trim();
       const expectPass = (c.env.QBWC_PASSWORD || DEV_QBWC_PASSWORD).trim();
       if (user !== expectUser || pass !== expectPass) {
-        // [ticket, "nvu"] = invalid user; QBWC aborts the session.
+        // [ticket, "nvu"] = invalid user; QBWC aborts the session. Log it —
+        // a silently rejected login looks identical to the connector never
+        // running at all (no row either way), so this is the only case of
+        // the two we can actually tell apart from the Worker side.
+        await logError(c.env, ticket, 'Connection', `Authentication failed for user "${user}"`);
         return reply(authEnvelope([ticket, 'nvu']));
       }
 

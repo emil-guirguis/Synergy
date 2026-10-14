@@ -56,6 +56,27 @@ export const quotesService = {
   },
 };
 
+/** Line items — per-row child resource (/quotes/:id/lines, quoteGridLine:* permissions),
+ *  in the shape framework's ChildRowsGrid expects. */
+export const quoteLinesApi = {
+  async list(quoteId: string | number) {
+    const r = await parse(await fetch(`${API_BASE_URL}/quotes/${quoteId}/lines`, { headers: authHeaders() }));
+    return r.data?.items ?? [];
+  },
+  async create(quoteId: string | number, body: Record<string, any>) {
+    const r = await parse(await fetch(`${API_BASE_URL}/quotes/${quoteId}/lines`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) }));
+    return r.data;
+  },
+  async update(quoteId: string | number, lineId: string | number, body: Record<string, any>) {
+    const r = await parse(await fetch(`${API_BASE_URL}/quotes/${quoteId}/lines/${lineId}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(body) }));
+    return r.data;
+  },
+  async remove(quoteId: string | number, lineId: string | number) {
+    const r = await parse(await fetch(`${API_BASE_URL}/quotes/${quoteId}/lines/${lineId}`, { method: 'DELETE', headers: authHeaders() }));
+    return r.data;
+  },
+};
+
 export const useQuotesStore = createEntityStore<Quote & { id: string }>(quotesService as any, {
   name: 'quote',
   cache: { ttl: 5 * 60 * 1000, maxAge: 30 * 60 * 1000 },

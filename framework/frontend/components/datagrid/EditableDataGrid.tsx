@@ -20,8 +20,9 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
+  Tooltip,
 } from '@mui/material';
-import { Delete as DeleteIcon, Save as SaveIcon, Close as CloseIcon } from '@mui/icons-material';
+import { Add as AddIcon, Delete as DeleteIcon, Save as SaveIcon, Close as CloseIcon, InfoOutlined as InfoOutlinedIcon } from '@mui/icons-material';
 import './EditableDataGrid.css';
 
 export interface GridColumn {
@@ -34,6 +35,15 @@ export interface GridColumn {
 }
 
 export interface EditableDataGridProps {
+  /**
+   * Section header above the table — title on the left, Add button on the
+   * right, card chrome wrapping both (matches BaseList's toolbar). Omit to
+   * keep the legacy layout (Add button inside the table's own header row,
+   * no card) unchanged for existing callers.
+   */
+  title?: string;
+  /** Info icon next to the title — hover/tap shows this text. No-op without `title`. */
+  infoTooltip?: string;
   data: Record<string, any>[];
   columns: GridColumn[];
   onRowAdd?: () => void;
@@ -72,6 +82,8 @@ interface EditingCell {
 }
 
 export const EditableDataGrid: React.FC<EditableDataGridProps> = ({
+  title,
+  infoTooltip,
   data,
   columns,
   onRowAdd,
@@ -207,30 +219,27 @@ export const EditableDataGrid: React.FC<EditableDataGridProps> = ({
   const isEditing = (rowId: number, column: string) =>
     editingCell?.rowId === rowId && editingCell?.column === column;
 
-  return (
-    <Box className="editable-data-grid">
-      {/* Error State */}
-      {error && (
-        <Alert
-          severity="error"
-          onClose={onRetry ? () => onRetry() : undefined}
-          className="editable-data-grid__error"
-        >
-          {error}
-          {onRetry && (
-            <Button
-              size="small"
-              onClick={onRetry}
-              sx={{ ml: 2 }}
-            >
-              Retry
-            </Button>
-          )}
-        </Alert>
-      )}
+  const hasToolbar = !!title;
 
-      {/* Table */}
-      <TableContainer component={Paper} className="editable-data-grid__table">
+  /** Add a row, then focus its first editable cell once the new row exists. */
+  const handleAddClick = useCallback(() => {
+    onRowAdd?.();
+    const firstCol = columns.find((col) => col.editable !== false);
+    if (firstCol) {
+      setTimeout(() => {
+        const cell = document.querySelector(
+          `[data-row-id="0"][data-column="${firstCol.key}"]`
+        ) as HTMLElement;
+        cell?.click();
+      }, 50);
+    }
+  }, [onRowAdd, columns]);
+
+  const table = (
+      <TableContainer
+        component={hasToolbar ? 'div' : Paper}
+        className={`editable-data-grid__table${hasToolbar ? ' editable-data-grid__table--inset' : ''}`}
+      >
         <Table>
           <TableHead>
             <TableRow>
@@ -248,23 +257,12 @@ export const EditableDataGrid: React.FC<EditableDataGridProps> = ({
                   style={{ width: '60px' }}
                   className="editable-data-grid__header-cell editable-data-grid__actions-header-cell"
                 >
-                  {!hideAddButton && (
+                  {!hasToolbar && !hideAddButton && (
                     <>
                       <Button
                         variant="text"
                         color="primary"
-                        onClick={() => {
-                          onRowAdd?.();
-                          const firstCol = columns.find(col => col.editable !== false);
-                          if (firstCol) {
-                            setTimeout(() => {
-                              const cell = document.querySelector(
-                                `[data-row-id="0"][data-column="${firstCol.key}"]`
-                              ) as HTMLElement;
-                              cell?.click();
-                            }, 50);
-                          }
-                        }}
+                        onClick={handleAddClick}
                         disabled={loading || !onRowAdd}
                         className="editable-data-grid__add-button"
                         size="small"
@@ -449,6 +447,63 @@ export const EditableDataGrid: React.FC<EditableDataGridProps> = ({
           </TableBody>
         </Table>
       </TableContainer>
+  );
+
+  return (
+    <Box className="editable-data-grid">
+      {/* Error State */}
+      {error && (
+        <Alert
+          severity="error"
+          onClose={onRetry ? () => onRetry() : undefined}
+          className="editable-data-grid__error"
+        >
+          {error}
+          {onRetry && (
+            <Button
+              size="small"
+              onClick={onRetry}
+              sx={{ ml: 2 }}
+            >
+              Retry
+            </Button>
+          )}
+        </Alert>
+      )}
+
+      {hasToolbar ? (
+        <Box className="editable-data-grid__wrapper">
+          <Box className="editable-data-grid__toolbar">
+            <Box className="editable-data-grid__toolbar-title">
+              {title}
+              {infoTooltip && (
+                <Tooltip title={infoTooltip}>
+                  <InfoOutlinedIcon fontSize="inherit" className="editable-data-grid__toolbar-info" />
+                </Tooltip>
+              )}
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {loading && <CircularProgress size={16} className="editable-data-grid__loading" />}
+              {!hideAddButton && (
+                <Button
+                  variant="contained"
+                  color="primary"
+                  size="small"
+                  startIcon={<AddIcon fontSize="small" />}
+                  onClick={handleAddClick}
+                  disabled={loading || !onRowAdd}
+                  className="editable-data-grid__add-button"
+                >
+                  {addButtonLabel}
+                </Button>
+              )}
+            </Box>
+          </Box>
+          {table}
+        </Box>
+      ) : (
+        table
+      )}
 
       {/* Delete Confirmation Dialog */}
       {showDeleteConfirmation && (

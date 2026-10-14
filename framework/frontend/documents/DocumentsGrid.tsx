@@ -54,7 +54,6 @@ import {
   IconButton,
   LinearProgress,
   MenuItem,
-  Paper,
   Select,
   Table,
   TableBody,
@@ -91,6 +90,7 @@ import {
   type DocumentStorage,
   type DocumentsApi,
 } from './types';
+import '../components/datagrid/EditableDataGrid.css';
 
 export interface DocumentsGridProps {
   /** Module key stored on the row, e.g. "order" | "invoice" | "inventory". */
@@ -115,6 +115,9 @@ export interface DocumentsGridProps {
    *  to the first allowed type rather than being rejected client-side (the API
    *  is still the real enforcement boundary). */
   visibleDocTypes?: DocType[];
+  /** Title bar above the grid (same chrome as EditableDataGrid's own `title`) — the schema
+   *  section wrapping this field should be `bare: true` so BaseForm doesn't draw a second one. */
+  title?: string;
 }
 
 interface DraftRow {
@@ -373,6 +376,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   emptyMessage = 'No documents',
   classifyDocType,
   visibleDocTypes,
+  title = 'Documents',
 }) => {
   const [rows, setRows] = useState<DocumentRecord[]>([]);
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
@@ -939,9 +943,42 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         </Box>
       )}
 
+      <Box className="editable-data-grid__wrapper">
+        <Box className="editable-data-grid__toolbar">
+          <Box className="editable-data-grid__toolbar-title">{title}</Box>
+          {!readOnly && (
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                startIcon={<AddIcon fontSize="small" />}
+                onClick={() => setDrafts((ds) => [...ds, newDraft(visibleDocTypes?.[0])])}
+                disabled={disabled || folderBusy}
+                className="editable-data-grid__add-button"
+              >
+                Add
+              </Button>
+              <Tooltip title="Upload every file in a folder">
+                <span>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    startIcon={<DriveFolderUploadIcon fontSize="small" />}
+                    onClick={() => folderInputRef.current?.click()}
+                    disabled={disabled || folderBusy}
+                    className="editable-data-grid__add-button"
+                  >
+                    Folder
+                  </Button>
+                </span>
+              </Tooltip>
+            </Box>
+          )}
+        </Box>
       <TableContainer
-        component={Paper}
-        variant="outlined"
+        className="editable-data-grid__table editable-data-grid__table--inset"
         onDragOver={onDragOver}
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
@@ -954,46 +991,26 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
             : undefined
         }
       >
-        <Table size="small">
+        <Table>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: '38%' }}>Description</TableCell>
-              <TableCell sx={{ width: '14%' }}>Type</TableCell>
-              <TableCell sx={{ width: '28%' }}>File</TableCell>
-              <TableCell sx={{ width: '10%' }}>Size</TableCell>
-              <TableCell sx={{ width: '10%' }}>Uploaded</TableCell>
+              <TableCell className="editable-data-grid__header-cell" style={{ width: '38%' }}>Description</TableCell>
+              <TableCell className="editable-data-grid__header-cell" style={{ width: '14%' }}>Type</TableCell>
+              <TableCell className="editable-data-grid__header-cell" style={{ width: '28%' }}>File</TableCell>
+              <TableCell className="editable-data-grid__header-cell" style={{ width: '10%' }}>Size</TableCell>
+              <TableCell className="editable-data-grid__header-cell" style={{ width: '10%' }}>Uploaded</TableCell>
               {!readOnly && (
-                <TableCell align="right" sx={{ width: '190px' }}>
-                  <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
-                    <Button
-                      size="small"
-                      startIcon={<AddIcon fontSize="small" />}
-                      onClick={() => setDrafts((ds) => [...ds, newDraft(visibleDocTypes?.[0])])}
-                      disabled={disabled || folderBusy}
-                    >
-                      Add
-                    </Button>
-                    <Tooltip title="Upload every file in a folder">
-                      <span>
-                        <Button
-                          size="small"
-                          startIcon={<DriveFolderUploadIcon fontSize="small" />}
-                          onClick={() => folderInputRef.current?.click()}
-                          disabled={disabled || folderBusy}
-                        >
-                          Folder
-                        </Button>
-                      </span>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
+                <TableCell
+                  className="editable-data-grid__header-cell editable-data-grid__actions-header-cell"
+                  style={{ width: '60px' }}
+                />
               )}
             </TableRow>
           </TableHead>
           <TableBody>
             {loading && visibleRows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={colCount} align="center">
+                <TableCell colSpan={colCount} align="center" className="editable-data-grid__empty">
                   <CircularProgress size={20} />
                 </TableCell>
               </TableRow>
@@ -1001,8 +1018,8 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
 
             {!loading && visibleRows.length === 0 && drafts.length === 0 && (
               <TableRow>
-                <TableCell colSpan={colCount} align="center">
-                  <Typography variant="body2" color="text.secondary">{emptyMessage}</Typography>
+                <TableCell colSpan={colCount} align="center" className="editable-data-grid__empty">
+                  {emptyMessage}
                 </TableCell>
               </TableRow>
             )}
@@ -1010,14 +1027,16 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
             {visibleRows.map((row) => {
               const busy = busyKey === String(row.document_id);
               return (
-                <TableRow key={row.document_id} hover>
-                  <TableCell>
+                <TableRow key={row.document_id} className="editable-data-grid__row">
+                  <TableCell className="editable-data-grid__cell">
                     <TextField
                       defaultValue={row.description ?? ''}
                       placeholder="Description"
                       size="small"
                       fullWidth
-                      variant="standard"
+                      multiline
+                      maxRows={4}
+                      variant="outlined"
                       disabled={readOnly || busy}
                       inputProps={{ maxLength: MAX_DESCRIPTION }}
                       onBlur={(e) => {
@@ -1026,19 +1045,19 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
                       }}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="editable-data-grid__cell">
                     <Select
                       value={row.doc_type}
                       size="small"
                       fullWidth
-                      variant="standard"
+                      variant="outlined"
                       disabled={readOnly || busy}
                       onChange={(e) => void saveRow(row, { docType: e.target.value as DocType })}
                     >
                       {typeOptions}
                     </Select>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="editable-data-grid__cell">
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <Tooltip title="Open file">
                         <span>
@@ -1067,19 +1086,23 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
                       </Typography>
                     </Box>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="editable-data-grid__cell">
                     <Typography variant="body2" color="text.secondary">{formatFileSize(row.file_size)}</Typography>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="editable-data-grid__cell">
                     <Typography variant="body2" color="text.secondary">{formatDate(row.created_at)}</Typography>
                   </TableCell>
                   {!readOnly && (
-                    <TableCell align="right">
+                    <TableCell className="editable-data-grid__actions-cell">
                       {busy ? (
                         <CircularProgress size={16} />
                       ) : (
                         <Tooltip title="Delete document">
-                          <IconButton size="small" onClick={() => setConfirmRow(row)}>
+                          <IconButton
+                            size="small"
+                            onClick={() => setConfirmRow(row)}
+                            className="editable-data-grid__delete-button"
+                          >
                             <DeleteOutlineIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -1094,33 +1117,35 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
               drafts.map((draft) => {
                 const busy = busyKey === draft.key;
                 return (
-                  <TableRow key={draft.key} selected>
-                    <TableCell>
+                  <TableRow key={draft.key} className="editable-data-grid__row _unsaved">
+                    <TableCell className="editable-data-grid__cell">
                       <TextField
                         value={draft.description}
                         placeholder="Description"
                         size="small"
                         fullWidth
-                        variant="standard"
+                        multiline
+                        maxRows={4}
+                        variant="outlined"
                         autoFocus
                         disabled={busy}
                         inputProps={{ maxLength: MAX_DESCRIPTION }}
                         onChange={(e) => patchDraft(draft.key, { description: e.target.value })}
                       />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="editable-data-grid__cell">
                       <Select
                         value={draft.docType}
                         size="small"
                         fullWidth
-                        variant="standard"
+                        variant="outlined"
                         disabled={busy}
                         onChange={(e) => patchDraft(draft.key, { docType: e.target.value as DocType })}
                       >
                         {typeOptions}
                       </Select>
                     </TableCell>
-                    <TableCell colSpan={3}>
+                    <TableCell colSpan={3} className="editable-data-grid__cell">
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Tooltip title="Choose a file to upload">
                           <span>
@@ -1135,13 +1160,14 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
                         {busy && <CircularProgress size={14} />}
                       </Box>
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell className="editable-data-grid__actions-cell">
                       <Tooltip title="Discard row">
                         <span>
                           <IconButton
                             size="small"
                             disabled={busy}
                             onClick={() => setDrafts((ds) => ds.filter((d) => d.key !== draft.key))}
+                            className="editable-data-grid__delete-button"
                           >
                             <CloseIcon fontSize="small" />
                           </IconButton>
@@ -1154,6 +1180,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           </TableBody>
         </Table>
       </TableContainer>
+      </Box>
 
       <input ref={fileInputRef} type="file" hidden onChange={handleFileChosen} />
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />

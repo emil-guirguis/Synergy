@@ -16,6 +16,7 @@ import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission, visibleRepListIds } from '../middleware';
 import { findAll, findById, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { invoicesSchema } from './invoicesSchema';
+import { applyEmbeddedGrid } from '@meterit/framework-backend/api/base/childRows';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -96,7 +97,8 @@ app.get('/', requirePermission('invoice:read'), async (c) => {
     joins: SALES_REP_JOIN,
     selectFields: SELECT_WITH_SALES_REP,
   });
-  return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
+  const items = result.rows.map((r: any) => applyEmbeddedGrid(c.get('permissions'), 'invoiceGridLine', 'lines', r));
+  return c.json({ success: true, data: { items, total: result.pagination.total } });
 });
 
 // Dashboard's "Total Receivables" card, with a year picker like
@@ -154,7 +156,7 @@ app.get('/:id', requirePermission('invoice:read'), async (c) => {
   if (scope !== null && (!row.sales_rep_list_id || !scope.includes(row.sales_rep_list_id))) {
     return c.json({ success: false, message: 'Invoice not found' }, 404);
   }
-  return c.json({ success: true, data: row });
+  return c.json({ success: true, data: applyEmbeddedGrid(c.get('permissions'), 'invoiceGridLine', 'lines', row) });
 });
 
 export default app;

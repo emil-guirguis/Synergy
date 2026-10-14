@@ -267,6 +267,7 @@ export const ElementsGrid: React.FC<ElementsGridProps> = ({ meterId, onError, on
   return (
     <div className="elements-grid">
       <EditableDataGrid
+        title="Elements"
         data={gridData}
         columns={columns}
         loading={loading}

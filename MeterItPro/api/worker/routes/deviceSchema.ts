@@ -41,6 +41,9 @@ export const deviceSchema = defineSchema({
         section({
           name: '',
           order: 1,
+          // RegistersGrid (title="Registers") draws its own header — bare avoids
+          // rendering an empty title bar (this section had no name anyway).
+          bare: true,
           fields: [
             field({ name: 'registers', order: 1, type: FieldTypes.OBJECT, default: null, required: false, readOnly: true, label: 'Registers', showOn: ['form'] }),
           ],

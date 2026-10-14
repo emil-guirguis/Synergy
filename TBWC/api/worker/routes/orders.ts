@@ -29,6 +29,7 @@ import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission, visibleRepListIds } from '../middleware';
 import { redactRow, redactRows, stripNonEditable } from '@meterit/framework-backend/api/base/permissions';
+import { applyEmbeddedGrid } from '@meterit/framework-backend/api/base/childRows';
 import { buildDocumentPdf, type DocumentHeader } from '../pdf/documentPdf';
 import { dateStr, toDocumentLines, sendDocumentEmail } from '../pdf/documentEmail';
 import { findAll, findById, create, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
@@ -312,7 +313,9 @@ app.get('/', requirePermission('order:read'), async (c) => {
   // figure on an order, including the ones nested in `lines` and the whole
   // `raw` QB blob. Applied here rather than by narrowing selectFields so the
   // rule stays data, editable per role.
-  const items = redactRows(c.get('permissions'), 'order:read', result.rows);
+  const perms = c.get('permissions');
+  // `lines` follows its own grid grant (orderGridLine:read, orderGridLineSchema.ts).
+  const items = redactRows(perms, 'order:read', result.rows).map((r) => applyEmbeddedGrid(perms, 'orderGridLine', 'lines', r));
   return c.json({ success: true, data: { items, total: result.pagination.total } });
 });
 
@@ -380,7 +383,8 @@ app.get('/:id', requirePermission('order:read'), async (c) => {
     return c.json({ success: false, message: 'Not found' }, 404);
   }
   row.serial_numbers = await latestInvoiceSerialNumbers(c.env, row);
-  return c.json({ success: true, data: redactRow(c.get('permissions'), 'order:read', row) });
+  const perms = c.get('permissions');
+  return c.json({ success: true, data: applyEmbeddedGrid(perms, 'orderGridLine', 'lines', redactRow(perms, 'order:read', row)) });
 });
 
 // Invoices linked to this order, for the order form's right-hand panel.

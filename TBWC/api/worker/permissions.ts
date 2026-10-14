@@ -7,8 +7,31 @@
  *
  * Adding a permission is a two-step change on purpose: add it here, and guard
  * the route with it. Creating a *role* needs neither — that's just rows.
+ *
+ * Child-row grids (quote lines, ...) are the one exception: their
+ * permissions are derived from CHILD_SCHEMAS below (key:action for each of
+ * the schema's parent.actions), so registering the schema is the catalog
+ * change — the routes still guard with those same strings.
  */
-export const PERMISSIONS = [
+import { childSchemaPermissions } from '@meterit/framework-backend/api/base/childRows';
+import { quoteGridLineSchema } from './routes/quoteGridLineSchema';
+import { userGridManagerSchema } from './routes/userGridManagerSchema';
+import { orderGridLineSchema } from './routes/orderGridLineSchema';
+import { invoiceGridLineSchema } from './routes/invoiceGridLineSchema';
+import { paymentGridAppliedSchema } from './routes/paymentGridAppliedSchema';
+import { inventoryGridKitItemSchema } from './routes/inventoryGridKitItemSchema';
+
+/** Child-row grid schemas by permission/schema key — see framework childRows.ts. */
+export const CHILD_SCHEMAS = {
+  quoteGridLine: quoteGridLineSchema,
+  userGridManager: userGridManagerSchema,
+  orderGridLine: orderGridLineSchema,
+  invoiceGridLine: invoiceGridLineSchema,
+  paymentGridApplied: paymentGridAppliedSchema,
+  inventoryGridKitItem: inventoryGridKitItemSchema,
+};
+
+const STATIC_PERMISSIONS = [
   'order:read',
   'order:write',
   'order:delete',
@@ -72,7 +95,12 @@ export const PERMISSIONS = [
   // directly — see routes/roles.ts — not its own permission.
 ] as const;
 
-export type TbwcPermission = (typeof PERMISSIONS)[number];
+export const PERMISSIONS: readonly string[] = [
+  ...STATIC_PERMISSIONS,
+  ...childSchemaPermissions(CHILD_SCHEMAS),
+];
+
+export type TbwcPermission = string;
 
 /** Columns a caller owns a row through, per module — the `own` scope target. */
 export const OWNER_COLUMN = {

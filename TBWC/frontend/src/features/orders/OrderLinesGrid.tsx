@@ -72,6 +72,7 @@ export const OrderLinesGrid: React.FC<OrderLinesGridProps> = ({ lines, total, fr
   return (
     <>
       <EditableDataGrid
+        title="Line Items"
         data={data}
         columns={hideAmounts ? COLUMNS_NO_AMOUNTS : COLUMNS}
         hideAddButton
