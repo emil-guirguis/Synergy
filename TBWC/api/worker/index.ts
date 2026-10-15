@@ -41,7 +41,7 @@ import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
 import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
 import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSearch';
 import { checkQbwcStale } from './qbwc/staleAlert';
-import { runJob } from './cronMonitor';
+import { runJob, jobsForTier, tierForCron } from './cronMonitor';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -120,42 +120,45 @@ app.route('/qbwc', qbwcRoutes);
 // Re-verification link click (no Supabase auth — the token param is the credential).
 app.route('/api/verify', verifyRoutes);
 
+// Every job scheduled() can run, keyed by the job_name public.scheduled_job
+// (migration 103) uses to say which tier it's on. Adding a new scheduled job
+// means adding it here AND seeding a row for it in a migration — nothing
+// here runs unless scheduled_job also names it.
+const JOB_REGISTRY: Record<string, (env: Env, now: Date) => Promise<void>> = {
+  checkQbwcStale: (env) => checkQbwcStale(env),
+  runScheduledNotifications: (env, now) =>
+    runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } }),
+  backfillDocumentIndex: async (env) => {
+    await backfillDocumentIndex(execQuery, env);
+  },
+  lockStaleReps: (env) => lockStaleReps(env),
+};
+
 export default {
   fetch: app.fetch,
   // 3 schedules in wrangler.toml [triggers]/[env.production.triggers], each a
   // separate Worker invocation (CF calls scheduled() once per matched cron,
-  // never batched) — dispatched below on event.cron. Used to be one job list
-  // on */15 for all 4 jobs; backfillDocumentIndex's PDF/docx/xlsx parsing
-  // could eat a whole tick's CPU budget and kill checkQbwcStale before it ran,
-  // some ticks producing no QBWC-outage alert at all with nothing logged
-  // (confirmed via wrangler tail: "Exceeded CPU Limit", qbwc.staleAlert.check's
-  // query never completing). Splitting onto separate schedules means the
-  // heavy job no longer shares a CPU budget with anything time-sensitive.
+  // never batched). WHICH named job runs on a given tick is no longer
+  // hardcoded here — it's public.scheduled_job (migration 103), read fresh
+  // every invocation, so reassigning a job's tier in Settings > Scheduled
+  // Jobs takes effect on that tier's next tick with no redeploy. The 3 tiers
+  // themselves stay fixed: backfillDocumentIndex's PDF/docx/xlsx parsing once
+  // ate a whole tick's CPU budget and killed checkQbwcStale before it could
+  // run, some ticks producing no QBWC-outage alert at all with nothing logged
+  // (confirmed via wrangler tail: "Exceeded CPU Limit"). Isolating that job to
+  // its own tier is what fixed it; see JOB_REGISTRY below for the full set.
   async scheduled(event: { scheduledTime: number; cron: string }, env: Env, ctx: { waitUntil(p: Promise<any>): void }) {
     const now = new Date(event.scheduledTime);
-    if (event.cron === '*/15 * * * *') {
-      // Both need fine granularity: checkQbwcStale to stay well under
-      // STALE_MINUTES, runScheduledNotifications so scheduled_notification_rule
-      // rows can carry their own finer-than-daily cron. Neither does real CPU
-      // work (small queries + outbound fetches), so sharing a tick is fine.
-      ctx.waitUntil(runJob(env, 'checkQbwcStale', () => checkQbwcStale(env)));
-      ctx.waitUntil(runJob(env, 'runScheduledNotifications', () =>
-        runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } })
-      ));
-    } else if (event.cron === '0 * * * *') {
-      // Safety net for indexDocumentContent (documents.ts/docTypes.ts upload
-      // paths) — catches anything that failed there or predates it. Bounded
-      // batch (default 25) + its own time budget (aiSearch.ts), and now gets
-      // a full hourly tick's CPU to itself instead of sharing one with the
-      // time-sensitive jobs above.
-      ctx.waitUntil(runJob(env, 'backfillDocumentIndex', async () => {
-        await backfillDocumentIndex(execQuery, env);
-      }));
-    } else if (event.cron === '0 6 * * *') {
-      // 90-day re-verification sweep. Idempotent WHERE clause — its real
-      // cadence need is daily; it only ran every 15 min before because it
-      // shared a schedule with runScheduledNotifications, which did need that.
-      ctx.waitUntil(runJob(env, 'lockStaleReps', () => lockStaleReps(env)));
+    const tier = tierForCron(event.cron);
+    if (!tier) return; // a cron fired that nothing here is configured to handle
+    const jobNames = await jobsForTier(env, tier);
+    for (const jobName of jobNames) {
+      const fn = JOB_REGISTRY[jobName];
+      if (!fn) {
+        console.error(`[cron] scheduled_job names unknown job "${jobName}" — skipping`);
+        continue;
+      }
+      ctx.waitUntil(runJob(env, jobName, () => fn(env, now)));
     }
   },
   // Cloudflare Email Routing -> "Send to a Worker" for

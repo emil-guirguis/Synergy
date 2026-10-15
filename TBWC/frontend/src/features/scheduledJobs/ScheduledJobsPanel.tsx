@@ -1,27 +1,30 @@
 /**
- * Settings > Scheduled Jobs. Two things worker/index.ts's scheduled() jobs
- * had no visibility into until migration 102 (cron_run_log, alert_setting):
- * whether each cron job actually ran and how long it took, and who the
- * QBWC-down alert notifies without needing a redeploy to change.
+ * Settings > Scheduled Jobs. Click a job row to open its details on the
+ * right: which Cloudflare Cron Trigger tier it runs on (editable — takes
+ * effect on that tier's next tick, no redeploy; see worker/cronMonitor.ts
+ * and migration 103) and, for jobs that have one, its alert settings
+ * (migration 102) — recipients, email/in-app, threshold, throttle.
  *
  * A job stuck at 'running' long after its own schedule should have produced
  * a finish is the signature of the exact bug this page was born from — the
  * Worker invocation dying (CPU limit, uncaught throw) before the job's finish
- * row could be written. See worker/cronMonitor.ts.
+ * row could be written.
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Card, CardContent, Chip, CircularProgress, FormControlLabel,
-  IconButton, Stack, Switch, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, TextField, Tooltip, Typography,
+  Alert, Box, Card, CardContent, Chip, CircularProgress, Divider, Drawer,
+  FormControlLabel, IconButton, MenuItem, Select, Stack, Switch, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, TextField,
+  Tooltip, Typography,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import {
-  getCronLog, getAlertSettings, updateAlertSetting,
-  type CronLog, type CronRun, type AlertSetting,
+  getCronLog, getAlertSettings, updateAlertSetting, updateJobTier,
+  type CronLog, type CronRun, type AlertSetting, type CronTier,
 } from '../../services/settingsService';
 
 const JOB_LABELS: Record<string, string> = {
@@ -31,14 +34,20 @@ const JOB_LABELS: Record<string, string> = {
   lockStaleReps: 'Rep re-verification lock',
 };
 
-// Matches wrangler.toml's [triggers]/[env.production.triggers] crons —
-// shown so a job with no run yet reads as "hasn't hit its schedule since
-// deploy" rather than looking broken/missing.
-const JOB_SCHEDULE: Record<string, string> = {
-  checkQbwcStale: 'every 15 min',
-  runScheduledNotifications: 'every 15 min',
-  backfillDocumentIndex: 'hourly, on the hour',
-  lockStaleReps: 'daily, 6am UTC',
+const TIER_LABELS: Record<CronTier, string> = {
+  frequent: 'Every 15 min',
+  hourly: 'Hourly',
+  daily: 'Daily (6am UTC)',
+};
+
+// Jobs heavy enough that sharing the "frequent" tier with others risks the
+// exact CPU-limit bug this page exists to catch — warn, don't block, since
+// backfillDocumentIndex now self-limits on elapsed time (aiSearch.ts).
+const HEAVY_JOBS = new Set(['backfillDocumentIndex']);
+
+// Which alert_setting row (if any) belongs to this job.
+const JOB_ALERT_KEY: Record<string, string> = {
+  checkQbwcStale: 'qbwc_stale',
 };
 
 const ALERT_LABELS: Record<string, string> = {
@@ -89,6 +98,7 @@ export default function ScheduledJobsPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [selectedJob, setSelectedJob] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,6 +117,25 @@ export default function ScheduledJobsPanel() {
   useEffect(() => { load(); }, [load]);
 
   const avgFor = (job: string) => log?.avg.find((a) => a.job_name === job);
+  const tierFor = (job: string) => log?.jobs.find((j) => j.job_name === job)?.cron_tier;
+  const runFor = (job: string) => log?.latest.find((r) => r.job_name === job) ?? null;
+  const alertFor = (job: string) => alerts.find((a) => a.alert_key === JOB_ALERT_KEY[job]);
+
+  const saveTier = useCallback(async (jobName: string, tier: CronTier) => {
+    setSaving(jobName);
+    setError(null);
+    try {
+      const updated = await updateJobTier(jobName, tier);
+      setLog((prev) => prev && {
+        ...prev,
+        jobs: prev.jobs.map((j) => (j.job_name === jobName ? updated : j)),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save schedule');
+    } finally {
+      setSaving(null);
+    }
+  }, []);
 
   const saveAlert = useCallback(async (alertKey: string, updates: Partial<AlertSetting>) => {
     setSaving(alertKey);
@@ -120,6 +149,10 @@ export default function ScheduledJobsPanel() {
       setSaving(null);
     }
   }, []);
+
+  const selectedTier = selectedJob ? tierFor(selectedJob) : undefined;
+  const selectedRun = selectedJob ? runFor(selectedJob) : null;
+  const selectedAlert = selectedJob ? alertFor(selectedJob) : undefined;
 
   return (
     <Box data-testid="scheduled-jobs-panel">
@@ -139,14 +172,18 @@ export default function ScheduledJobsPanel() {
       )}
 
       {log && (
-        <Card variant="outlined" sx={{ mb: 2 }} data-testid="cron-job-table">
+        <Card variant="outlined" data-testid="cron-job-table">
           <CardContent>
-            <Typography variant="h6" sx={{ mb: 1 }}>Last run per job</Typography>
+            <Typography variant="h6" sx={{ mb: 1 }}>Scheduled jobs</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Click a job to view its schedule and settings.
+            </Typography>
             <TableContainer sx={{ overflowX: 'auto' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Job</TableCell>
+                    <TableCell>Runs</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell>Started</TableCell>
                     <TableCell align="right">Duration</TableCell>
@@ -155,12 +192,20 @@ export default function ScheduledJobsPanel() {
                 </TableHead>
                 <TableBody>
                   {Object.keys(JOB_LABELS).map((jobName) => {
-                    const run = log.latest.find((r) => r.job_name === jobName) ?? null;
+                    const run = runFor(jobName);
                     const avg = avgFor(jobName);
+                    const tier = tierFor(jobName);
                     return (
-                      <TableRow key={jobName} hover>
+                      <TableRow
+                        key={jobName}
+                        hover
+                        onClick={() => setSelectedJob(jobName)}
+                        sx={{ cursor: 'pointer' }}
+                        data-testid={`cron-job-row-${jobName}`}
+                      >
                         <TableCell>{JOB_LABELS[jobName]}</TableCell>
-                        <TableCell><StatusChip run={run} schedule={JOB_SCHEDULE[jobName]} /></TableCell>
+                        <TableCell>{tier ? TIER_LABELS[tier] : '—'}</TableCell>
+                        <TableCell><StatusChip run={run} schedule={tier ? TIER_LABELS[tier] : 'unknown'} /></TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>{run ? fmtTime(run.started_at) : '—'}</TableCell>
                         <TableCell align="right">{run ? fmtDuration(run.duration_ms) : '—'}</TableCell>
                         <TableCell align="right">
@@ -176,85 +221,133 @@ export default function ScheduledJobsPanel() {
         </Card>
       )}
 
-      {alerts.map((alert) => (
-        <Card variant="outlined" key={alert.alert_key} sx={{ mb: 2 }} data-testid={`alert-setting-${alert.alert_key}`}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              {ALERT_LABELS[alert.alert_key] ?? alert.alert_key}
-            </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={2} sx={{ mb: 2 }}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={alert.enabled}
-                    onChange={(e) => saveAlert(alert.alert_key, { enabled: e.target.checked })}
-                    disabled={saving === alert.alert_key}
-                  />
-                }
-                label="Enabled"
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={alert.notify_email}
-                    onChange={(e) => saveAlert(alert.alert_key, { notify_email: e.target.checked })}
-                    disabled={saving === alert.alert_key || !alert.enabled}
-                  />
-                }
-                label="Email"
-              />
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={alert.notify_inapp}
-                    onChange={(e) => saveAlert(alert.alert_key, { notify_inapp: e.target.checked })}
-                    disabled={saving === alert.alert_key || !alert.enabled}
-                  />
-                }
-                label="In-app notification"
-              />
-            </Stack>
-            <Stack direction="row" flexWrap="wrap" gap={2}>
-              <TextField
-                label="Stale after (minutes)"
-                type="number"
+      <Drawer anchor="right" open={!!selectedJob} onClose={() => setSelectedJob(null)}>
+        <Box sx={{ width: 400, p: 2.5 }} data-testid="cron-job-drawer">
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Typography variant="h6">{selectedJob ? JOB_LABELS[selectedJob] : ''}</Typography>
+            <IconButton size="small" onClick={() => setSelectedJob(null)}><CloseIcon fontSize="small" /></IconButton>
+          </Stack>
+
+          {selectedJob && (
+            <>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Schedule</Typography>
+              <Select
                 size="small"
-                defaultValue={alert.threshold_minutes ?? ''}
-                disabled={saving === alert.alert_key}
-                onBlur={(e) => {
-                  const v = e.target.value === '' ? null : Number(e.target.value);
-                  if (v !== alert.threshold_minutes) saveAlert(alert.alert_key, { threshold_minutes: v });
-                }}
-                sx={{ width: 190 }}
-              />
-              <TextField
-                label="Re-alert every (hours)"
-                type="number"
-                size="small"
-                defaultValue={alert.throttle_hours}
-                disabled={saving === alert.alert_key}
-                onBlur={(e) => {
-                  const v = Number(e.target.value);
-                  if (!Number.isNaN(v) && v !== alert.throttle_hours) saveAlert(alert.alert_key, { throttle_hours: v });
-                }}
-                sx={{ width: 190 }}
-              />
-              <TextField
-                label="Recipients holding permission"
-                size="small"
-                defaultValue={alert.recipient_permission ?? ''}
-                disabled={saving === alert.alert_key}
-                helperText="Everyone whose role grants this permission"
-                onBlur={(e) => {
-                  const v = e.target.value.trim() || null;
-                  if (v !== alert.recipient_permission) saveAlert(alert.alert_key, { recipient_permission: v });
-                }}
-                sx={{ width: 260 }}
-              />
-            </Stack>
-          </CardContent>
-        </Card>
-      ))}
+                fullWidth
+                value={selectedTier ?? ''}
+                disabled={saving === selectedJob}
+                onChange={(e) => saveTier(selectedJob, e.target.value as CronTier)}
+                sx={{ mb: 1 }}
+              >
+                {(Object.keys(TIER_LABELS) as CronTier[]).map((tier) => (
+                  <MenuItem key={tier} value={tier}>{TIER_LABELS[tier]}</MenuItem>
+                ))}
+              </Select>
+              {HEAVY_JOBS.has(selectedJob) && selectedTier === 'frequent' && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  This job does real CPU work. Running it every 15 min alongside other jobs on the
+                  same tier risks hitting Cloudflare's CPU limit — the exact bug this page exists to
+                  catch. Hourly or daily is safer.
+                </Alert>
+              )}
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+                Change takes effect on this schedule's next tick — no redeploy needed.
+              </Typography>
+
+              <Divider sx={{ mb: 2 }} />
+
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Last run</Typography>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                <StatusChip run={selectedRun} schedule={selectedTier ? TIER_LABELS[selectedTier] : 'unknown'} />
+                <Typography variant="body2" color="text.secondary">
+                  {selectedRun ? `${fmtTime(selectedRun.started_at)} · ${fmtDuration(selectedRun.duration_ms)}` : 'never run yet'}
+                </Typography>
+              </Stack>
+
+              {selectedAlert && (
+                <>
+                  <Divider sx={{ mb: 2 }} />
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                    {ALERT_LABELS[selectedAlert.alert_key] ?? selectedAlert.alert_key}
+                  </Typography>
+                  <Stack spacing={1} sx={{ mb: 2 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={selectedAlert.enabled}
+                          onChange={(e) => saveAlert(selectedAlert.alert_key, { enabled: e.target.checked })}
+                          disabled={saving === selectedAlert.alert_key}
+                        />
+                      }
+                      label="Enabled"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={selectedAlert.notify_email}
+                          onChange={(e) => saveAlert(selectedAlert.alert_key, { notify_email: e.target.checked })}
+                          disabled={saving === selectedAlert.alert_key || !selectedAlert.enabled}
+                        />
+                      }
+                      label="Email"
+                    />
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={selectedAlert.notify_inapp}
+                          onChange={(e) => saveAlert(selectedAlert.alert_key, { notify_inapp: e.target.checked })}
+                          disabled={saving === selectedAlert.alert_key || !selectedAlert.enabled}
+                        />
+                      }
+                      label="In-app notification"
+                    />
+                  </Stack>
+                  <Stack spacing={2}>
+                    <TextField
+                      label="Stale after (minutes)"
+                      type="number"
+                      size="small"
+                      fullWidth
+                      defaultValue={selectedAlert.threshold_minutes ?? ''}
+                      disabled={saving === selectedAlert.alert_key}
+                      onBlur={(e) => {
+                        const v = e.target.value === '' ? null : Number(e.target.value);
+                        if (v !== selectedAlert.threshold_minutes) saveAlert(selectedAlert.alert_key, { threshold_minutes: v });
+                      }}
+                    />
+                    <TextField
+                      label="Re-alert every (hours)"
+                      type="number"
+                      size="small"
+                      fullWidth
+                      defaultValue={selectedAlert.throttle_hours}
+                      disabled={saving === selectedAlert.alert_key}
+                      onBlur={(e) => {
+                        const v = Number(e.target.value);
+                        if (!Number.isNaN(v) && v !== selectedAlert.throttle_hours) {
+                          saveAlert(selectedAlert.alert_key, { throttle_hours: v });
+                        }
+                      }}
+                    />
+                    <TextField
+                      label="Recipients holding permission"
+                      size="small"
+                      fullWidth
+                      defaultValue={selectedAlert.recipient_permission ?? ''}
+                      disabled={saving === selectedAlert.alert_key}
+                      helperText="Everyone whose role grants this permission"
+                      onBlur={(e) => {
+                        const v = e.target.value.trim() || null;
+                        if (v !== selectedAlert.recipient_permission) saveAlert(selectedAlert.alert_key, { recipient_permission: v });
+                      }}
+                    />
+                  </Stack>
+                </>
+              )}
+            </>
+          )}
+        </Box>
+      </Drawer>
     </Box>
   );
 }

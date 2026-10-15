@@ -99,3 +99,81 @@ export async function avgDurationPerJob(env: Env, sinceHours = 24): Promise<{ jo
   );
   return rows;
 }
+
+// --- public.scheduled_job (migration 103) — which of the 3 Cloudflare Cron
+// Trigger tiers (see wrangler.toml) each named job runs on. Editable from
+// Settings > Scheduled Jobs; a change takes effect on that tier's next tick,
+// no redeploy. Kept to 3 fixed tiers on purpose — see migration 103's header
+// on why this isn't a free-text cron column. ---------------------------
+
+export type CronTier = 'frequent' | 'hourly' | 'daily';
+
+// Matches wrangler.toml's [triggers]/[env.production.triggers] crons exactly.
+export const TIER_CRON: Record<CronTier, string> = {
+  frequent: '*/15 * * * *',
+  hourly: '0 * * * *',
+  daily: '0 6 * * *',
+};
+
+const CRON_TIER: Record<string, CronTier> = Object.fromEntries(
+  Object.entries(TIER_CRON).map(([tier, cron]) => [cron, tier as CronTier])
+);
+
+export function tierForCron(cron: string): CronTier | null {
+  return CRON_TIER[cron] ?? null;
+}
+
+// Fallback if public.scheduled_job is missing a row (or the table itself,
+// pre-migration) — today's hardcoded assignment, so a missing row degrades
+// to current behavior rather than silently dropping a job from every tier.
+const DEFAULT_TIER_JOBS: Record<CronTier, string[]> = {
+  frequent: ['checkQbwcStale', 'runScheduledNotifications'],
+  hourly: ['backfillDocumentIndex'],
+  daily: ['lockStaleReps'],
+};
+
+/** Job names assigned to run on this tier, per public.scheduled_job. */
+export async function jobsForTier(env: Env, tier: CronTier): Promise<string[]> {
+  try {
+    const { rows } = await execQuery(
+      env,
+      `SELECT job_name FROM public.scheduled_job WHERE cron_tier = $1`,
+      [tier],
+      'cron.scheduledJob.byTier'
+    );
+    if (rows.length === 0) return DEFAULT_TIER_JOBS[tier] ?? [];
+    return rows.map((r: { job_name: string }) => r.job_name);
+  } catch (e) {
+    console.error(`[cron] scheduled_job lookup failed for tier ${tier}, using built-in default:`, e instanceof Error ? e.message : e);
+    return DEFAULT_TIER_JOBS[tier] ?? [];
+  }
+}
+
+export interface ScheduledJobRow {
+  scheduled_job_id: number;
+  job_name: string;
+  cron_tier: CronTier;
+  updated_at: string;
+}
+
+/** Every known job's current tier — Settings > Scheduled Jobs' edit panel. */
+export async function listScheduledJobs(env: Env): Promise<ScheduledJobRow[]> {
+  const { rows } = await execQuery(
+    env,
+    `SELECT scheduled_job_id, job_name, cron_tier, updated_at FROM public.scheduled_job ORDER BY job_name`,
+    [],
+    'cron.scheduledJob.list'
+  );
+  return rows;
+}
+
+export async function setJobTier(env: Env, jobName: string, tier: CronTier): Promise<ScheduledJobRow | null> {
+  const { rows } = await execQuery(
+    env,
+    `UPDATE public.scheduled_job SET cron_tier = $2, updated_at = now() WHERE job_name = $1
+     RETURNING scheduled_job_id, job_name, cron_tier, updated_at`,
+    [jobName, tier],
+    'cron.scheduledJob.setTier'
+  );
+  return rows[0] ?? null;
+}

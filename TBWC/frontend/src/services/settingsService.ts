@@ -74,10 +74,20 @@ export interface CronRun {
   duration_ms: number | null;
 }
 
+export type CronTier = 'frequent' | 'hourly' | 'daily';
+
+export interface ScheduledJob {
+  scheduled_job_id: number;
+  job_name: string;
+  cron_tier: CronTier;
+  updated_at: string;
+}
+
 export interface CronLog {
   latest: CronRun[];
   recent: CronRun[];
   avg: { job_name: string; avg_ms: number; runs: number }[];
+  jobs: ScheduledJob[];
 }
 
 export interface AlertSetting {
@@ -109,6 +119,17 @@ export async function updateAlertSetting(alertKey: string, updates: Partial<Aler
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify(updates),
+    })
+  );
+  return data.data;
+}
+
+export async function updateJobTier(jobName: string, cronTier: CronTier): Promise<ScheduledJob> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/jobs/${encodeURIComponent(jobName)}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ cron_tier: cronTier }),
     })
   );
   return data.data;

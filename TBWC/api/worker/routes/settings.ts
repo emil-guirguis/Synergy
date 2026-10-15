@@ -9,7 +9,10 @@ import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { rowToBasicSettings, basicSettingsToRow } from '@meterit/framework-backend/api/base/settings';
-import { latestRunPerJob, recentRuns, avgDurationPerJob } from '../cronMonitor';
+import {
+  latestRunPerJob, recentRuns, avgDurationPerJob,
+  listScheduledJobs, setJobTier, type CronTier,
+} from '../cronMonitor';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -74,12 +77,27 @@ app.put('/', requirePermission('setting:write'), async (c) => {
 // alert_setting today. ---------------------------------------------------
 
 app.get('/cron-log', requirePermission('setting:read'), async (c) => {
-  const [latest, recent, avg] = await Promise.all([
+  const [latest, recent, avg, jobs] = await Promise.all([
     latestRunPerJob(c.env),
     recentRuns(c.env, 100),
     avgDurationPerJob(c.env, 24),
+    listScheduledJobs(c.env),
   ]);
-  return c.json({ success: true, data: { latest, recent, avg } });
+  return c.json({ success: true, data: { latest, recent, avg, jobs } });
+});
+
+const VALID_TIERS: CronTier[] = ['frequent', 'hourly', 'daily'];
+
+app.put('/jobs/:jobName', requirePermission('setting:write'), async (c) => {
+  const jobName = c.req.param('jobName');
+  const body = await c.req.json();
+  const tier = body.cron_tier;
+  if (!VALID_TIERS.includes(tier)) {
+    return c.json({ success: false, message: `cron_tier must be one of: ${VALID_TIERS.join(', ')}` }, 400);
+  }
+  const updated = await setJobTier(c.env, jobName, tier);
+  if (!updated) return c.json({ success: false, message: `No scheduled_job row for "${jobName}"` }, 404);
+  return c.json({ success: true, data: updated, message: 'Schedule updated' });
 });
 
 app.get('/alerts', requirePermission('setting:read'), async (c) => {
