@@ -201,6 +201,23 @@ function encodeStoragePath(path: string): string {
 }
 
 const STORED_SIZE_TIMEOUT_MS = 8000;
+const PLAN_FETCH_TIMEOUT_MS = 15000;
+const PLAN_PARSE_TIMEOUT_MS = 20000;
+
+/** Caps how long the planning loop will wait on any single await — a plan over hundreds
+ *  of jobs can't afford one job's network call or PDF parse to hang forever and stall
+ *  every job behind it. Unlike checkStoredObject's AbortController, this can't cancel the
+ *  underlying work (documentsApi/quoteLinesApi/pickPrimary take no abort signal) — it just
+ *  stops the planning loop from waiting on it and moves on with `fallback`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(fallback); }
+    );
+  });
+}
 
 type StoredObjectCheck =
   | { status: 'found'; size: number }
@@ -381,8 +398,8 @@ export const QuoteImportPanel: React.FC = () => {
         }
 
         const [existingDocs, existingLines] = await Promise.all([
-          documentsApi.list('quote', String(quote.quote_id)).catch(() => [] as DocumentRecord[]),
-          quoteLinesApi.list(quote.quote_id).catch(() => [] as any[]),
+          withTimeout(documentsApi.list('quote', String(quote.quote_id)).catch(() => [] as DocumentRecord[]), PLAN_FETCH_TIMEOUT_MS, [] as DocumentRecord[]),
+          withTimeout(quoteLinesApi.list(quote.quote_id).catch(() => [] as any[]), PLAN_FETCH_TIMEOUT_MS, [] as any[]),
         ]);
         const existingByName = new Map(existingDocs.map((d) => [d.file_name.trim().toLowerCase(), d]));
 
@@ -409,7 +426,11 @@ export const QuoteImportPanel: React.FC = () => {
         }));
 
         const quoteCandidates = docs.filter((d) => d.docType === 'quote');
-        const { header, lines: parsedLines } = await pickPrimary(quoteCandidates);
+        const { header, lines: parsedLines } = await withTimeout(
+          pickPrimary(quoteCandidates),
+          PLAN_PARSE_TIMEOUT_MS,
+          { header: mergeHeaders([]), lines: [] as ParsedQuoteLine[] }
+        );
         const parsedTotal = header.total ?? null;
         const linePayloads = existingLines.length === 0 ? buildLinePayloads(parsedLines, parsedTotal) : [];
 
