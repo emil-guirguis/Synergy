@@ -32,7 +32,7 @@
  *     correctly — see buildLinePayloads().
  */
 import React, { useMemo, useRef, useState } from 'react';
-import { Box, Button, LinearProgress, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, LinearProgress, Tooltip, Typography } from '@mui/material';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import DownloadIcon from '@mui/icons-material/Download';
 import {
@@ -51,6 +51,7 @@ import { tokenStorage } from '../../utils/tokenStorage';
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // matches framework/backend/api/base/documents.ts's default
 const IGNORED_FILE_NAMES = new Set(['Thumbs.db', 'desktop.ini', '.DS_Store']);
 const MAX_PARSE_PAGES = 3;
+const MAX_ATTEMPTS = 10;
 
 const MIME_BY_EXT: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -242,13 +243,29 @@ async function uploadDocOnce(quoteId: number, doc: DocPlan): Promise<{ ok: boole
   }
 }
 
-/** One retry on a verified size mismatch or a transient upload error — a 4xx validation
- *  error (bad path, oversized file) would just fail the same way twice, but a truncated
- *  transfer often doesn't repeat. */
+/** Up to MAX_ATTEMPTS tries on a verified size mismatch or a transient upload error —
+ *  a 4xx validation error (bad path, oversized file) will just fail the same way every
+ *  time, but a truncated transfer or a passing network blip often doesn't repeat. */
 async function uploadDocWithRetry(quoteId: number, doc: DocPlan): Promise<{ ok: boolean; message: string }> {
-  const first = await uploadDocOnce(quoteId, doc);
-  if (first.ok) return first;
-  return uploadDocOnce(quoteId, doc);
+  let last: { ok: boolean; message: string } = { ok: false, message: 'Upload failed.' };
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    last = await uploadDocOnce(quoteId, doc);
+    if (last.ok) return last;
+  }
+  return last;
+}
+
+/** Same up-to-MAX_ATTEMPTS retry for any throwing async call (line item inserts). */
+async function retryAsync<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
 }
 
 function groupByJobFolder(files: File[]): Map<string, { relPath: string; file: File }[]> {
@@ -288,6 +305,7 @@ export const QuoteImportPanel: React.FC = () => {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [statusFilter, setStatusFilter] = useState<EntryStatus | 'all'>('all');
+  const [runError, setRunError] = useState<{ jobName: string; message: string } | null>(null);
 
   React.useEffect(() => {
     const el = folderInputRef.current;
@@ -387,6 +405,7 @@ export const QuoteImportPanel: React.FC = () => {
   const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
+    setRunError(null);
     if (picked.length) void buildPlan(picked);
   };
 
@@ -394,6 +413,7 @@ export const QuoteImportPanel: React.FC = () => {
     const ready = entries.filter((e) => e.status === 'ready');
     if (!ready.length) return;
     setRunning(true);
+    setRunError(null);
     setProgress({ done: 0, total: ready.length });
 
     const setEntry = (key: string, patch: Partial<Entry>) =>
@@ -404,12 +424,13 @@ export const QuoteImportPanel: React.FC = () => {
       let uploaded = 0;
       let fixed = 0;
       let failed = 0;
+      let lastErrorMessage: string | null = null;
 
       for (const doc of entry.docs) {
         if (doc.status === 'ready') {
           const res = await uploadDocWithRetry(quoteId, doc);
           if (res.ok) uploaded++;
-          else failed++;
+          else { failed++; lastErrorMessage = res.message; }
         } else if (doc.status === 'size-mismatch') {
           if (doc.existingDocumentId != null) {
             await documentsApi.remove(doc.existingDocumentId).catch(() => undefined);
@@ -417,17 +438,18 @@ export const QuoteImportPanel: React.FC = () => {
           }
           const res = await uploadDocWithRetry(quoteId, doc);
           if (res.ok) fixed++;
-          else failed++;
+          else { failed++; lastErrorMessage = res.message; }
         }
       }
 
       let linesInserted = 0;
       for (const payload of entry.linePayloads) {
         try {
-          await quoteLinesApi.create(quoteId, payload);
+          await retryAsync(() => quoteLinesApi.create(quoteId, payload));
           linesInserted++;
-        } catch {
+        } catch (e: any) {
           failed++;
+          lastErrorMessage = e?.message || 'Line item insert failed.';
         }
       }
 
@@ -436,9 +458,19 @@ export const QuoteImportPanel: React.FC = () => {
       setEntry(entry.key, {
         status,
         result: { uploaded, fixed, failed, linesInserted },
-        message: `${uploaded} uploaded, ${fixed} re-uploaded (size fix), ${linesInserted} line item(s) added${failed ? `, ${failed} failed` : ''}.`,
+        message: `${uploaded} uploaded, ${fixed} re-uploaded (size fix), ${linesInserted} line item(s) added${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
       });
       setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+
+      // Every item on this job failed after MAX_ATTEMPTS tries each — same break
+      // likely waits for every remaining job too. Stop now and show the real
+      // error instead of grinding through the rest blind (see import log from
+      // 2026-10-15: ~465 jobs in a row failed identically with no visibility
+      // into why until the whole multi-hour run had already finished).
+      if (status === 'failed') {
+        setRunError({ jobName: entry.jobName, message: lastErrorMessage || 'Unknown error.' });
+        break;
+      }
     }
 
     setProgress(null);
@@ -527,6 +559,12 @@ export const QuoteImportPanel: React.FC = () => {
         )}
       </Box>
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
+
+      {runError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRunError(null)}>
+          Stopped — "{runError.jobName}" failed completely (0 items succeeded after {MAX_ATTEMPTS} tries each): {runError.message}
+        </Alert>
+      )}
 
       {planningProgress && (
         <LinearProgress sx={{ mb: 2 }} variant="determinate" value={planningProgress.total ? (planningProgress.done / planningProgress.total) * 100 : 0} />
