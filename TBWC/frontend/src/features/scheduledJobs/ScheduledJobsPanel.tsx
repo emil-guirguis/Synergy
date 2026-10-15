@@ -31,6 +31,16 @@ const JOB_LABELS: Record<string, string> = {
   lockStaleReps: 'Rep re-verification lock',
 };
 
+// Matches wrangler.toml's [triggers]/[env.production.triggers] crons —
+// shown so a job with no run yet reads as "hasn't hit its schedule since
+// deploy" rather than looking broken/missing.
+const JOB_SCHEDULE: Record<string, string> = {
+  checkQbwcStale: 'every 15 min',
+  runScheduledNotifications: 'every 15 min',
+  backfillDocumentIndex: 'hourly, on the hour',
+  lockStaleReps: 'daily, 6am UTC',
+};
+
 const ALERT_LABELS: Record<string, string> = {
   qbwc_stale: 'QuickBooks connection alert',
 };
@@ -48,7 +58,14 @@ function fmtDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
-function StatusChip({ run }: { run: CronRun }) {
+function StatusChip({ run, schedule }: { run: CronRun | null; schedule: string }) {
+  if (!run) {
+    return (
+      <Tooltip title={`No run logged yet — scheduled ${schedule}`}>
+        <Chip size="small" label="never run" variant="outlined" />
+      </Tooltip>
+    );
+  }
   if (run.status === 'running') {
     return (
       <Tooltip title="Started but never recorded a finish — the invocation may have been cut off mid-run (e.g. a CPU limit)">
@@ -137,20 +154,15 @@ export default function ScheduledJobsPanel() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {log.latest.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5}>
-                        <Typography variant="body2" color="text.secondary">No cron runs logged yet.</Typography>
-                      </TableCell>
-                    </TableRow>
-                  ) : log.latest.map((run) => {
-                    const avg = avgFor(run.job_name);
+                  {Object.keys(JOB_LABELS).map((jobName) => {
+                    const run = log.latest.find((r) => r.job_name === jobName) ?? null;
+                    const avg = avgFor(jobName);
                     return (
-                      <TableRow key={run.job_name} hover>
-                        <TableCell>{JOB_LABELS[run.job_name] ?? run.job_name}</TableCell>
-                        <TableCell><StatusChip run={run} /></TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtTime(run.started_at)}</TableCell>
-                        <TableCell align="right">{fmtDuration(run.duration_ms)}</TableCell>
+                      <TableRow key={jobName} hover>
+                        <TableCell>{JOB_LABELS[jobName]}</TableCell>
+                        <TableCell><StatusChip run={run} schedule={JOB_SCHEDULE[jobName]} /></TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{run ? fmtTime(run.started_at) : '—'}</TableCell>
+                        <TableCell align="right">{run ? fmtDuration(run.duration_ms) : '—'}</TableCell>
                         <TableCell align="right">
                           {avg ? `${fmtDuration(avg.avg_ms)} (${avg.runs} runs)` : '—'}
                         </TableCell>
