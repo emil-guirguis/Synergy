@@ -120,17 +120,32 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
   const [searchQuery, setSearchQueryState] = useState('');
   const [filters, setFiltersState] = useState<Record<string, any>>({});
 
-  // Last-5 search history, persisted per entity in localStorage
-  const searchHistoryKey = `searchHistory_${entityName}`;
-  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(searchHistoryKey);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
+  // Last-5 search history per text field (global search + each text filter),
+  // persisted per entity+field in localStorage. 'search' keeps the original
+  // unsuffixed key for backward compat with history saved before per-field
+  // tracking existed.
+  const getSearchHistoryKey = useCallback(
+    (fieldKey: string) => fieldKey === 'search' ? `searchHistory_${entityName}` : `searchHistory_${entityName}_${fieldKey}`,
+    [entityName]
+  );
+  const [searchHistories, setSearchHistories] = useState<Record<string, string[]>>(() => {
+    const initial: Record<string, string[]> = {};
+    const load = (fieldKey: string, storageKey: string) => {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        initial[fieldKey] = raw ? JSON.parse(raw) : [];
+      } catch {
+        initial[fieldKey] = [];
+      }
+    };
+    load('search', `searchHistory_${entityName}`);
+    filterDefinitions.filter(f => f.type === 'text').forEach(f => {
+      load(f.key, `searchHistory_${entityName}_${f.key}`);
+    });
+    return initial;
   });
-  const [showSearchHistory, setShowSearchHistory] = useState(false);
+  // Which field's history dropdown is currently open (null = none)
+  const [activeHistoryField, setActiveHistoryField] = useState<string | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -308,31 +323,32 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     debouncedSetSearch(query);
   }, [debouncedSetSearch]);
 
-  const addSearchHistory = useCallback((query: string) => {
+  const addSearchHistory = useCallback((fieldKey: string, query: string) => {
     const trimmed = query.trim();
     if (!trimmed) return;
-    setSearchHistory(prev => {
-      const next = [trimmed, ...prev.filter(q => q.toLowerCase() !== trimmed.toLowerCase())].slice(0, 5);
+    setSearchHistories(prev => {
+      const existing = prev[fieldKey] || [];
+      const next = [trimmed, ...existing.filter(q => q.toLowerCase() !== trimmed.toLowerCase())].slice(0, 5);
       try {
-        localStorage.setItem(searchHistoryKey, JSON.stringify(next));
+        localStorage.setItem(getSearchHistoryKey(fieldKey), JSON.stringify(next));
       } catch {
         // ignore storage errors (private mode, quota)
       }
-      return next;
+      return { ...prev, [fieldKey]: next };
     });
-  }, [searchHistoryKey]);
+  }, [getSearchHistoryKey]);
 
-  const removeSearchHistory = useCallback((query: string) => {
-    setSearchHistory(prev => {
-      const next = prev.filter(q => q !== query);
+  const removeSearchHistory = useCallback((fieldKey: string, query: string) => {
+    setSearchHistories(prev => {
+      const next = (prev[fieldKey] || []).filter(q => q !== query);
       try {
-        localStorage.setItem(searchHistoryKey, JSON.stringify(next));
+        localStorage.setItem(getSearchHistoryKey(fieldKey), JSON.stringify(next));
       } catch {
         // ignore storage errors (private mode, quota)
       }
-      return next;
+      return { ...prev, [fieldKey]: next };
     });
-  }, [searchHistoryKey]);
+  }, [getSearchHistoryKey]);
 
   const setFilter = useCallback((key: string, value: any) => {
     console.log('[useBaseList] setFilter called with key:', key, 'value:', value);
@@ -595,17 +611,17 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
               placeholder={`Search...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => setShowSearchHistory(true)}
+              onFocus={() => setActiveHistoryField('search')}
               onBlur={() => {
-                addSearchHistory(searchQuery);
+                addSearchHistory('search', searchQuery);
                 // Delay hide so a click on a history item registers first
-                setTimeout(() => setShowSearchHistory(false), 150);
+                setTimeout(() => setActiveHistoryField(prev => prev === 'search' ? null : prev), 150);
               }}
               aria-label={`Search ${entityNamePlural}`}
             />
-            {showSearchHistory && searchHistory.length > 0 && (
+            {activeHistoryField === 'search' && (searchHistories.search || []).length > 0 && (
               <div className="list__search-history">
-                {searchHistory.map((query) => (
+                {(searchHistories.search || []).map((query) => (
                   <div key={query} className="list__search-history-row">
                     <button
                       type="button"
@@ -613,7 +629,7 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setSearchQuery(query);
-                        setShowSearchHistory(false);
+                        setActiveHistoryField(null);
                       }}
                     >
                       {query}
@@ -623,7 +639,7 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
                       className="list__search-history-remove"
                       aria-label={`Remove "${query}" from search history`}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => removeSearchHistory(query)}
+                      onClick={() => removeSearchHistory('search', query)}
                     >
                       ✕
                     </button>
@@ -666,6 +682,7 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
           }
 
           if (filter.type === 'text') {
+            const history = searchHistories[filter.key] || [];
             return (
               <div key={filter.key} className={`list__filter-item ${filter.className || ''}`}>
                 <input
@@ -674,7 +691,42 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
                   placeholder={filter.placeholder || filter.label}
                   value={filterValue}
                   onChange={(e) => setFilter(filter.key, e.target.value)}
+                  onFocus={() => setActiveHistoryField(filter.key)}
+                  onBlur={() => {
+                    addSearchHistory(filter.key, filterValue);
+                    // Delay hide so a click on a history item registers first
+                    setTimeout(() => setActiveHistoryField(prev => prev === filter.key ? null : prev), 150);
+                  }}
+                  aria-label={filter.label}
                 />
+                {activeHistoryField === filter.key && history.length > 0 && (
+                  <div className="list__search-history">
+                    {history.map((query) => (
+                      <div key={query} className="list__search-history-row">
+                        <button
+                          type="button"
+                          className="list__search-history-item"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setFilter(filter.key, query);
+                            setActiveHistoryField(null);
+                          }}
+                        >
+                          {query}
+                        </button>
+                        <button
+                          type="button"
+                          className="list__search-history-remove"
+                          aria-label={`Remove "${query}" from search history`}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => removeSearchHistory(filter.key, query)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           }
@@ -723,8 +775,8 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     setSearchQuery,
     setFilter,
     clearFilters,
-    showSearchHistory,
-    searchHistory,
+    activeHistoryField,
+    searchHistories,
     addSearchHistory,
     removeSearchHistory,
   ]);
