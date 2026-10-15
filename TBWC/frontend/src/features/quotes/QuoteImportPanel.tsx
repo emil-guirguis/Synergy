@@ -51,7 +51,6 @@ import { tokenStorage } from '../../utils/tokenStorage';
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // matches framework/backend/api/base/documents.ts's default
 const IGNORED_FILE_NAMES = new Set(['Thumbs.db', 'desktop.ini', '.DS_Store']);
 const MAX_PARSE_PAGES = 3;
-const MAX_ATTEMPTS = 10;
 
 const MIME_BY_EXT: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -97,7 +96,7 @@ interface QuoteMatch {
   total: number | null;
 }
 
-type DocStatus = 'ready' | 'already' | 'size-mismatch' | 'too-large';
+type DocStatus = 'ready' | 'already' | 'size-mismatch' | 'too-large' | 'missing';
 
 interface DocPlan {
   relPath: string;
@@ -123,7 +122,7 @@ interface Entry {
   linePayloads: Array<{ qb_item_id: null; item_name: string | null; description: string; quantity: number; rate: number }>;
   status: EntryStatus;
   message: string;
-  result?: { uploaded: number; fixed: number; failed: number; linesInserted: number };
+  result?: { uploaded: number; failed: number; linesInserted: number };
 }
 
 const STATUS_LABELS: Record<EntryStatus, string> = {
@@ -199,23 +198,50 @@ function encodeStoragePath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
-/** The document row's file_size only ever reflects what the uploader claimed — this checks
- *  what's actually sitting in the bucket, which is the only way to catch a silently truncated
- *  upload. Best-effort: a HEAD that itself fails to load (network/CORS) doesn't block the run. */
-async function verifyStoredSize(storagePath: string, expectedSize: number): Promise<boolean> {
+const STORED_SIZE_TIMEOUT_MS = 8000;
+
+type StoredObjectCheck =
+  | { status: 'found'; size: number }
+  | { status: 'missing' } // confirmed 404 — the object genuinely isn't in the bucket
+  | { status: 'unknown' }; // couldn't tell (no token/network/CORS/timeout/no Content-Length)
+
+/** The document row's file_size only ever reflects what the uploader claimed (originally
+ *  the bulk CLI importer's fs.statSync) — this checks what's actually sitting in the
+ *  bucket right now, the only ground truth for whether a stored object is really bad.
+ *  Distinguishes a confirmed-missing object (404 — e.g. the upload never actually landed,
+ *  or got deleted later) from "couldn't check" (network blip) — only the former is reliable
+ *  enough to drive an automatic re-upload; callers fall back to the DB column on 'unknown'
+ *  rather than treating "couldn't check" as "bad". Hard-timed out: a plan over hundreds of
+ *  jobs awaits this per-document, and a single HEAD that never resolves would otherwise
+ *  hang the whole run at whichever job hit it. */
+async function checkStoredObject(storagePath: string): Promise<StoredObjectCheck> {
   const token = tokenStorage.getToken();
-  if (!token) return true;
+  if (!token) return { status: 'unknown' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STORED_SIZE_TIMEOUT_MS);
   try {
     const res = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/${RECORD_DOCS_BUCKET}/${encodeStoragePath(storagePath)}`, {
       method: 'HEAD',
       headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+      signal: controller.signal,
     });
-    if (!res.ok) return true;
+    if (res.status === 404) return { status: 'missing' };
+    if (!res.ok) return { status: 'unknown' };
     const len = res.headers.get('content-length');
-    return len == null || Number(len) === expectedSize;
+    return len == null ? { status: 'unknown' } : { status: 'found', size: Number(len) };
   } catch {
-    return true;
+    return { status: 'unknown' };
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/** Best-effort: a check that couldn't be answered doesn't block the run — but a confirmed
+ *  404 right after an upload we just made IS a reliable "no, it didn't take" signal. */
+async function verifyStoredSize(storagePath: string, expectedSize: number): Promise<boolean> {
+  const check = await checkStoredObject(storagePath);
+  if (check.status === 'found') return check.size === expectedSize;
+  return check.status !== 'missing';
 }
 
 async function uploadDocOnce(quoteId: number, doc: DocPlan): Promise<{ ok: boolean; message: string }> {
@@ -243,29 +269,13 @@ async function uploadDocOnce(quoteId: number, doc: DocPlan): Promise<{ ok: boole
   }
 }
 
-/** Up to MAX_ATTEMPTS tries on a verified size mismatch or a transient upload error —
- *  a 4xx validation error (bad path, oversized file) will just fail the same way every
- *  time, but a truncated transfer or a passing network blip often doesn't repeat. */
+/** One retry on a verified size mismatch or a transient upload error — a 4xx validation
+ *  error (bad path, oversized file) would just fail the same way twice, but a truncated
+ *  transfer often doesn't repeat. */
 async function uploadDocWithRetry(quoteId: number, doc: DocPlan): Promise<{ ok: boolean; message: string }> {
-  let last: { ok: boolean; message: string } = { ok: false, message: 'Upload failed.' };
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    last = await uploadDocOnce(quoteId, doc);
-    if (last.ok) return last;
-  }
-  return last;
-}
-
-/** Same up-to-MAX_ATTEMPTS retry for any throwing async call (line item inserts). */
-async function retryAsync<T>(fn: () => Promise<T>): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw lastErr;
+  const first = await uploadDocOnce(quoteId, doc);
+  if (first.ok) return first;
+  return uploadDocOnce(quoteId, doc);
 }
 
 function groupByJobFolder(files: File[]): Map<string, { relPath: string; file: File }[]> {
@@ -288,7 +298,7 @@ function downloadLog(entries: Entry[]): void {
     e.jobName,
     e.quote?.ref_number || '',
     e.quote?.customer_name || '',
-    `${e.docs.filter((d) => d.status === 'ready').length} new, ${e.docs.filter((d) => d.status === 'size-mismatch').length} size-fix, ${e.docs.filter((d) => d.status === 'already').length} ok`,
+    `${e.docs.filter((d) => d.status === 'ready').length} new, ${e.docs.filter((d) => d.status === 'missing').length} missing, ${e.docs.filter((d) => d.status === 'size-mismatch').length} size-differs, ${e.docs.filter((d) => d.status === 'already').length} ok`,
     e.linePayloads.length ? `${e.linePayloads.length} to insert` : e.existingLineCount ? `${e.existingLineCount} already present` : 'none found',
     e.parsedTotal != null ? String(e.parsedTotal) : '',
     STATUS_LABELS[e.status],
@@ -358,15 +368,28 @@ export const QuoteImportPanel: React.FC = () => {
         ]);
         const existingByName = new Map(existingDocs.map((d) => [d.file_name.trim().toLowerCase(), d]));
 
-        const docs: DocPlan[] = docsRaw.map((d) => {
-          if (d.size > MAX_FILE_SIZE) return { ...d, status: 'too-large' };
+        // Trust the real stored bytes over the DB's file_size column — the original bulk
+        // importer wrote that column from a local fs.statSync at CLI-import time, and
+        // plenty of those have drifted from what's actually in the bucket without the
+        // bucket object itself being wrong. Comparing against the column alone flagged
+        // nearly everything as a "mismatch" even though most of those files opened fine.
+        const docs: DocPlan[] = await Promise.all(docsRaw.map(async (d) => {
+          if (d.size > MAX_FILE_SIZE) return { ...d, status: 'too-large' as DocStatus };
           const existing = existingByName.get(d.fileName.trim().toLowerCase());
-          if (!existing) return { ...d, status: 'ready' };
-          if (existing.file_size != null && existing.file_size !== d.size) {
-            return { ...d, status: 'size-mismatch', existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
+          if (!existing) return { ...d, status: 'ready' as DocStatus };
+          if (!existing.storage_path) {
+            return { ...d, status: 'missing' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: null };
           }
-          return { ...d, status: 'already', existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
-        });
+          const check = await checkStoredObject(existing.storage_path);
+          if (check.status === 'missing') {
+            return { ...d, status: 'missing' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
+          }
+          const referenceSize = check.status === 'found' ? check.size : existing.file_size;
+          if (referenceSize != null && referenceSize !== d.size) {
+            return { ...d, status: 'size-mismatch' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
+          }
+          return { ...d, status: 'already' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
+        }));
 
         const quoteCandidates = docs.filter((d) => d.docType === 'quote');
         const { header, lines: parsedLines } = await pickPrimary(quoteCandidates);
@@ -374,12 +397,18 @@ export const QuoteImportPanel: React.FC = () => {
         const linePayloads = existingLines.length === 0 ? buildLinePayloads(parsedLines, parsedTotal) : [];
 
         const toUpload = docs.filter((d) => d.status === 'ready').length;
+        // Confirmed-missing (404 on the actual bucket object) is a hard signal — always
+        // re-upload. Size-mismatch is informational only — a different byte count than
+        // your local copy doesn't by itself mean the stored file is broken (most still
+        // open fine), so it no longer queues an automatic delete-and-reupload on its own.
+        const toReupload = docs.filter((d) => d.status === 'missing').length;
         const toFix = docs.filter((d) => d.status === 'size-mismatch').length;
-        const needsWork = toUpload > 0 || toFix > 0 || linePayloads.length > 0;
+        const needsWork = toUpload > 0 || toReupload > 0 || linePayloads.length > 0;
 
         const bits: string[] = [];
         if (toUpload) bits.push(`${toUpload} new document(s) to attach`);
-        if (toFix) bits.push(`${toFix} document(s) with a stored-byte mismatch — will re-upload`);
+        if (toReupload) bits.push(`${toReupload} document(s) missing from storage — will re-upload`);
+        if (toFix) bits.push(`${toFix} document(s) have a different stored byte count than your local copy — not necessarily broken, review manually`);
         if (linePayloads.length) bits.push(`${linePayloads.length} line item(s) parsed from "${quoteCandidates.find((c) => c.docType === 'quote')?.fileName ?? 'the quote PDF'}" (currently has none)`);
         else if (existingLines.length === 0 && quoteCandidates.length === 0) bits.push('no quote PDF found to parse lines from');
         else if (existingLines.length === 0) bits.push('no BOM table found in the first 3 pages');
@@ -422,22 +451,18 @@ export const QuoteImportPanel: React.FC = () => {
     for (const entry of ready) {
       const quoteId = entry.quote!.quote_id;
       let uploaded = 0;
-      let fixed = 0;
       let failed = 0;
       let lastErrorMessage: string | null = null;
 
       for (const doc of entry.docs) {
-        if (doc.status === 'ready') {
-          const res = await uploadDocWithRetry(quoteId, doc);
-          if (res.ok) uploaded++;
-          else { failed++; lastErrorMessage = res.message; }
-        } else if (doc.status === 'size-mismatch') {
-          if (doc.existingDocumentId != null) {
+        if (doc.status === 'ready' || doc.status === 'missing') {
+          if (doc.status === 'missing' && doc.existingDocumentId != null) {
+            // Object already confirmed gone (404) — nothing to remove from storage,
+            // just drop the stale row before writing the fresh one.
             await documentsApi.remove(doc.existingDocumentId).catch(() => undefined);
-            if (doc.existingStoragePath) await documentsStorage.remove(doc.existingStoragePath).catch(() => undefined);
           }
           const res = await uploadDocWithRetry(quoteId, doc);
-          if (res.ok) fixed++;
+          if (res.ok) uploaded++;
           else { failed++; lastErrorMessage = res.message; }
         }
       }
@@ -445,7 +470,7 @@ export const QuoteImportPanel: React.FC = () => {
       let linesInserted = 0;
       for (const payload of entry.linePayloads) {
         try {
-          await retryAsync(() => quoteLinesApi.create(quoteId, payload));
+          await quoteLinesApi.create(quoteId, payload);
           linesInserted++;
         } catch (e: any) {
           failed++;
@@ -453,20 +478,20 @@ export const QuoteImportPanel: React.FC = () => {
         }
       }
 
-      const allAttempted = entry.docs.filter((d) => d.status === 'ready' || d.status === 'size-mismatch').length + entry.linePayloads.length;
+      const allAttempted = entry.docs.filter((d) => d.status === 'ready' || d.status === 'missing').length + entry.linePayloads.length;
       const status: EntryStatus = failed === 0 ? 'success' : failed === allAttempted ? 'failed' : 'partial';
       setEntry(entry.key, {
         status,
-        result: { uploaded, fixed, failed, linesInserted },
-        message: `${uploaded} uploaded, ${fixed} re-uploaded (size fix), ${linesInserted} line item(s) added${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
+        result: { uploaded, failed, linesInserted },
+        message: `${uploaded} uploaded, ${linesInserted} line item(s) added${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
       });
       setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
 
-      // Every item on this job failed after MAX_ATTEMPTS tries each — same break
-      // likely waits for every remaining job too. Stop now and show the real
-      // error instead of grinding through the rest blind (see import log from
-      // 2026-10-15: ~465 jobs in a row failed identically with no visibility
-      // into why until the whole multi-hour run had already finished).
+      // Every item on this job failed — whatever broke it will likely break every
+      // remaining job too. Stop now and show the real error instead of grinding
+      // through the rest blind (see import log from 2026-10-15: ~465 jobs in a row
+      // failed identically with no visibility into why until the whole multi-hour
+      // run had already finished).
       if (status === 'failed') {
         setRunError({ jobName: entry.jobName, message: lastErrorMessage || 'Unknown error.' });
         break;
@@ -505,7 +530,7 @@ export const QuoteImportPanel: React.FC = () => {
     {
       header: 'Documents',
       width: 180,
-      render: (e) => `${e.docs.filter((d) => d.status === 'ready').length} new, ${e.docs.filter((d) => d.status === 'size-mismatch').length} size-fix, ${e.docs.filter((d) => d.status === 'already').length} ok`,
+      render: (e) => `${e.docs.filter((d) => d.status === 'ready').length} new, ${e.docs.filter((d) => d.status === 'missing').length} missing, ${e.docs.filter((d) => d.status === 'size-mismatch').length} size-differs, ${e.docs.filter((d) => d.status === 'already').length} ok`,
     },
     {
       header: 'Line Items',
@@ -562,7 +587,7 @@ export const QuoteImportPanel: React.FC = () => {
 
       {runError && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRunError(null)}>
-          Stopped — "{runError.jobName}" failed completely (0 items succeeded after {MAX_ATTEMPTS} tries each): {runError.message}
+          Stopped — "{runError.jobName}" failed completely (0 items succeeded): {runError.message}
         </Alert>
       )}
 
