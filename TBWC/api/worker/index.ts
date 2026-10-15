@@ -41,6 +41,7 @@ import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
 import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
 import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSearch';
 import { checkQbwcStale } from './qbwc/staleAlert';
+import { runJob } from './cronMonitor';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -121,36 +122,41 @@ app.route('/api/verify', verifyRoutes);
 
 export default {
   fetch: app.fetch,
-  // Runs on the schedule in wrangler.toml [triggers]/[env.production.triggers]
-  // (*/15 * * * * — bumped from daily so scheduled_notification_rule crons can
-  // fire on their own cadence; lockStaleReps' WHERE clause is idempotent, so
-  // running it every 15 min instead of once a day is harmless).
-  async scheduled(event: { scheduledTime: number }, env: Env, ctx: { waitUntil(p: Promise<any>): void }) {
+  // 3 schedules in wrangler.toml [triggers]/[env.production.triggers], each a
+  // separate Worker invocation (CF calls scheduled() once per matched cron,
+  // never batched) — dispatched below on event.cron. Used to be one job list
+  // on */15 for all 4 jobs; backfillDocumentIndex's PDF/docx/xlsx parsing
+  // could eat a whole tick's CPU budget and kill checkQbwcStale before it ran,
+  // some ticks producing no QBWC-outage alert at all with nothing logged
+  // (confirmed via wrangler tail: "Exceeded CPU Limit", qbwc.staleAlert.check's
+  // query never completing). Splitting onto separate schedules means the
+  // heavy job no longer shares a CPU budget with anything time-sensitive.
+  async scheduled(event: { scheduledTime: number; cron: string }, env: Env, ctx: { waitUntil(p: Promise<any>): void }) {
     const now = new Date(event.scheduledTime);
-    ctx.waitUntil(
-      lockStaleReps(env).catch((err) =>
-        console.error('[cron] lockStaleReps failed:', err instanceof Error ? err.message : err)
-      )
-    );
-    ctx.waitUntil(
-      runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } }).catch((err) =>
-        console.error('[cron] runScheduledNotifications failed:', err instanceof Error ? err.message : err)
-      )
-    );
-    // Safety net for indexDocumentContent (documents.ts/docTypes.ts upload
-    // paths) — catches anything that failed there or predates it. Bounded
-    // batch (default 25) so a large backlog is worked off over several
-    // 15-min ticks instead of one long one.
-    ctx.waitUntil(
-      backfillDocumentIndex(execQuery, env).catch((err) =>
-        console.error('[cron] backfillDocumentIndex failed:', err instanceof Error ? err.message : err)
-      )
-    );
-    ctx.waitUntil(
-      checkQbwcStale(env).catch((err) =>
-        console.error('[cron] checkQbwcStale failed:', err instanceof Error ? err.message : err)
-      )
-    );
+    if (event.cron === '*/15 * * * *') {
+      // Both need fine granularity: checkQbwcStale to stay well under
+      // STALE_MINUTES, runScheduledNotifications so scheduled_notification_rule
+      // rows can carry their own finer-than-daily cron. Neither does real CPU
+      // work (small queries + outbound fetches), so sharing a tick is fine.
+      ctx.waitUntil(runJob(env, 'checkQbwcStale', () => checkQbwcStale(env)));
+      ctx.waitUntil(runJob(env, 'runScheduledNotifications', () =>
+        runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } })
+      ));
+    } else if (event.cron === '0 * * * *') {
+      // Safety net for indexDocumentContent (documents.ts/docTypes.ts upload
+      // paths) — catches anything that failed there or predates it. Bounded
+      // batch (default 25) + its own time budget (aiSearch.ts), and now gets
+      // a full hourly tick's CPU to itself instead of sharing one with the
+      // time-sensitive jobs above.
+      ctx.waitUntil(runJob(env, 'backfillDocumentIndex', async () => {
+        await backfillDocumentIndex(execQuery, env);
+      }));
+    } else if (event.cron === '0 6 * * *') {
+      // 90-day re-verification sweep. Idempotent WHERE clause — its real
+      // cadence need is daily; it only ran every 15 min before because it
+      // shared a schedule with runScheduledNotifications, which did need that.
+      ctx.waitUntil(runJob(env, 'lockStaleReps', () => lockStaleReps(env)));
+    }
   },
   // Cloudflare Email Routing -> "Send to a Worker" for
   // support@tickets.tbwctechnology.com (set up in the CF dashboard, not here).

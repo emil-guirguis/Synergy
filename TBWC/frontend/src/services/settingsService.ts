@@ -60,3 +60,56 @@ export async function updateSettings(updates: Partial<CompanySettings>): Promise
   );
   return data.data;
 }
+
+// --- Scheduled Jobs tab: worker/cronMonitor.ts + worker/qbwc/staleAlert.ts's
+// alert_setting (migration 102). ------------------------------------------
+
+export interface CronRun {
+  cron_run_log_id: number;
+  job_name: string;
+  status: 'running' | 'ok' | 'error';
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+}
+
+export interface CronLog {
+  latest: CronRun[];
+  recent: CronRun[];
+  avg: { job_name: string; avg_ms: number; runs: number }[];
+}
+
+export interface AlertSetting {
+  alert_setting_id: number;
+  alert_key: string;
+  enabled: boolean;
+  notify_email: boolean;
+  notify_inapp: boolean;
+  threshold_minutes: number | null;
+  throttle_hours: number;
+  recipient_permission: string | null;
+  recipient_user_ids: string[];
+  updated_at: string;
+}
+
+export async function getCronLog(): Promise<CronLog> {
+  const data = await parse(await fetch(`${API_BASE_URL}/settings/cron-log`, { headers: authHeaders() }));
+  return data.data;
+}
+
+export async function getAlertSettings(): Promise<AlertSetting[]> {
+  const data = await parse(await fetch(`${API_BASE_URL}/settings/alerts`, { headers: authHeaders() }));
+  return data.data;
+}
+
+export async function updateAlertSetting(alertKey: string, updates: Partial<AlertSetting>): Promise<AlertSetting> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/alerts/${encodeURIComponent(alertKey)}`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(updates),
+    })
+  );
+  return data.data;
+}

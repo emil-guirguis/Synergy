@@ -8,6 +8,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import SecurityIcon from '@mui/icons-material/Security';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 import {
   SettingsPageShell,
   OrgInfoForm,
@@ -21,6 +22,7 @@ import {
   getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
 } from '../services/rolesService';
 import AiMemoryPanel from '../features/aiMemory/AiMemoryPanel';
+import ScheduledJobsPanel from '../features/scheduledJobs/ScheduledJobsPanel';
 import QuoteImportPanel from '../features/quotes/QuoteImportPanel';
 import { NAV, roleOrderFromNav } from '../components/layout/navConfig';
 import { useAuth } from '../hooks/useAuth';
@@ -226,6 +228,13 @@ export default function SettingsPage() {
           icon: <PsychologyIcon fontSize="small" />,
           description: 'Durable facts the AI chat has taught itself and saved for future conversations.',
           content: <AiMemoryPanel />,
+        },
+        {
+          key: 'scheduledJobs',
+          label: 'Scheduled Jobs',
+          icon: <ScheduleIcon fontSize="small" />,
+          description: 'Cron job run history, and who the QuickBooks connection alert notifies.',
+          content: <ScheduledJobsPanel />,
         },
         ...(canImportQuotes ? [{
           key: 'quoteImport',

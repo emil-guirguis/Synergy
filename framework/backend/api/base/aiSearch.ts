@@ -302,10 +302,21 @@ export async function extractDocumentText(
 }
 
 const MAX_CONTENT_FILE_SIZE = 20 * 1024 * 1024;
-/** Default cap on how many un-indexed documents one backfill call processes
+/** Default cap on how many un-indexed documents one backfill call fetches
  *  — run repeatedly (cron every 15 min, or the one-time backfill script)
- *  rather than raised, so one run can't blow a Worker's CPU-time limit. */
+ *  rather than raised. Just a row cap on the SELECT; see DEFAULT_MAX_MILLIS
+ *  for what actually bounds CPU use, since 25 tiny .txt files and 25 big
+ *  PDFs cost wildly different amounts of parsing time for the same count. */
 const DEFAULT_BACKFILL_BATCH = 25;
+/** Default wall-clock budget for one backfillDocumentIndex call. This job
+ *  shares a single cron invocation's CPU budget with 3 other jobs (see each
+ *  app's Worker scheduled() handler) — a batch of large PDF/docx/xlsx files
+ *  tripped the invocation's CPU limit before it got through all 25, which
+ *  silently killed whichever job ran after it that tick. Bailing out early
+ *  on elapsed time (not rows processed) means this job's cost no longer
+ *  depends on what happens to be in the batch; whatever it doesn't reach
+ *  stays NULL and is picked up next tick. */
+const DEFAULT_MAX_MILLIS = 5000;
 
 export interface DocumentIndexTarget {
   document_id: number;
@@ -367,10 +378,11 @@ export async function indexDocumentContent(
 export async function backfillDocumentIndex(
   execQuery: ExecQueryFn,
   env: any,
-  options?: { table?: string; limit?: number }
+  options?: { table?: string; limit?: number; maxMillis?: number }
 ): Promise<{ indexed: number; attempted: number }> {
   const table = options?.table ?? DEFAULT_TABLE;
   const limit = options?.limit ?? DEFAULT_BACKFILL_BATCH;
+  const deadline = Date.now() + (options?.maxMillis ?? DEFAULT_MAX_MILLIS);
   let rows: any[];
   try {
     const result = await execQuery(
@@ -392,14 +404,22 @@ export async function backfillDocumentIndex(
   }
 
   let indexed = 0;
+  let attempted = 0;
   for (const row of rows) {
+    // Time-boxed, not just row-capped: a handful of large PDF/docx/xlsx files
+    // can cost far more CPU than `limit` tiny .txt files, so bailing out on
+    // elapsed time (rather than rows processed) keeps this call's cost
+    // predictable regardless of what's actually in the batch. Anything left
+    // stays extracted_text IS NULL and is picked up by the next scheduled run.
+    if (Date.now() >= deadline) break;
+    attempted++;
     try {
       if (await indexDocumentContent(execQuery, env, row, options)) indexed++;
     } catch (error) {
       console.error(`[backfillDocumentIndex] document_id ${row.document_id} failed:`, error instanceof Error ? error.message : error);
     }
   }
-  return { indexed, attempted: rows.length };
+  return { indexed, attempted };
 }
 
 /** Builds an OR'd tsquery string ("word1 | word2 | word3") from a free-text

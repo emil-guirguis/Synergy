@@ -50,14 +50,26 @@ localConnectionString = "postgresql://postgres.ihnezwvduwimprqascsf:h6kJwcfbGAiR
 [observability.logs]
 enabled = true
 
-# worker/index.ts scheduled handler -> lockStaleReps (daily re-verification
-# sweep, idempotent so running it more often than needed is harmless) and
-# runScheduledNotifications (scheduled_notification_rule crons, needs finer
-# granularity than once a day). `wrangler dev` doesn't fire this without
-# --test-scheduler; must be duplicated under [env.production.triggers] below
-# since named envs don't inherit this.
+# worker/index.ts scheduled handler. 3 separate schedules, each its own Worker
+# invocation (CF runs scheduled() once per matched cron, never batched) so the
+# jobs no longer share one CPU budget — backfillDocumentIndex's PDF/docx/xlsx
+# parsing was eating the whole tick and killing checkQbwcStale before it could
+# run, some ticks silently producing no alert at all. event.cron in the
+# handler picks which job(s) run for a given match.
+#   */15 * * * * -> checkQbwcStale (needs < STALE_MINUTES granularity) +
+#                    runScheduledNotifications (needs finer than daily, rules
+#                    carry their own cron).
+#   0 * * * *    -> backfillDocumentIndex (text-extraction backlog; not urgent,
+#                    now gets a full tick's CPU to itself).
+#   0 6 * * *    -> lockStaleReps (90-day re-verification sweep; idempotent,
+#                    its real cadence need is daily — the */15 it ran at
+#                    before was only collateral from runScheduledNotifications
+#                    needing that granularity, not its own requirement).
+# `wrangler dev` doesn't fire this without --test-scheduler; must be
+# duplicated under [env.production.triggers] below since named envs don't
+# inherit this.
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "0 * * * *", "0 6 * * *"]
 
 # --- production -------------------------------------------------------------
 # Deploy with:  wrangler deploy --env production
@@ -100,4 +112,4 @@ enabled = true
 
 # Named envs don't inherit [triggers] either — duplicate of the block above.
 [env.production.triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "0 * * * *", "0 6 * * *"]
