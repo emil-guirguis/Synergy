@@ -32,7 +32,7 @@
  *     correctly — see buildLinePayloads().
  */
 import React, { useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, LinearProgress, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, LinearProgress, TextField, Tooltip, Typography } from '@mui/material';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import DownloadIcon from '@mui/icons-material/Download';
 import {
@@ -48,7 +48,6 @@ import { extractQuotePdf, mergeHeaders, type ParsedQuoteHeader, type ParsedQuote
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../config/api';
 import { tokenStorage } from '../../utils/tokenStorage';
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // matches framework/backend/api/base/documents.ts's default
 const IGNORED_FILE_NAMES = new Set(['Thumbs.db', 'desktop.ini', '.DS_Store']);
 const MAX_PARSE_PAGES = 3;
 
@@ -96,7 +95,7 @@ interface QuoteMatch {
   total: number | null;
 }
 
-type DocStatus = 'ready' | 'already' | 'size-mismatch' | 'too-large' | 'missing';
+type DocStatus = 'ready' | 'already' | 'size-mismatch' | 'missing';
 
 interface DocPlan {
   relPath: string;
@@ -116,6 +115,9 @@ interface Entry {
   jobName: string;
   quote: QuoteMatch | null;
   docs: DocPlan[];
+  /** Every document row this quote actually has right now, not just the ones matched to a
+   *  local filename — forceResyncJob wipes all of these, so a resync needs the full list. */
+  existingDocs: DocumentRecord[];
   parsedLines: ParsedQuoteLine[];
   parsedTotal: number | null;
   existingLineCount: number;
@@ -244,7 +246,21 @@ async function verifyStoredSize(storagePath: string, expectedSize: number): Prom
   return check.status !== 'missing';
 }
 
+// framework/backend/api/base/documents.ts's DEFAULT_MAX_FILE_SIZE — the Worker rejects the
+// metadata insert above this regardless of what the frontend does, but only AFTER the raw
+// bytes already landed in storage (that part bypasses the Worker entirely). Checking here
+// first fails fast with a clear reason instead of wasting the upload and surfacing a vague
+// error — and, critically, still shows up as a real logged failure rather than being
+// silently excluded from the plan the way the old 'too-large' status used to.
+const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
+
 async function uploadDocOnce(quoteId: number, doc: DocPlan): Promise<{ ok: boolean; message: string }> {
+  if (doc.size > MAX_UPLOAD_SIZE) {
+    return {
+      ok: false,
+      message: `File too large to attach (${formatFileSize(doc.size)} exceeds the ${formatFileSize(MAX_UPLOAD_SIZE)} limit) — not uploaded.`,
+    };
+  }
   const path = storagePathFor('quote', String(quoteId), doc.fileName);
   try {
     await documentsStorage.upload(path, doc.file);
@@ -316,6 +332,7 @@ export const QuoteImportPanel: React.FC = () => {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [statusFilter, setStatusFilter] = useState<EntryStatus | 'all'>('all');
   const [runError, setRunError] = useState<{ jobName: string; message: string } | null>(null);
+  const [resyncLimit, setResyncLimit] = useState(30);
 
   React.useEffect(() => {
     const el = folderInputRef.current;
@@ -355,7 +372,7 @@ export const QuoteImportPanel: React.FC = () => {
 
         if (!quote) {
           rows.push({
-            key: nextKey(), jobName, quote: null, docs: docsRaw, parsedLines: [], parsedTotal: null,
+            key: nextKey(), jobName, quote: null, docs: docsRaw, existingDocs: [], parsedLines: [], parsedTotal: null,
             existingLineCount: 0, linePayloads: [], status: 'no-match',
             message: `No existing quote with job_name matching "${jobName}" — this tool only fixes quotes already in the system, never creates new ones.`,
           });
@@ -374,7 +391,6 @@ export const QuoteImportPanel: React.FC = () => {
         // bucket object itself being wrong. Comparing against the column alone flagged
         // nearly everything as a "mismatch" even though most of those files opened fine.
         const docs: DocPlan[] = await Promise.all(docsRaw.map(async (d) => {
-          if (d.size > MAX_FILE_SIZE) return { ...d, status: 'too-large' as DocStatus };
           const existing = existingByName.get(d.fileName.trim().toLowerCase());
           if (!existing) return { ...d, status: 'ready' as DocStatus };
           if (!existing.storage_path) {
@@ -415,7 +431,7 @@ export const QuoteImportPanel: React.FC = () => {
         if (!needsWork) bits.push('already up to date');
 
         rows.push({
-          key: nextKey(), jobName, quote, docs, parsedLines, parsedTotal,
+          key: nextKey(), jobName, quote, docs, existingDocs, parsedLines, parsedTotal,
           existingLineCount: existingLines.length, linePayloads,
           status: needsWork ? 'ready' : 'up-to-date',
           message: bits.join('; ') + '.',
@@ -502,7 +518,64 @@ export const QuoteImportPanel: React.FC = () => {
     setRunning(false);
   };
 
+  /** Bypasses every detection heuristic above — HEAD-based checks have twice now
+   *  disagreed with reality (stale file_size column, then a HEAD that reports a stored
+   *  object "found" while the actual download 404s — Villa Hermosa, 2026-10-15, likely
+   *  the known Supabase region-migration RLS gap on storage.objects). Deletes every
+   *  document row + storage object this quote currently has, then re-uploads every local
+   *  file fresh. No diffing, no guessing — whatever's wrong, this always ends in the same
+   *  known-good state. Destructive: any remote document with no local counterpart in this
+   *  folder is gone for good, which is why this runs on a capped batch first. */
+  const runForceResync = async (limit: number) => {
+    const targets = entries.filter((e) => e.quote != null).slice(0, limit);
+    if (!targets.length) return;
+    setRunning(true);
+    setRunError(null);
+    setProgress({ done: 0, total: targets.length });
+
+    const setEntry = (key: string, patch: Partial<Entry>) =>
+      setEntries((es) => es.map((e) => (e.key === key ? { ...e, ...patch } : e)));
+
+    for (const entry of targets) {
+      const quoteId = entry.quote!.quote_id;
+      let removed = 0;
+      let uploaded = 0;
+      let failed = 0;
+      let lastErrorMessage: string | null = null;
+
+      for (const doc of entry.existingDocs) {
+        await documentsApi.remove(doc.document_id).catch(() => undefined);
+        if (doc.storage_path) await documentsStorage.remove(doc.storage_path).catch(() => undefined);
+        removed++;
+      }
+
+      for (const doc of entry.docs) {
+        const res = await uploadDocWithRetry(quoteId, doc);
+        if (res.ok) uploaded++;
+        else { failed++; lastErrorMessage = res.message; }
+      }
+
+      const allAttempted = entry.docs.length;
+      const status: EntryStatus = failed === 0 ? 'success' : failed === allAttempted ? 'failed' : 'partial';
+      setEntry(entry.key, {
+        status,
+        result: { uploaded, failed, linesInserted: 0 },
+        message: `Resynced: removed ${removed} old doc(s), uploaded ${uploaded} fresh${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
+      });
+      setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+
+      if (status === 'failed') {
+        setRunError({ jobName: entry.jobName, message: lastErrorMessage || 'Unknown error.' });
+        break;
+      }
+    }
+
+    setProgress(null);
+    setRunning(false);
+  };
+
   const readyCount = entries.filter((e) => e.status === 'ready').length;
+  const matchedCount = entries.filter((e) => e.quote != null).length;
   const hasRun = entries.some((e) => e.status === 'success' || e.status === 'partial' || e.status === 'failed');
   const statusCounts = useMemo(() => {
     const counts = {} as Record<EntryStatus, number>;
@@ -583,6 +656,39 @@ export const QuoteImportPanel: React.FC = () => {
           </Tooltip>
         )}
       </Box>
+      {!planning && matchedCount > 0 && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+          <Tooltip title="Bypasses all detection above. Deletes EVERY document row and storage object this quote currently has — even ones with no local counterpart in this folder — then re-uploads every local file fresh. No diffing, no guessing. Validate on a small batch before running it on everything.">
+            <span>
+              <TextField
+                size="small"
+                type="number"
+                label="Batch size"
+                value={resyncLimit}
+                onChange={(e) => setResyncLimit(Math.max(1, Number(e.target.value) || 1))}
+                disabled={running}
+                sx={{ width: 110 }}
+              />
+            </span>
+          </Tooltip>
+          <Button
+            color="warning"
+            variant="outlined"
+            onClick={() => void runForceResync(resyncLimit)}
+            disabled={running || matchedCount === 0}
+          >
+            {running ? 'Resyncing…' : `Force resync first ${Math.min(resyncLimit, matchedCount)} of ${matchedCount}`}
+          </Button>
+          <Button
+            color="warning"
+            variant="text"
+            onClick={() => void runForceResync(matchedCount)}
+            disabled={running || matchedCount === 0}
+          >
+            Force resync all {matchedCount} matched
+          </Button>
+        </Box>
+      )}
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
 
       {runError && (
