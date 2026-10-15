@@ -309,11 +309,10 @@ function groupByJobFolder(files: File[]): Map<string, { relPath: string; file: F
 }
 
 function downloadLog(entries: Entry[]): void {
-  const header = ['Job', 'Quote', 'Customer', 'Documents', 'Line Items', 'Parsed Total', 'Status', 'Message'];
+  const header = ['Job', 'Quote', 'Documents', 'Line Items', 'Parsed Total', 'Status', 'Message'];
   const rows = entries.map((e) => [
     e.jobName,
     e.quote?.ref_number || '',
-    e.quote?.customer_name || '',
     `${e.docs.filter((d) => d.status === 'ready').length} new, ${e.docs.filter((d) => d.status === 'missing').length} missing, ${e.docs.filter((d) => d.status === 'size-mismatch').length} size-differs, ${e.docs.filter((d) => d.status === 'already').length} ok`,
     e.linePayloads.length ? `${e.linePayloads.length} to insert` : e.existingLineCount ? `${e.existingLineCount} already present` : 'none found',
     e.parsedTotal != null ? String(e.parsedTotal) : '',
@@ -341,12 +340,13 @@ export const QuoteImportPanel: React.FC = () => {
     el.setAttribute('directory', '');
   }, []);
 
-  const buildPlan = async (picked: File[]) => {
+  const buildPlan = async (picked: File[], limit: number) => {
     setPlanning(true);
     setEntries([]);
     const usable = picked.filter((f) => !f.name.startsWith('.') && !IGNORED_FILE_NAMES.has(f.name));
     const groups = groupByJobFolder(usable);
-    setPlanningProgress({ done: 0, total: groups.size });
+    const groupTotal = Math.min(groups.size, limit);
+    setPlanningProgress({ done: 0, total: groupTotal });
 
     // One list call covers every quote that has a job_name at all — cheap even at ~150+ rows,
     // and avoids a round trip per folder just to resolve the match.
@@ -359,6 +359,7 @@ export const QuoteImportPanel: React.FC = () => {
     const rows: Entry[] = [];
     let done = 0;
     for (const [jobName, files] of groups) {
+      if (done >= groupTotal) break;
       try {
         const quote = quoteByJobName.get(normalize(jobName)) ?? null;
         const docsRaw: DocPlan[] = files.map(({ relPath, file }) => ({
@@ -451,7 +452,7 @@ export const QuoteImportPanel: React.FC = () => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
     setRunError(null);
-    if (picked.length) void buildPlan(picked);
+    if (picked.length) void buildPlan(picked, resyncLimit);
   };
 
   const runImport = async () => {
@@ -599,7 +600,6 @@ export const QuoteImportPanel: React.FC = () => {
   const columns: ImportColumn<Entry>[] = [
     { header: 'Job Folder', width: 260, render: (e) => e.jobName },
     { header: 'Quote', width: 160, render: (e) => (e.quote ? (e.quote.ref_number || `#${e.quote.quote_id}`) : '') },
-    { header: 'Customer', width: 180, render: (e) => e.quote?.customer_name || '' },
     {
       header: 'Documents',
       width: 180,
