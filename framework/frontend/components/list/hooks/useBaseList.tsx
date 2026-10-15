@@ -119,6 +119,18 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
   // State management
   const [searchQuery, setSearchQueryState] = useState('');
   const [filters, setFiltersState] = useState<Record<string, any>>({});
+
+  // Last-5 search history, persisted per entity in localStorage
+  const searchHistoryKey = `searchHistory_${entityName}`;
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(searchHistoryKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -295,6 +307,32 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     setSearchQueryState(query);
     debouncedSetSearch(query);
   }, [debouncedSetSearch]);
+
+  const addSearchHistory = useCallback((query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setSearchHistory(prev => {
+      const next = [trimmed, ...prev.filter(q => q.toLowerCase() !== trimmed.toLowerCase())].slice(0, 5);
+      try {
+        localStorage.setItem(searchHistoryKey, JSON.stringify(next));
+      } catch {
+        // ignore storage errors (private mode, quota)
+      }
+      return next;
+    });
+  }, [searchHistoryKey]);
+
+  const removeSearchHistory = useCallback((query: string) => {
+    setSearchHistory(prev => {
+      const next = prev.filter(q => q !== query);
+      try {
+        localStorage.setItem(searchHistoryKey, JSON.stringify(next));
+      } catch {
+        // ignore storage errors (private mode, quota)
+      }
+      return next;
+    });
+  }, [searchHistoryKey]);
 
   const setFilter = useCallback((key: string, value: any) => {
     console.log('[useBaseList] setFilter called with key:', key, 'value:', value);
@@ -557,8 +595,42 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
               placeholder={`Search...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setShowSearchHistory(true)}
+              onBlur={() => {
+                addSearchHistory(searchQuery);
+                // Delay hide so a click on a history item registers first
+                setTimeout(() => setShowSearchHistory(false), 150);
+              }}
               aria-label={`Search ${entityNamePlural}`}
             />
+            {showSearchHistory && searchHistory.length > 0 && (
+              <div className="list__search-history">
+                {searchHistory.map((query) => (
+                  <div key={query} className="list__search-history-row">
+                    <button
+                      type="button"
+                      className="list__search-history-item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setSearchQuery(query);
+                        setShowSearchHistory(false);
+                      }}
+                    >
+                      {query}
+                    </button>
+                    <button
+                      type="button"
+                      className="list__search-history-remove"
+                      aria-label={`Remove "${query}" from search history`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => removeSearchHistory(query)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         
@@ -651,6 +723,10 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     setSearchQuery,
     setFilter,
     clearFilters,
+    showSearchHistory,
+    searchHistory,
+    addSearchHistory,
+    removeSearchHistory,
   ]);
 
   const renderHeaderActions = useCallback((): ReactNode => {

@@ -141,13 +141,15 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
 
   const COLS = ['item', 'desc', 'qty', 'rate'] as const;
 
-  /** Enter and Tab both step to the next cell to the right; past the last column of the last
-   *  row, either one adds a new line. Shift+Enter is left alone (newline in the description);
-   *  Shift+Tab is left alone (native backward tab). */
-  const handleStepKeyDown = (row: number, col: typeof COLS[number]) => (e: React.KeyboardEvent) => {
-    if (disabled || e.shiftKey) return;
-    if (e.key !== 'Enter' && e.key !== 'Tab') return;
-    e.preventDefault(); // also stops the implicit <form> submit on Enter
+  // Set right before stepTo() runs from a picker's onChange (a mouse click on a dropdown
+  // option never fires a keydown at all, so that's the only reliable place to advance from);
+  // cleared on the next tick. Lets handleStepKeyDown's own Enter handling — which still runs,
+  // bubbling up from MUI's own Enter-selects-the-highlighted-option handling on the same
+  // keystroke — recognize "already advanced for this pick" and skip a second, double step.
+  const justPickedRef = useRef(false);
+
+  /** Steps to the next cell to the right; past the last column of the last row, adds a new line. */
+  const stepTo = useCallback((row: number, col: typeof COLS[number]) => {
     const colIdx = COLS.indexOf(col);
     if (colIdx < COLS.length - 1) {
       focusCell(row, COLS[colIdx + 1]);
@@ -159,7 +161,27 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
       pendingFocusRef.current = { row: row + 1, col: COLS[0] };
       addLine();
     }
+  }, [focusCell, lines.length, addLine]);
+
+  /** Enter and Tab both step to the next cell to the right (see stepTo). Shift+Enter is left
+   *  alone (newline in the description); Shift+Tab is left alone (native backward tab). */
+  const handleStepKeyDown = (row: number, col: typeof COLS[number]) => (e: React.KeyboardEvent) => {
+    if (disabled || e.shiftKey) return;
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+    e.preventDefault(); // also stops the implicit <form> submit on Enter
+    if (justPickedRef.current) { justPickedRef.current = false; return; }
+    stepTo(row, col);
   };
+
+  /** A picker's onChange: applies the pick, then advances the same way Tab/Enter would —
+   *  covers a mouse click on a dropdown option, which never fires a keydown to hang that off. */
+  const applyPickAndStep = useCallback((row: number, col: typeof COLS[number], option: ReferenceSearchOption | null) => {
+    applyPick(row, option);
+    if (!option) return;
+    justPickedRef.current = true;
+    setTimeout(() => { justPickedRef.current = false; }, 0);
+    stepTo(row, col);
+  }, [applyPick, stepTo]);
 
   const handleAddClick = () => {
     pendingFocusRef.current = { row: lines.length, col: 'item' };
@@ -221,7 +243,7 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
                         value={line.itemValue ?? null}
                         valueLabel={line.item ?? null}
                         placeholder="Search item…"
-                        onChange={(option) => applyPick(i, option)}
+                        onChange={(option) => applyPickAndStep(i, 'item', option)}
                       />
                     </div>
                   </TableCell>
@@ -235,7 +257,7 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
                           value={line.itemValue ?? null}
                           valueLabel={line[config.descField] ?? null}
                           placeholder="Search description…"
-                          onChange={(option) => applyPick(i, option)}
+                          onChange={(option) => applyPickAndStep(i, 'desc', option)}
                         />
                       </div>
                     ) : (

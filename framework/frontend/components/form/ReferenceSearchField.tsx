@@ -98,9 +98,13 @@ export const ReferenceSearchField: React.FC<ReferenceSearchFieldProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputValue, open, config.endpoint]);
 
+  // Deliberately excludes inputValue: including it here made this a new object on every
+  // keystroke (same value/valueLabel, new reference), which MUI's Autocomplete read as the
+  // selected value itself changing and resynced the input text back to the full label on
+  // every character — one Backspace, and it snapped right back, blocking any search.
   const selected = useMemo<ReferenceSearchOption | null>(
-    () => (value == null ? null : { value, label: valueLabel ?? inputValue }),
-    [value, valueLabel, inputValue]
+    () => (value == null ? null : { value, label: valueLabel ?? '' }),
+    [value, valueLabel]
   );
 
   return (

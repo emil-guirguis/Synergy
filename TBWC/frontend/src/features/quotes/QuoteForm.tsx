@@ -6,7 +6,7 @@ import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import { useQuotesEnhanced, quoteLinesApi } from './quotesStore';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
-import { tbwcReferenceSearch } from '../../shared/referenceSearch';
+import { tbwcReferenceSearch, aiMatchInventory } from '../../shared/referenceSearch';
 import { useAuth } from '../../hooks/useAuth';
 import type { Quote } from '../../types/quote';
 
@@ -146,6 +146,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
                 canEdit={canEditLines}
                 canDelete={canDeleteLines}
                 totalField="amount"
+                voiceAdd={canAddLines ? { column: 'qb_item_id', quantityField: 'quantity', aiFallback: aiMatchInventory } : undefined}
               />
             );
           }

@@ -69,6 +69,7 @@ import {
   Menu,
 } from '@mui/material';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ShareIcon from '@mui/icons-material/Share';
 import IosShareIcon from '@mui/icons-material/IosShare';
@@ -963,6 +964,13 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           enumOverrides={visibleDocTypes ? { doc_type: { values: visibleDocTypes, labels: DOC_TYPE_LABELS } } : { doc_type: { labels: DOC_TYPE_LABELS } }}
           renderCell={renderCell}
           deleteConfirmText={(r) => `Delete "${r.file_name}"? The file is removed from storage and cannot be recovered.`}
+          titleAdornment={canCreate ? (
+            <Tooltip title="Drag and drop one or more files — or a whole folder — anywhere onto this grid to upload them. You can also copy a file and paste (Ctrl+V) while hovering the grid.">
+              <IconButton size="small">
+                <InfoOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : undefined}
           toolbarActions={canCreate ? (
             <Tooltip title="Upload every file in a folder">
               <span>

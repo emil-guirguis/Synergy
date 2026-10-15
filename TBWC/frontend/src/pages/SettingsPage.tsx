@@ -7,6 +7,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import TuneIcon from '@mui/icons-material/Tune';
 import SecurityIcon from '@mui/icons-material/Security';
 import PsychologyIcon from '@mui/icons-material/Psychology';
+import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import {
   SettingsPageShell,
   OrgInfoForm,
@@ -20,7 +21,9 @@ import {
   getRoles, getCatalog, createRole, renameRole, saveGrants, deleteRole,
 } from '../services/rolesService';
 import AiMemoryPanel from '../features/aiMemory/AiMemoryPanel';
+import QuoteImportPanel from '../features/quotes/QuoteImportPanel';
 import { NAV, roleOrderFromNav } from '../components/layout/navConfig';
+import { useAuth } from '../hooks/useAuth';
 
 const ROLES_TAB_ENABLED = true;
 
@@ -45,6 +48,11 @@ const ROLE_ORDER = roleOrderFromNav(NAV).map((node) => {
 });
 
 export default function SettingsPage() {
+  const { scopeOf } = useAuth();
+  // Quote Import writes quote_line/document rows directly (no form UI, no
+  // own-scope narrowing possible) — gated on the same grant QuoteForm itself
+  // uses to decide admin vs. read-only (quote:write), not setting:read alone.
+  const canImportQuotes = scopeOf('quote:write') !== null;
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [roles, setRoles] = useState<ManagedRole[]>([]);
   const [catalog, setCatalog] = useState<string[]>([]);
@@ -219,6 +227,13 @@ export default function SettingsPage() {
           description: 'Durable facts the AI chat has taught itself and saved for future conversations.',
           content: <AiMemoryPanel />,
         },
+        ...(canImportQuotes ? [{
+          key: 'quoteImport',
+          label: 'Quote Import',
+          icon: <DriveFolderUploadIcon fontSize="small" />,
+          description: 'Rerunnable fix-up for quotes already in the system — missing/corrupt documents, missing line items and totals.',
+          content: <QuoteImportPanel />,
+        }] : []),
       ]}
     />
   );

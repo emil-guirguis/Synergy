@@ -17,10 +17,13 @@
  *                           a set; the grid owns the whole list, not rows.
  */
 import { Hono } from 'hono';
+import Anthropic from '@anthropic-ai/sdk';
 import { Env, execQuery, withTransaction } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { findAll, findById, update, whereFromQuery, likeFieldsFromSchema, NOT_NULL } from '../crud';
 import { inventorySchema } from './inventorySchema';
+import { runAiChatLoop, type AiChatTool } from '@meterit/framework-backend/api/base/aiChat';
+import { toClaudeTools, toClaudeMessages, fromClaudeMessage } from '../claudeChatAdapter';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -66,6 +69,134 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
     whereLike,
   });
   return c.json({ success: true, data: { items: result.rows, total: result.pagination.total } });
+});
+
+// Fallback for the quote line grid's voice-add mic (ChildRowsGrid's voiceAdd.aiFallback):
+// called only when the client's own naive "<qty> <item>" split and plain ILIKE search (GET /,
+// above) came back empty. `text` here is the RAW transcript, not a pre-split item term — the
+// split itself is ambiguous whenever the item's own name starts with a number (amperage/gauge/
+// voltage: "1 Amp Fuse", "20 Amp Breaker"), which collides with a spoken quantity, made worse by
+// speech-to-text sometimes running two spoken numbers together ("ten one amp fuses" -> "101 amp
+// fuses"). So this re-derives both qty and the item from the whole transcript, trying alternate
+// digit splits via search_catalog rather than trusting the client's first guess at either one.
+// Same search_catalog tool/SQL as the AI chat quote wizard (routes/aiChat.ts), kept separate here
+// since this is a narrow one-shot resolver, not a conversation.
+const VOICE_MATCH_TOOL: AiChatTool = {
+  type: 'function',
+  function: {
+    name: 'search_catalog',
+    description: 'Search the product catalog by part number, name, or description (substring, case-insensitive).',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Text to match against part number/name/description' },
+        limit: { type: 'number', description: 'Maximum number of items to return (default 20)' },
+      },
+      required: ['text'],
+    },
+  },
+};
+
+const VOICE_MATCH_SYSTEM_PROMPT =
+  'Parse a spoken "add a line item" request (quantity + item) and resolve the item via the search_catalog tool. ' +
+  'Normally it\'s "<quantity> <item description>" (e.g. "add 10 1 amp fuses" = qty 10, item "1 amp fuse"), but ' +
+  'this is genuinely ambiguous: many catalog items themselves start with a number (amperage/gauge/voltage — ' +
+  '"1 Amp Fuse", "12 Gauge Wire", "20 Amp Breaker"), and speech-to-text sometimes runs two spoken numbers ' +
+  'together with no space (e.g. "ten one amp fuses" transcribed as "101 amp fuses" instead of "10 1 amp ' +
+  'fuses"). Try the obvious split first; if search_catalog finds nothing, try other splits of the leading digits ' +
+  'between quantity and item before giving up (e.g. for "101 amp fuses", also try quantity 10 / item "1 amp ' +
+  'fuses"). Also retry with a simpler or singular item term (drop a trailing "s", drop extra words) if the exact ' +
+  'wording finds nothing. Once satisfied, or sure nothing matches, respond with ONLY this JSON and nothing else ' +
+  '(no markdown, no commentary): {"qty": number, "matches": [qb_item_id, ...]} — matches up to 5 ids, best match ' +
+  'first, empty array if nothing matches; qty defaults to 1 if it truly can\'t be determined.';
+
+app.post('/voice-match', requirePermission('inventory:read'), async (c) => {
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ success: false, message: 'AI match is not configured (ANTHROPIC_API_KEY missing)' }, 503);
+  }
+  let body: { text?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ success: false, message: 'Invalid JSON body' }, 400);
+  }
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return c.json({ success: false, message: 'text is required' }, 400);
+
+  const client = new Anthropic({ apiKey: c.env.ANTHROPIC_API_KEY });
+  const tools = [VOICE_MATCH_TOOL];
+
+  try {
+    const { response } = await runAiChatLoop(text, [], {
+      systemPrompt: VOICE_MATCH_SYSTEM_PROMPT,
+      tools,
+      maxIterations: 4,
+      complete: async (messages) => {
+        const { system, messages: claudeMessages } = toClaudeMessages(messages);
+        const res = await client.messages.create({
+          model: 'claude-sonnet-5',
+          max_tokens: 512,
+          system,
+          tools: toClaudeTools(tools),
+          messages: claudeMessages,
+        });
+        return fromClaudeMessage(res);
+      },
+      executeTool: async (toolName, toolInput) => {
+        if (toolName !== 'search_catalog') return JSON.stringify({ error: `Unknown tool: ${toolName}` });
+        const searchText = typeof toolInput.text === 'string' ? toolInput.text.trim() : '';
+        if (!searchText) return JSON.stringify({ error: 'text is required' });
+        const limit = Math.min(toolInput.limit ?? 20, 50);
+        const result = await execQuery(
+          c.env,
+          `SELECT qb_item_id, name, full_name, sales_desc, sales_price
+             FROM public.qb_item
+            WHERE qb_deleted_at IS NULL AND is_active = true
+              AND (name ILIKE '%' || $1 || '%' OR full_name ILIKE '%' || $1 || '%' OR sales_desc ILIKE '%' || $1 || '%')
+            ORDER BY name ASC LIMIT $2`,
+          [searchText, limit],
+          'inventory.voiceMatch.search_catalog'
+        );
+        return JSON.stringify(result.rows);
+      },
+    });
+
+    console.log(`[inventory.voice-match] text="${text}" model response: ${response}`);
+
+    let qty = 1;
+    let matchIds: number[] = [];
+    try {
+      const parsed = JSON.parse(response.trim());
+      const parsedQty = Number(parsed?.qty);
+      if (Number.isFinite(parsedQty) && parsedQty > 0) qty = parsedQty;
+      // The model's free-text JSON answer isn't schema-enforced — it sometimes emits ids as
+      // strings ({"matches": ["69"]}) rather than numbers, so coerce rather than filter by typeof.
+      if (Array.isArray(parsed?.matches)) {
+        matchIds = parsed.matches.map((x: unknown) => Number(x)).filter((n: number) => Number.isFinite(n));
+      }
+    } catch {
+      // Treated as no match below — e.g. the model answered in prose instead of JSON.
+    }
+    if (matchIds.length === 0) return c.json({ success: true, data: { qty, items: [] } });
+
+    const result = await execQuery(
+      c.env,
+      `SELECT qb_item_id, name, full_name, sales_desc, sales_price
+         FROM public.qb_item
+        WHERE qb_item_id = ANY($1) AND qb_deleted_at IS NULL`,
+      [matchIds],
+      'inventory.voiceMatch.resolve'
+    );
+    // Preserve the model's ranked order — ANY($1) doesn't guarantee one. qb_item_id is bigint,
+    // so pg returns it as a string (r.qb_item_id === "69") — keyed by Number() here so the lookup
+    // below (matchIds are numbers) actually hits instead of silently missing every row.
+    const byId = new Map(result.rows.map((r: any) => [Number(r.qb_item_id), r]));
+    const items = matchIds.map((id) => byId.get(id)).filter(Boolean);
+    return c.json({ success: true, data: { qty, items } });
+  } catch (e) {
+    console.error('[inventory.voice-match] failed:', e);
+    return c.json({ success: false, message: 'AI match failed' }, 500);
+  }
 });
 
 app.get('/:id', requirePermission('inventory:read'), async (c) => {

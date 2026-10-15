@@ -9,6 +9,9 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  List,
+  ListItemButton,
+  ListItemText,
   MenuItem,
   Stack,
   Table,
@@ -25,6 +28,7 @@ import type { SxProps, Theme } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import MicIcon from '@mui/icons-material/Mic';
 import { useSchema, type ConvertedSchema } from '../form/utils/schemaLoader';
 import { useReportDirty } from '../form/FormDirtyContext';
 import { ReferenceSearchField, type ReferenceSearchConfig, type ReferenceSearchOption } from '../form/ReferenceSearchField';
@@ -58,6 +62,9 @@ export interface ChildRowsGridProps {
   canDelete?: boolean;
   /** Title bar text; defaults to the schema's parent.label. */
   title?: string;
+  /** Small content right next to the title text itself (e.g. an info icon with a tooltip) —
+   *  distinct from toolbarActions, which sits on the opposite side next to Add. */
+  titleAdornment?: React.ReactNode;
   /** Column summed into a footer total (e.g. 'amount'). */
   totalField?: string;
   /** Server-recomputed parent figures after each change (e.g. { total }). */
@@ -83,6 +90,23 @@ export interface ChildRowsGridProps {
   /** Spread on the table container — e.g. drag-and-drop or hover handlers. */
   containerProps?: React.HTMLAttributes<HTMLDivElement>;
   containerSx?: SxProps<Theme>;
+  /** Adds a mic icon to the toolbar: speak "add 5 <item>" and it searches `column`'s own
+   *  referenceSearch config (same endpoint its picker already uses) for the term, lists matches
+   *  in a dialog, and inserts a new row with the picked item's fillFields plus the parsed
+   *  quantity (into `quantityField`) when clicked. Needs `search` and a SpeechRecognition-capable
+   *  browser (Chrome/Edge) — the icon is hidden without `search` and disabled elsewhere.
+   *  `aiFallback`, when given, is tried only if the plain `search()` comes back with zero
+   *  results for the locally-parsed term. It gets the RAW transcript, not the parsed term —
+   *  splitting "<qty> <item>" apart is itself ambiguous whenever the item's own name starts with
+   *  a number (e.g. "10 1 amp fuses": qty 10, item "1 amp fuse"), worse when speech-to-text runs
+   *  two spoken numbers together ("ten one amp fuses" -> "101 amp fuses") — so the fallback
+   *  re-derives both qty and the item from the whole utterance instead of trusting the local
+   *  split's guess at either, and its returned qty overrides it. */
+  voiceAdd?: {
+    column: string;
+    quantityField: string;
+    aiFallback?: (config: ReferenceSearchConfig, transcript: string) => Promise<{ qty: number; options: ReferenceSearchOption[] }>;
+  };
 }
 
 interface GridRow {
@@ -128,8 +152,8 @@ const same = (a: any, b: any) => String(a ?? '') === String(b ?? '');
  */
 export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
   schemaName, schema: schemaProp, parentId, api, search, canCreate = false, canEdit = false, canDelete = false,
-  title, totalField, onParentChange, renderCell: renderCustomCell, onAddClick, toolbarActions, busy = false,
-  reloadKey, rowFilter, enumOverrides, emptyMessage, deleteConfirmText, containerProps, containerSx,
+  title, titleAdornment, totalField, onParentChange, renderCell: renderCustomCell, onAddClick, toolbarActions, busy = false,
+  reloadKey, rowFilter, enumOverrides, emptyMessage, deleteConfirmText, containerProps, containerSx, voiceAdd,
 }) => {
   const fetched = useSchema(schemaProp ? '' : schemaName ?? '');
   const schema = schemaProp ?? fetched.schema;
@@ -260,6 +284,104 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     return key;
   }, [defaults]);
 
+  // Voice Add: mic -> SpeechRecognition transcript -> "add 5 widget" parsed into qty+term ->
+  // reuses the column's own referenceSearch endpoint -> dialog of matches -> picking one inserts
+  // a row the same way a manual pick would (fillFields + quantityField), then saves it immediately
+  // since no cell focus/blur transition happens to trigger the usual autosave.
+  const voiceRefConfig = voiceAdd ? columns.find((c) => c.name === voiceAdd.column)?.referenceSearch : undefined;
+  const voiceSupported = typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<'listening' | 'searching' | 'ai-searching' | 'results' | 'error'>('listening');
+  const [voiceResults, setVoiceResults] = useState<ReferenceSearchOption[]>([]);
+  const [voiceMessage, setVoiceMessage] = useState('');
+  // What SpeechRecognition actually heard, and what that parsed into — shown in the dialog so a
+  // miss is visibly either "misheard" (transcript is wrong) or "misparsed/no catalog match"
+  // (transcript is right, term/qty below it is what was actually searched for).
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceParsed, setVoiceParsed] = useState<{ qty: number; term: string } | null>(null);
+  const voiceQtyRef = useRef(1);
+  const recognitionRef = useRef<any>(null);
+
+  const parseVoiceCommand = (text: string): { qty: number; term: string } => {
+    const cleaned = text.trim().replace(/\.$/, '');
+    const m = cleaned.match(/^(?:add|insert|get|need)?\s*(\d+(?:\.\d+)?)\s+(?:of\s+)?(.+)$/i);
+    return m ? { qty: Number(m[1]), term: m[2].trim() } : { qty: 1, term: cleaned };
+  };
+
+  const startVoiceAdd = useCallback(() => {
+    if (!search || !voiceRefConfig) return;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    const recognition = new SR();
+    recognitionRef.current = recognition;
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    setVoiceResults([]);
+    setVoiceMessage('');
+    setVoiceTranscript('');
+    setVoiceParsed(null);
+    setVoiceStatus('listening');
+    setVoiceOpen(true);
+    recognition.onresult = (e: any) => {
+      const transcript = e.results?.[0]?.[0]?.transcript ?? '';
+      const { qty, term } = parseVoiceCommand(transcript);
+      voiceQtyRef.current = qty;
+      setVoiceTranscript(transcript);
+      setVoiceParsed({ qty, term });
+      setVoiceStatus('searching');
+      search(voiceRefConfig, term)
+        .then((options) => {
+          if (options.length > 0 || !voiceAdd?.aiFallback) {
+            setVoiceResults(options);
+            setVoiceStatus('results');
+            if (options.length === 0) setVoiceMessage(`No matches for "${term}"`);
+            return;
+          }
+          setVoiceStatus('ai-searching');
+          return voiceAdd.aiFallback(voiceRefConfig, transcript).then(({ qty: aiQty, options: aiOptions }) => {
+            voiceQtyRef.current = aiQty;
+            setVoiceParsed({ qty: aiQty, term });
+            setVoiceResults(aiOptions);
+            setVoiceStatus('results');
+            if (aiOptions.length === 0) setVoiceMessage(`No matches for "${transcript}"`);
+          });
+        })
+        .catch((err) => {
+          setVoiceStatus('error');
+          setVoiceMessage(err instanceof Error ? err.message : 'Search failed');
+        });
+    };
+    recognition.onerror = (e: any) => {
+      setVoiceStatus('error');
+      setVoiceMessage(e?.error === 'no-speech' ? 'No speech detected' : 'Voice input failed');
+    };
+    recognition.onend = () => { recognitionRef.current = null; };
+    recognition.start();
+  }, [search, voiceRefConfig]);
+
+  const closeVoiceDialog = () => {
+    recognitionRef.current?.abort();
+    setVoiceOpen(false);
+  };
+
+  const pickVoiceResult = (option: ReferenceSearchOption) => {
+    if (!voiceAdd || !voiceRefConfig) return;
+    const valueCol = voiceRefConfig.valueColumn ?? voiceAdd.column;
+    const patch: Record<string, any> = {
+      [valueCol]: option.value ?? null,
+      ...(voiceRefConfig.displayField ? { [voiceRefConfig.displayField]: option.label ?? null } : {}),
+      [voiceAdd.quantityField]: voiceQtyRef.current,
+    };
+    for (const [target, rawField] of Object.entries(voiceRefConfig.fillFields ?? {})) {
+      if (option.raw?.[rawField] != null) patch[target] = option.raw[rawField];
+    }
+    const key = addRow();
+    setValue(key, patch);
+    setVoiceOpen(false);
+    setTimeout(() => saveRow(key), 0);
+  };
+
   const deleteRow = async (row: GridRow) => {
     setConfirmDelete(null);
     if (row.id == null) {
@@ -306,7 +428,30 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     return null;
   };
 
-  /** Tab/Shift+Tab and Enter both step to the next editable cell to the right (wrapping to the next row); Enter adds a row past the end; Esc = revert. */
+  /** Advances to the next editable cell to the right (wrapping to the next row); past the last
+   *  cell of the last row, adds a row and lands on its first editable column. */
+  const advanceFrom = (rowIndex: number, col: Column) => {
+    const target = stepCell(rowIndex, col.name, 1);
+    if (target) {
+      beginEdit(target.row, target.col);
+    } else if (canCreate && !onAddClick) {
+      const key = addRow();
+      const firstEditable = columns.find((c) => !c.readOnly) ?? col;
+      editStartRef.current = defaults[firstEditable.name];
+      setActiveCell({ key, col: firstEditable.name });
+    } else {
+      setActiveCell(null);
+    }
+  };
+
+  // Set right before advanceFrom() runs from a referenceSearch cell's onChange (a mouse click
+  // on a dropdown option never fires a keydown at all, so that's the only reliable place to
+  // advance from); cleared on the next tick. Lets handleKeyDown's own Enter handling — which
+  // still runs, bubbling up from MUI's own Enter-selects-the-highlighted-option handling on the
+  // same keystroke — recognize "already advanced for this pick" and skip a second, double step.
+  const justPickedRef = useRef(false);
+
+  /** Tab/Shift+Tab and Enter both step to the next editable cell to the right; Esc = revert. */
   const handleKeyDown = (rowIndex: number, col: Column) => (e: React.KeyboardEvent) => {
     const row = shown[rowIndex];
     if (e.key === 'Escape') {
@@ -325,17 +470,8 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault(); // also stops the implicit <form> submit
-      const target = stepCell(rowIndex, col.name, 1);
-      if (target) {
-        beginEdit(target.row, target.col);
-      } else if (canCreate && !onAddClick) {
-        const key = addRow();
-        const firstEditable = columns.find((c) => !c.readOnly) ?? col;
-        editStartRef.current = defaults[firstEditable.name];
-        setActiveCell({ key, col: firstEditable.name });
-      } else {
-        setActiveCell(null);
-      }
+      if (justPickedRef.current) { justPickedRef.current = false; return; }
+      advanceFrom(rowIndex, col);
     }
   };
 
@@ -431,6 +567,11 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
                 if (option?.raw?.[rawField] != null) patch[target] = option.raw[rawField];
               }
               setValue(row.key, patch);
+              if (option) {
+                justPickedRef.current = true;
+                setTimeout(() => { justPickedRef.current = false; }, 0);
+                advanceFrom(rowIndex, col);
+              }
             }}
           />
         </div>
@@ -497,8 +638,25 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     <Box>
       <Box className="editable-data-grid__wrapper editable-data-grid__wrapper--inline-inputs">
         <Box className="editable-data-grid__toolbar">
-          <Box className="editable-data-grid__toolbar-title">{title ?? schema?.parent?.label ?? ''}</Box>
+          <Box className="editable-data-grid__toolbar-title" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {title ?? schema?.parent?.label ?? ''}
+            {titleAdornment}
+          </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
+            {voiceAdd && canCreate && search && (
+              <Tooltip title={voiceSupported ? 'Voice add (e.g. "add 5 widget")' : 'Voice add needs Chrome or Edge'}>
+                <span>
+                  <IconButton
+                    size="small" color="primary"
+                    onClick={startVoiceAdd}
+                    disabled={!voiceSupported || loading || schemaLoading || busy}
+                    aria-label="Voice add"
+                  >
+                    <MicIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )}
             {canCreate && (
               <Button
                 variant="contained" color="primary" size="small"
@@ -619,6 +777,56 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
           <Button color="error" onClick={() => confirmDelete && deleteRow(confirmDelete)}>Delete</Button>
         </DialogActions>
       </Dialog>
+
+      {voiceAdd && (
+        <Dialog open={voiceOpen} onClose={closeVoiceDialog} maxWidth="xs" fullWidth>
+          <DialogTitle>Voice Add</DialogTitle>
+          <DialogContent>
+            {voiceTranscript && (
+              <Stack spacing={0.25} sx={{ mb: 1.5 }}>
+                <Typography variant="body2">Heard: "{voiceTranscript}"</Typography>
+                {voiceParsed && (
+                  <Typography variant="caption" color="text.secondary">
+                    Searching: {voiceParsed.qty} × "{voiceParsed.term}"
+                  </Typography>
+                )}
+              </Stack>
+            )}
+            {voiceStatus === 'listening' && (
+              <Stack alignItems="center" spacing={1} sx={{ py: 2 }}>
+                <MicIcon color="primary" fontSize="large" />
+                <Typography variant="body2" color="text.secondary">Listening… try "add 5 widget"</Typography>
+              </Stack>
+            )}
+            {voiceStatus === 'searching' && (
+              <Stack alignItems="center" sx={{ py: 2 }}><CircularProgress size={24} /></Stack>
+            )}
+            {voiceStatus === 'ai-searching' && (
+              <Stack alignItems="center" spacing={1} sx={{ py: 2 }}>
+                <CircularProgress size={24} />
+                <Typography variant="body2" color="text.secondary">No exact match — asking AI…</Typography>
+              </Stack>
+            )}
+            {voiceStatus === 'error' && <Alert severity="error">{voiceMessage}</Alert>}
+            {voiceStatus === 'results' && voiceResults.length === 0 && <Alert severity="info">{voiceMessage}</Alert>}
+            {voiceStatus === 'results' && voiceResults.length > 0 && (
+              <List dense>
+                {voiceResults.map((opt) => (
+                  <ListItemButton key={String(opt.value)} onClick={() => pickVoiceResult(opt)}>
+                    <ListItemText
+                      primary={opt.label}
+                      secondary={voiceRefConfig?.descriptionField ? opt.raw?.[voiceRefConfig.descriptionField] : undefined}
+                    />
+                  </ListItemButton>
+                ))}
+              </List>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeVoiceDialog}>Cancel</Button>
+          </DialogActions>
+        </Dialog>
+      )}
     </Box>
   );
 };
