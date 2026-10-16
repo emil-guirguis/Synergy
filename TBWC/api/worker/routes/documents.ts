@@ -29,6 +29,7 @@ import {
   DocumentValidationError,
 } from '@meterit/framework-backend/api/base/documents';
 import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
+import { emailStoredFile, FileEmailError } from '../fileEmail';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -228,6 +229,51 @@ app.post('/', async (c) => {
     return c.json({ success: true, data: row }, 201);
   } catch (e) {
     return fail(c, e);
+  }
+});
+
+/**
+ * Email one document as a real attachment. Read-level access, not write: sending
+ * a file to someone is a read of it, and a rep who may see a packing slip may
+ * send it to the customer. The Worker pulls the bytes and sends them, so nothing
+ * lands on the sender's machine (see fileEmail.ts for why that matters).
+ */
+app.post('/:id/email', async (c) => {
+  const existing = await getDocument(execQuery, c.env, c.req.param('id'));
+  if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
+  if (!isEntityType(existing.entity_type)) return c.json({ success: false, message: 'Document not found' }, 404);
+
+  const permissions = await ensurePermissions(c);
+  if (!permissions.has(gridPerm(existing.entity_type, 'read'))) return forbidden(c);
+  if (existing.entity_type === 'quote' && !(await quoteOwnedByCaller(c, existing.entity_id, 'read'))) {
+    return c.json({ success: false, message: 'Document not found' }, 404);
+  }
+  // Same filter the list route applies: a caller who only sees the rep-visible
+  // order doc types must not be able to email an internal one either.
+  if (
+    existing.entity_type === 'order' &&
+    !permissions.has(gridPerm('order', 'write')) &&
+    !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(existing.doc_type)
+  ) {
+    return c.json({ success: false, message: 'Document not found' }, 404);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  try {
+    const recipients = await emailStoredFile(
+      c.env,
+      {
+        bucket: existing.storage_bucket || 'record-docs',
+        path: existing.storage_path || '',
+        fileName: existing.file_name,
+        mimeType: existing.mime_type,
+      },
+      { to: body.to, subject: body.subject, message: body.message, replyTo: c.get('user')?.email }
+    );
+    return c.json({ success: true, data: { sent: true, recipients } });
+  } catch (e) {
+    if (e instanceof FileEmailError) return c.json({ success: false, message: e.message }, e.status);
+    throw e;
   }
 });
 

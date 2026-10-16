@@ -77,12 +77,26 @@ export interface CreateDocumentPayload {
   fileSize?: number | null;
 }
 
+/** What the sender typed in the email dialog. To is never defaulted for them. */
+export interface EmailDocumentInput {
+  /** One address, or several separated by commas/semicolons. */
+  to: string;
+  subject?: string;
+  message?: string;
+}
+
 /** Metadata CRUD against the app's own API (the Worker), never the bucket. */
 export interface DocumentsApi {
   list(entityType: string, entityId: string): Promise<DocumentRecord[]>;
   create(payload: CreateDocumentPayload): Promise<DocumentRecord>;
   update(documentId: number, patch: { description?: string; docType?: DocType }): Promise<DocumentRecord>;
   remove(documentId: number): Promise<void>;
+  /**
+   * Sends the file as an attachment from the server, returning the addresses it
+   * went to. The bytes never reach the browser: no download for the sender to
+   * clean up, and the attachment cannot go missing.
+   */
+  email(documentId: number, input: EmailDocumentInput): Promise<string[]>;
 }
 
 /**

@@ -2,9 +2,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let currentGrants: string[] = ['resource:read', 'resource:write'];
 
+// The send is stubbed — it would reach Supabase Storage and the mail edge fn.
+// Hoisted along with a stand-in FileEmailError, since vi.mock's factory runs
+// before module-level declarations and the route maps that error to a status.
+const { mockEmailStoredFile, FileEmailError } = vi.hoisted(() => {
+  class FileEmailError extends Error {
+    constructor(
+      message: string,
+      readonly status: number
+    ) {
+      super(message);
+      this.name = 'FileEmailError';
+    }
+  }
+  return { mockEmailStoredFile: vi.fn(), FileEmailError };
+});
+vi.mock('../fileEmail', () => ({
+  emailStoredFile: (...a: any[]) => mockEmailStoredFile(...a),
+  FileEmailError,
+}));
+
 vi.mock('../middleware', () => ({
   authenticateToken: (c: any, next: any) => {
-    c.set('user', { id: 'admin' });
+    c.set('user', { id: 'admin', email: 'admin@tbwc.test' });
     return next();
   },
   requirePermission: (permission: string) => (c: any, next: any) => {
@@ -137,5 +157,59 @@ describe('DELETE / — removes both rows', () => {
       ['Old/a.pdf'],
       'docTypes.deleteResourceDocument'
     );
+  });
+});
+
+describe('POST /email — send a resource as an attachment', () => {
+  beforeEach(() => {
+    mockEmailStoredFile.mockReset();
+    mockEmailStoredFile.mockResolvedValue(['customer@example.com']);
+  });
+
+  it('sends the file from the rep-docs bucket and reports the recipients', async () => {
+    mockExecQuery.mockResolvedValue({ rows: [{ mime_type: 'application/pdf' }] });
+    const res = await req('/email', json('POST', { path: 'Reps/Pricebook.pdf', to: 'customer@example.com' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, data: { sent: true, recipients: ['customer@example.com'] } });
+    const [, file, input] = mockEmailStoredFile.mock.calls[0];
+    expect(file).toEqual({
+      bucket: 'rep-docs',
+      path: 'Reps/Pricebook.pdf',
+      fileName: 'Pricebook.pdf',
+      mimeType: 'application/pdf',
+    });
+    // Reply-To is the authenticated caller, never anything from the body.
+    expect(input.replyTo).toBe('admin@tbwc.test');
+  });
+
+  it('requires a path', async () => {
+    const res = await req('/email', json('POST', { to: 'customer@example.com' }));
+    expect(res.status).toBe(400);
+    expect(mockEmailStoredFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller without resource:read', async () => {
+    currentGrants = [];
+    const res = await req('/email', json('POST', { path: 'Reps/Pricebook.pdf', to: 'c@example.com' }));
+    expect(res.status).toBe(403);
+    expect(mockEmailStoredFile).not.toHaveBeenCalled();
+  });
+
+  it('hides an employee-only file from a plain rep instead of emailing it', async () => {
+    // Same rule as GET /: without resource:write an 'employee' file is invisible,
+    // so it must not be emailable either.
+    currentGrants = ['resource:read'];
+    mockExecQuery.mockResolvedValue({ rows: [{ 1: 1 }] });
+    const res = await req('/email', json('POST', { path: 'HR/Handbook.pdf', to: 'c@example.com' }));
+    expect(res.status).toBe(404);
+    expect(mockEmailStoredFile).not.toHaveBeenCalled();
+  });
+
+  it('maps a FileEmailError to its own status', async () => {
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    mockEmailStoredFile.mockRejectedValue(new FileEmailError('too big', 413));
+    const res = await req('/email', json('POST', { path: 'Reps/Big.pdf', to: 'c@example.com' }));
+    expect(res.status).toBe(413);
+    expect((await res.json()) as any).toEqual({ success: false, message: 'too big' });
   });
 });

@@ -59,22 +59,16 @@ import {
   DialogTitle,
   IconButton,
   LinearProgress,
-  MenuItem,
   TextField,
   Tooltip,
   Typography,
-  Divider,
-  ListItemIcon,
-  ListItemText,
-  Menu,
 } from '@mui/material';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ShareIcon from '@mui/icons-material/Share';
-import IosShareIcon from '@mui/icons-material/IosShare';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import EmailIcon from '@mui/icons-material/Email';
+import { ShareMenu } from './ShareMenu';
+import { canShareFiles, shareDocumentFile } from './emailDocument';
+import { EmailDocumentDialog } from './EmailDocumentDialog';
 import {
   DEFAULT_DOC_TYPE,
   DOC_TYPES,
@@ -86,6 +80,7 @@ import {
   type DocumentStorage,
   type DocumentsApi,
 } from './types';
+import { openXlsxEditorWindow, isEditableTabularFile } from './XlsxEditorWindow';
 import { ChildRowsGrid, type ChildRowsApi } from '../components/datagrid/ChildRowsGrid';
 import type { ConvertedSchema } from '../components/form/utils/schemaLoader';
 import '../components/datagrid/EditableDataGrid.css';
@@ -135,6 +130,25 @@ const MAX_DESCRIPTION = 2000;
 const FOLDER_CONCURRENCY = 3;
 // OS/editor droppings nobody means to attach; dotfiles are dropped as well.
 const IGNORED_FILE_NAMES = new Set(['Thumbs.db', 'desktop.ini', '.DS_Store']);
+
+/** Signed view URL turned into one that saves the file under its own name. */
+function downloadUrlFor(signedUrl: string, fileName: string): string {
+  return `${signedUrl}&download=${encodeURIComponent(fileName)}`;
+}
+
+/** The file's bytes, straight off its signed URL. */
+async function fetchFileBlob(signedUrl: string): Promise<Blob> {
+  const res = await fetch(signedUrl);
+  if (!res.ok) throw new Error(`Could not read the file (${res.status})`);
+  return res.blob();
+}
+
+// navigator.share() needs the click's user activation to still be live (~5s in
+// Chrome), so fetching megabytes inside the click handler can lose the share
+// sheet. The bytes are pulled while the share menu is open instead — but only
+// when this browser can share files at all, and only for files small enough that
+// the fetch isn't wasted on someone who just wanted "Copy link".
+const SHARE_PREFETCH_MAX_BYTES = 15 * 1024 * 1024;
 
 interface FolderJob {
   /** 'folder': picked via "Add Folder" (folderName is the picked folder's name).
@@ -389,10 +403,17 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
 }) => {
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Non-error feedback the user has to act on (e.g. "open the saved .eml draft").
+  const [notice, setNotice] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
   const [shareRow, setShareRow] = useState<DocumentRecord | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  // The row whose server-side email dialog is open — the fallback for browsers
+  // that cannot hand a file to the OS share sheet.
+  const [emailRow, setEmailRow] = useState<DocumentRecord | null>(null);
+  // Bytes pulled ahead of the share click — see SHARE_PREFETCH_MAX_BYTES.
+  const sharePrefetchRef = useRef<Promise<Blob> | null>(null);
   // Folder add: the picked-but-not-yet-confirmed batch, then its live progress.
   const [pendingFolder, setPendingFolder] = useState<FolderJob | null>(null);
   const [folderProgress, setFolderProgress] = useState<{ done: number; total: number } | null>(null);
@@ -823,6 +844,12 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
 
   const openFile = async (row: DocumentRecord) => {
     if (!row.storage_path) return;
+    // xlsx/xls/csv can't render in a plain browser tab — it just downloads.
+    // Open a dedicated editor tab instead, when the viewer can save it back.
+    if (canEdit && isEditableTabularFile(row.file_name)) {
+      openXlsxEditorWindow({ doc: row, entityType, recordId: recordId!, api, storage, onSaved: reload });
+      return;
+    }
     // Open the tab synchronously on the click, then point it at the signed URL —
     // opening after the await would be a popup-blocked no-op.
     const win = window.open('', '_blank');
@@ -840,10 +867,18 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     setShareRow(row);
     setShareAnchor(anchor);
     setShareUrl(null);
+    sharePrefetchRef.current = null;
     if (!row.storage_path) return;
     try {
       const url = await storage.viewUrl(row.storage_path);
       setShareUrl(url);
+      if (canShareFiles() && (row.file_size ?? 0) <= SHARE_PREFETCH_MAX_BYTES) {
+        const bytes = fetchFileBlob(url);
+        // Nobody may ever await this one (menu dismissed) — don't let it surface
+        // as an unhandled rejection.
+        bytes.catch(() => {});
+        sharePrefetchRef.current = bytes;
+      }
     } catch (e: any) {
       setError(e?.message || 'Could not create share link');
       setShareAnchor(null);
@@ -854,6 +889,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     setShareAnchor(null);
     setShareRow(null);
     setShareUrl(null);
+    sharePrefetchRef.current = null;
   };
 
   const onCopyShareLink = async () => {
@@ -868,15 +904,47 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
 
   const onOpenShareInBrowser = () => {
     if (!shareUrl) return;
+    // Same rule as the file-name/open-icon click: xlsx/xls/csv edit in place
+    // rather than just opening the raw signed URL (which only downloads it).
+    if (shareRow && recordId && canEdit && isEditableTabularFile(shareRow.file_name)) {
+      openXlsxEditorWindow({ doc: shareRow, entityType, recordId, api, storage, onSaved: reload });
+      closeShare();
+      return;
+    }
     window.open(shareUrl, '_blank', 'noopener');
     closeShare();
   };
 
-  const onEmailShareClick = () => {
+  /**
+   * Hands the file to the OS share sheet, so the mail app opens with it already
+   * attached and nothing lands in the user's downloads. Browsers without file
+   * sharing (Firefox) get the server-side send dialog instead — same outcome,
+   * still no download.
+   */
+  const onEmailClick = async () => {
+    if (!shareRow?.storage_path || !shareUrl) return;
+    const row = shareRow;
+    const url = shareUrl;
+    const prefetched = sharePrefetchRef.current;
+    closeShare();
+    try {
+      const result = await shareDocumentFile({
+        fileName: row.file_name || 'document',
+        data: await (prefetched ?? fetchFileBlob(url)),
+        mimeType: row.mime_type,
+        // Subject only (the file name without its extension). No `text`: a share
+        // carrying text as well as a file lets the mail app populate fields from
+        // it, and this draft is meant to open with nothing but the attachment.
+      });
+      if (result === 'unsupported') setEmailRow(row);
+    } catch (e: any) {
+      setError(e?.message || 'Could not share the file');
+    }
+  };
+
+  const onDownloadShareClick = () => {
     if (!shareRow || !shareUrl) return;
-    const subject = encodeURIComponent(shareRow.file_name || '');
-    const body = encodeURIComponent(`Click here to open the document:\n\n${shareUrl}`);
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    window.location.assign(downloadUrlFor(shareUrl, shareRow.file_name));
     closeShare();
   };
 
@@ -889,13 +957,6 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     const doc = row as DocumentRecord;
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-        <Tooltip title="Open file">
-          <span>
-            <IconButton size="small" onClick={() => void openFile(doc)} disabled={!doc.storage_path}>
-              <OpenInNewIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
         <Tooltip title="Share">
           <span>
             <IconButton size="small" onClick={(e) => void onShare(doc, e.currentTarget)} disabled={!doc.storage_path}>
@@ -905,7 +966,14 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         </Tooltip>
         <Typography
           variant="body2"
-          sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          onClick={() => doc.storage_path && void openFile(doc)}
+          sx={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            cursor: doc.storage_path ? 'pointer' : 'default',
+            '&:hover': doc.storage_path ? { textDecoration: 'underline' } : undefined,
+          }}
           title={doc.file_name}
         >
           {doc.file_name}
@@ -919,6 +987,11 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       {error && (
         <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 1 }}>
           {error}
+        </Alert>
+      )}
+      {notice && (
+        <Alert severity="info" onClose={() => setNotice(null)} sx={{ mb: 1 }}>
+          {notice}
         </Alert>
       )}
       {!recordId && (
@@ -1050,27 +1123,27 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         </DialogActions>
       </Dialog>
 
-      <Menu anchorEl={shareAnchor} open={!!shareAnchor} onClose={closeShare}>
-        <MenuItem onClick={onOpenShareInBrowser} disabled={!shareUrl}>
-          <ListItemIcon>
-            <IosShareIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Browser</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={onEmailShareClick} disabled={!shareUrl}>
-          <ListItemIcon>
-            <EmailIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Email</ListItemText>
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={() => void onCopyShareLink()} disabled={!shareUrl}>
-          <ListItemIcon>
-            <ContentCopyIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Copy link</ListItemText>
-        </MenuItem>
-      </Menu>
+      <ShareMenu
+        anchorEl={shareAnchor}
+        onClose={closeShare}
+        onOpen={onOpenShareInBrowser}
+        onEmail={() => void onEmailClick()}
+        onCopyLink={() => void onCopyShareLink()}
+        onDownload={onDownloadShareClick}
+        ready={!!shareUrl}
+      />
+
+      {emailRow && (
+        <EmailDocumentDialog
+          open
+          onClose={() => setEmailRow(null)}
+          fileName={emailRow.file_name}
+          fileSizeLabel={formatFileSize(emailRow.file_size) || undefined}
+          defaultMessage={emailRow.description || undefined}
+          onSend={(input) => api.email(emailRow.document_id, input)}
+          onSent={(recipients) => setNotice(`Sent ${emailRow.file_name} to ${recipients.join(', ')}.`)}
+        />
+      )}
     </Box>
   );
 };

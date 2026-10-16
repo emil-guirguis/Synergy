@@ -11,6 +11,7 @@ export const InventoryManagementPage: React.FC = () => (
     title="Inventory"
     moduleIcon="inventory"
     modalSize="xl"
+    schemaName="inventory"
     renderList={({ onEdit, onCreate }) => (
       <InventoryList onInventoryEdit={onEdit} onInventoryCreate={onCreate} />
     )}

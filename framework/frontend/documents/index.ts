@@ -1,5 +1,11 @@
 export { DocumentsGrid, default } from './DocumentsGrid';
 export type { DocumentsGridProps } from './DocumentsGrid';
+export { ShareMenu } from './ShareMenu';
+export type { ShareMenuProps } from './ShareMenu';
+export { shareDocumentFile, canShareFiles, subjectForFile } from './emailDocument';
+export type { ShareFileOptions, ShareFileResult } from './emailDocument';
+export { EmailDocumentDialog } from './EmailDocumentDialog';
+export type { EmailDocumentDialogProps } from './EmailDocumentDialog';
 export { createDocumentsApi } from './api';
 export type { DocumentsApiConfig } from './api';
 export { createSupabaseDocumentStorage } from './storage';
@@ -17,4 +23,5 @@ export type {
   DocumentsApi,
   DocumentStorage,
   CreateDocumentPayload,
+  EmailDocumentInput,
 } from './types';

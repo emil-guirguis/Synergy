@@ -17,9 +17,6 @@ import {
   FormControlLabel,
   IconButton,
   InputLabel,
-  ListItemIcon,
-  ListItemText,
-  Menu,
   MenuItem,
   Paper,
   Select,
@@ -34,12 +31,13 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
-import DownloadIcon from '@mui/icons-material/Download';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ShareIcon from '@mui/icons-material/Share';
-import IosShareIcon from '@mui/icons-material/IosShare';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import EmailIcon from '@mui/icons-material/Email';
+import {
+  EmailDocumentDialog,
+  ShareMenu,
+  canShareFiles,
+  shareDocumentFile,
+} from '@meterit/framework-frontend/documents';
 import {
   listDocsTree,
   loadRootChildren,
@@ -58,6 +56,7 @@ import {
   setDocType,
   renameDocType,
   deleteDocType,
+  emailResource,
   type DocType,
 } from '../../services/docTypeService';
 
@@ -112,6 +111,21 @@ function fmtSize(bytes?: number): string {
 }
 
 const DRAG_MIME = 'application/x-doc-paths';
+
+// navigator.share() needs the click's user activation to still be live (~5s in
+// Chrome), so fetching megabytes inside the click handler can lose the share
+// sheet. Pulled while the menu is open instead, and only when this browser can
+// share files at all and the file is small enough that the fetch isn't wasted
+// on someone who just wanted "Copy link".
+const SHARE_PREFETCH_MAX_BYTES = 15 * 1024 * 1024;
+
+/** The file's bytes, straight off its signed URL. */
+async function fetchFileBlob(signedUrl: string): Promise<Blob> {
+  const res = await fetch(signedUrl);
+  if (!res.ok) throw new Error(`Could not read the file (${res.status})`);
+  return res.blob();
+}
+
 
 interface DroppedFile {
   file: File;
@@ -228,7 +242,7 @@ function cleanSeg(s: string): string {
     .trim();
 }
 
-type Msg = { text: string; severity: 'success' | 'error' } | null;
+type Msg = { text: string; severity: 'success' | 'error' | 'info' } | null;
 
 export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean }) {
   const [tree, setTree] = useState<DocTree>({ rootFiles: [], categories: [] });
@@ -279,6 +293,11 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
   const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
   const [sharePath, setSharePath] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  // Path whose server-side email dialog is open — the fallback for browsers that
+  // cannot hand a file to the OS share sheet.
+  const [emailPath, setEmailPath] = useState<string | null>(null);
+  // Bytes pulled ahead of the share click — see SHARE_PREFETCH_MAX_BYTES.
+  const sharePrefetchRef = useRef<Promise<Blob> | null>(null);
 
   const load = useCallback(async (full = showCounts) => {
     setLoading(true);
@@ -506,9 +525,18 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     setSharePath(path);
     setShareAnchor(anchor);
     setShareUrl(null);
+    sharePrefetchRef.current = null;
     try {
       const url = await signedViewUrl(path);
       setShareUrl(url);
+      const size = filesAt(tree, dirOf(path)).find((f) => f.path === path)?.size ?? 0;
+      if (canShareFiles() && size <= SHARE_PREFETCH_MAX_BYTES) {
+        const bytes = fetchFileBlob(url);
+        // Nobody may ever await this one (menu dismissed) — keep the rejection
+        // from surfacing as an unhandled promise.
+        bytes.catch(() => {});
+        sharePrefetchRef.current = bytes;
+      }
     } catch (e) {
       setMsg({ text: (e as Error).message || 'Could not create share link', severity: 'error' });
       setShareAnchor(null);
@@ -519,6 +547,7 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     setShareAnchor(null);
     setSharePath(null);
     setShareUrl(null);
+    sharePrefetchRef.current = null;
   }
 
   async function onCopyShareLink() {
@@ -557,23 +586,23 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     closeShare();
   }
 
-  /** Opens the user's own mail client with a draft pointing at the file. Signs
-   *  its own long-lived URL rather than reusing `shareUrl` (that one's 60s,
-   *  meant for the Browser/Download actions' immediate use — dead by the time
-   *  an emailed draft actually gets sent and opened). The recipient's own mail
-   *  client auto-linkifies the bare URL once the email is actually delivered. */
-  async function onEmailShare() {
-    if (!sharePath) return;
-    try {
-      const name = sharePath.slice(sharePath.lastIndexOf('/') + 1);
-      const longUrl = await signedViewUrl(sharePath, 60 * 60 * 24 * 7);
-      const subject = encodeURIComponent(name);
-      const body = encodeURIComponent(`Click here to open the document:\n\n${longUrl}`);
-      window.location.href = `mailto:?subject=${subject}&body=${body}`;
-    } catch (e) {
-      setMsg({ text: (e as Error).message || 'Could not create share link', severity: 'error' });
-    }
+  /** Hands the file to the OS share sheet, so the chosen mail app opens with it
+   *  already attached and nothing lands in the user's downloads. A browser
+   *  without file sharing (Firefox) gets the server-side send dialog instead. */
+  async function onEmailShareFile() {
+    if (!sharePath || !shareUrl) return;
+    const path = sharePath;
+    const url = shareUrl;
+    const prefetched = sharePrefetchRef.current;
     closeShare();
+    try {
+      const name = path.slice(path.lastIndexOf('/') + 1);
+      // Subject defaults to the file name without its extension.
+      const result = await shareDocumentFile({ fileName: name, data: await (prefetched ?? fetchFileBlob(url)) });
+      if (result === 'unsupported') setEmailPath(path);
+    } catch (e) {
+      setMsg({ text: (e as Error).message || 'Could not share the file', severity: 'error' });
+    }
   }
 
   async function onMoveFiles(paths: string[], targetDir: string) {
@@ -877,7 +906,6 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
                 type={typeOf(docTypes, f.path)}
                 onTypeChange={onTypeChange}
                 onOpen={onOpen}
-                onDownload={onDownload}
                 onShare={onShare}
                 onDelete={onDelete}
                 onRename={onRename}
@@ -899,7 +927,6 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
                 docTypes={docTypes}
                 onTypeChange={onTypeChange}
                 onOpen={onOpen}
-                onDownload={onDownload}
                 onShare={onShare}
                 onDelete={onDelete}
                 onDeleteFolder={onDeleteFolder}
@@ -939,32 +966,30 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
         </Stack>
       )}
 
-      <Menu anchorEl={shareAnchor} open={!!shareAnchor} onClose={closeShare}>
-        <MenuItem onClick={onOpenInBrowser} disabled={!shareUrl}>
-          <ListItemIcon>
-            <IosShareIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Browser</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={() => void onEmailShare()} disabled={!sharePath}>
-          <ListItemIcon>
-            <EmailIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Email</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={onCopyShareLink} disabled={!shareUrl}>
-          <ListItemIcon>
-            <ContentCopyIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Copy link</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={onDownloadFromShare} disabled={!sharePath}>
-          <ListItemIcon>
-            <DownloadIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Download</ListItemText>
-        </MenuItem>
-      </Menu>
+      <ShareMenu
+        anchorEl={shareAnchor}
+        onClose={closeShare}
+        onOpen={onOpenInBrowser}
+        onEmail={() => void onEmailShareFile()}
+        onCopyLink={onCopyShareLink}
+        onDownload={onDownloadFromShare}
+        ready={!!shareUrl}
+      />
+
+      {emailPath && (
+        <EmailDocumentDialog
+          open
+          onClose={() => setEmailPath(null)}
+          fileName={emailPath.slice(emailPath.lastIndexOf('/') + 1)}
+          onSend={(input) => emailResource(emailPath, input)}
+          onSent={(recipients) =>
+            setMsg({
+              text: `Sent ${emailPath.slice(emailPath.lastIndexOf('/') + 1)} to ${recipients.join(', ')}.`,
+              severity: 'success',
+            })
+          }
+        />
+      )}
     </Box>
   );
 }
@@ -1101,7 +1126,6 @@ function FolderRow({
   docTypes,
   onTypeChange,
   onOpen,
-  onDownload,
   onShare,
   onDelete,
   onDeleteFolder,
@@ -1126,7 +1150,6 @@ function FolderRow({
   docTypes: Record<string, DocType>;
   onTypeChange: (path: string, type: DocType) => void;
   onOpen: (path: string) => void;
-  onDownload: (path: string) => void;
   onShare: (path: string, anchor: HTMLElement) => void;
   onDelete: (path: string) => void;
   onDeleteFolder: (cat: DocCategory) => void;
@@ -1171,7 +1194,6 @@ function FolderRow({
             type={typeOf(docTypes, f.path)}
             onTypeChange={onTypeChange}
             onOpen={onOpen}
-            onDownload={onDownload}
             onShare={onShare}
             onDelete={onDelete}
             onRename={onRename}
@@ -1193,7 +1215,6 @@ function FolderRow({
             docTypes={docTypes}
             onTypeChange={onTypeChange}
             onOpen={onOpen}
-            onDownload={onDownload}
             onShare={onShare}
             onDelete={onDelete}
             onDeleteFolder={onDeleteFolder}
@@ -1218,7 +1239,6 @@ function FileRow({
   type,
   onTypeChange,
   onOpen,
-  onDownload,
   onShare,
   onDelete,
   onRename,
@@ -1232,7 +1252,6 @@ function FileRow({
   type: DocType;
   onTypeChange: (path: string, type: DocType) => void;
   onOpen: (path: string) => void;
-  onDownload: (path: string) => void;
   onShare: (path: string, anchor: HTMLElement) => void;
   onDelete: (path: string) => void;
   onRename: (path: string) => void;
@@ -1279,7 +1298,17 @@ function FileRow({
         />
       )}
       <DescriptionIcon fontSize="small" color="action" />
-      <Typography variant="body2" sx={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>
+      <Typography
+        variant="body2"
+        onClick={() => onOpen(file.path)}
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          wordBreak: 'break-word',
+          cursor: 'pointer',
+          '&:hover': { textDecoration: 'underline' },
+        }}
+      >
         {file.name}
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
@@ -1298,12 +1327,6 @@ function FileRow({
           <MenuItem value="employee">Employee</MenuItem>
         </Select>
       )}
-      <IconButton size="small" onClick={() => onOpen(file.path)} title="Open">
-        <OpenInNewIcon fontSize="small" />
-      </IconButton>
-      <IconButton size="small" onClick={() => onDownload(file.path)} title="Download">
-        <DownloadIcon fontSize="small" />
-      </IconButton>
       <IconButton
         size="small"
         onClick={(e) => onShare(file.path, e.currentTarget)}

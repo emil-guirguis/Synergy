@@ -35,9 +35,10 @@ const detectColumns = (data: Record<string, any>[]): GridColumn[] => {
   data.forEach(row => {
     Object.keys(row).forEach(key => keys.add(key));
   });
-  
+
+  // Insertion order (first-seen, left-to-right) rather than alphabetical —
+  // a spreadsheet's column order is meaningful and shouldn't get reshuffled.
   return Array.from(keys)
-    .sort()
     .map(key => ({
       key,
       label: formatColumnLabel(key)

@@ -57,6 +57,26 @@ export async function renameDocType(fromPath: string, toPath: string): Promise<v
   );
 }
 
+/**
+ * Emails one resource file as an attachment. The Worker reads the bytes out of
+ * the bucket and sends them, so the file never lands in the sender's downloads —
+ * a browser cannot attach a file to the machine's mail client at all (see
+ * api/worker/fileEmail.ts). Resolves with the addresses it went to.
+ */
+export async function emailResource(
+  path: string,
+  input: { to: string; subject?: string; message?: string }
+): Promise<string[]> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/doc-types/email`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ path, ...input }),
+    })
+  );
+  return data.data?.recipients ?? [];
+}
+
 export async function deleteDocType(path: string): Promise<void> {
   await parse(
     await fetch(`${API_BASE_URL}/doc-types`, {

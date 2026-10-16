@@ -19,7 +19,7 @@ export const quoteSchema = defineSchema({
   entityName: 'Quote',
   tableName: 'quote',
   idFieldName: 'quote_id',
-  titleField: 'ref_number',
+  titleField: 'job_name',
   description: 'TBWC quote',
   formMaxWidth: '1100px',
   customListColumns: {},

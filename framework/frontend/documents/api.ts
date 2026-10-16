@@ -6,7 +6,7 @@
  * App-agnostic: the consuming app injects its API base URL and a token getter,
  * same pattern as framework/frontend/ai-chat.
  */
-import type { CreateDocumentPayload, DocType, DocumentRecord, DocumentsApi } from './types';
+import type { CreateDocumentPayload, DocType, DocumentRecord, DocumentsApi, EmailDocumentInput } from './types';
 
 export interface DocumentsApiConfig {
   /** e.g. "https://api.example.com/api" — the documents routes live at `${apiBaseUrl}/documents`. */
@@ -62,6 +62,16 @@ export function createDocumentsApi(config: DocumentsApiConfig): DocumentsApi {
 
     async remove(documentId: number): Promise<void> {
       await request<void>(`${base}/${documentId}`, { method: 'DELETE' });
+    },
+
+    async email(documentId: number, input: EmailDocumentInput): Promise<string[]> {
+      // The server reads the bytes out of the bucket and attaches them, so the
+      // file never passes through the browser or the sender's downloads.
+      const sent = await request<{ sent: boolean; recipients: string[] }>(`${base}/${documentId}/email`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+      return sent?.recipients ?? [];
     },
   };
 }

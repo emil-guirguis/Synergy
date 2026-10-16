@@ -20,6 +20,7 @@ export const inventorySchema = defineSchema({
   entityName: 'Inventory',
   tableName: 'qb_item',
   idFieldName: 'qb_item_id',
+  titleField: 'sales_desc',
   description: 'TBWC product catalog (QuickBooks item list + TBWC-owned fields)',
   formMaxWidth: '900px',
   customListColumns: {},

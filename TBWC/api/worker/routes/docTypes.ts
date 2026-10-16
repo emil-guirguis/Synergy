@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
+import { emailStoredFile, FileEmailError } from '../fileEmail';
 
 const RESOURCE_BUCKET = 'rep-docs';
 
@@ -71,6 +72,56 @@ app.get('/', requirePermission('resource:read'), async (c) => {
     data[row.doc_path] = row.doc_type;
   }
   return c.json({ success: true, data });
+});
+
+/**
+ * Email one resource file as a real attachment (the Resources browser's share
+ * menu). Read-level access — sending a cutsheet to a customer is exactly what a
+ * rep's read access is for — except that an 'employee'-typed file is invisible
+ * to a caller without resource:write (same rule as GET above), and must not be
+ * emailable by them either.
+ */
+app.post('/email', requirePermission('resource:read'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const path = typeof body.path === 'string' ? body.path : '';
+  if (!path) return c.json({ success: false, message: 'path is required' }, 400);
+
+  if (!c.get('permissions').has('resource:write')) {
+    const { rows } = await execQuery(
+      c.env,
+      `SELECT 1 FROM public.document_type WHERE doc_path = $1 AND doc_type = 'employee'`,
+      [path],
+      'docTypes.emailVisibility'
+    );
+    if (rows.length > 0) return c.json({ success: false, message: 'Not found' }, 404);
+  }
+
+  // mime_type comes from the mirror row when there is one; the bucket's own
+  // content type is not readable from here, and a missing one falls back to
+  // application/octet-stream inside emailStoredFile.
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT mime_type FROM public.document WHERE entity_type = 'resource' AND entity_id = $1`,
+    [path],
+    'docTypes.emailMimeType'
+  );
+
+  try {
+    const recipients = await emailStoredFile(
+      c.env,
+      {
+        bucket: RESOURCE_BUCKET,
+        path,
+        fileName: path.slice(path.lastIndexOf('/') + 1),
+        mimeType: rows[0]?.mime_type ?? null,
+      },
+      { to: body.to, subject: body.subject, message: body.message, replyTo: c.get('user')?.email }
+    );
+    return c.json({ success: true, data: { sent: true, recipients } });
+  } catch (e) {
+    if (e instanceof FileEmailError) return c.json({ success: false, message: e.message }, e.status);
+    throw e;
+  }
 });
 
 app.put('/', requirePermission('resource:write'), async (c) => {

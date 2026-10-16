@@ -65,6 +65,26 @@ vi.mock('../db', () => ({
   execQuery: (...a: any[]) => mockExecQuery(...a),
 }));
 
+// The send is stubbed — it would reach Supabase Storage and the mail edge fn.
+// Hoisted along with a stand-in FileEmailError, since vi.mock's factory runs
+// before module-level declarations and the route maps that error to a status.
+const { mockEmailStoredFile, FileEmailError } = vi.hoisted(() => {
+  class FileEmailError extends Error {
+    constructor(
+      message: string,
+      readonly status: number
+    ) {
+      super(message);
+      this.name = 'FileEmailError';
+    }
+  }
+  return { mockEmailStoredFile: vi.fn(), FileEmailError };
+});
+vi.mock('../fileEmail', () => ({
+  emailStoredFile: (...a: any[]) => mockEmailStoredFile(...a),
+  FileEmailError,
+}));
+
 import documentsApp from './documents';
 
 const ENV = {} as any;
@@ -330,5 +350,94 @@ describe('per-module Documents grid grants (migration 100)', () => {
     const del = await req('/1', { method: 'DELETE' });
     expect(del.status).toBe(403);
     expect(mockDeleteDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /:id/email — send a document as an attachment', () => {
+  const DOC = {
+    document_id: 7,
+    entity_type: 'order',
+    entity_id: '42',
+    doc_type: 'packing_slip',
+    file_name: 'Packing Slip.pdf',
+    mime_type: 'application/pdf',
+    storage_bucket: 'record-docs',
+    storage_path: 'order/42/abc-Packing Slip.pdf',
+  };
+
+  beforeEach(() => {
+    mockEmailStoredFile.mockReset();
+    mockEmailStoredFile.mockResolvedValue(['customer@example.com']);
+  });
+
+  it('sends the stored file and reports the recipients', async () => {
+    mockGetDocument.mockResolvedValue(DOC);
+    currentUser = { id: 'admin', email: 'admin@tbwc.test' };
+    const res = await req('/7/email', json('POST', { to: 'customer@example.com', subject: 'Your slip' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, data: { sent: true, recipients: ['customer@example.com'] } });
+    const [, file, input] = mockEmailStoredFile.mock.calls[0];
+    expect(file).toEqual({
+      bucket: 'record-docs',
+      path: 'order/42/abc-Packing Slip.pdf',
+      fileName: 'Packing Slip.pdf',
+      mimeType: 'application/pdf',
+    });
+    // Reply-To is the authenticated caller — never taken from the request body.
+    expect(input.replyTo).toBe('admin@tbwc.test');
+    expect(input.subject).toBe('Your slip');
+  });
+
+  it('404s an unknown document', async () => {
+    mockGetDocument.mockResolvedValue(null);
+    const res = await req('/7/email', json('POST', { to: 'c@example.com' }));
+    expect(res.status).toBe(404);
+    expect(mockEmailStoredFile).not.toHaveBeenCalled();
+  });
+
+  it('403s a caller without that module grid’s read grant', async () => {
+    // Read access, not write: emailing is a read of the file. But a caller with
+    // no grant on the owning module must not be able to send it anywhere.
+    fakeGrants = ['quoteGridDocument:read'];
+    mockGetDocument.mockResolvedValue(DOC);
+    const res = await req('/7/email', json('POST', { to: 'c@example.com' }));
+    expect(res.status).toBe(403);
+    expect(mockEmailStoredFile).not.toHaveBeenCalled();
+  });
+
+  it('hides an internal order doc type from a caller without orderGridDocument:write', async () => {
+    // Mirrors the list route's REP_VISIBLE_ORDER_DOC_TYPES filter: a rep who
+    // cannot see a change order must not be able to email one either.
+    fakeGrants = ['orderGridDocument:read'];
+    mockGetDocument.mockResolvedValue({ ...DOC, doc_type: 'change_order' });
+    const res = await req('/7/email', json('POST', { to: 'c@example.com' }));
+    expect(res.status).toBe(404);
+    expect(mockEmailStoredFile).not.toHaveBeenCalled();
+  });
+
+  it('lets a rep email a rep-visible order doc type', async () => {
+    fakeGrants = ['orderGridDocument:read'];
+    mockGetDocument.mockResolvedValue(DOC);
+    const res = await req('/7/email', json('POST', { to: 'c@example.com' }));
+    expect(res.status).toBe(200);
+    expect(mockEmailStoredFile).toHaveBeenCalled();
+  });
+
+  it('applies the own-scope quote gate before sending', async () => {
+    fakeGrants = ['quoteGridDocument:read'];
+    fakeScopes = { 'quoteGridDocument:read': 'own' };
+    mockGetDocument.mockResolvedValue({ ...DOC, entity_type: 'quote', doc_type: 'quote' });
+    mockExecQuery.mockResolvedValue({ rows: [] }); // not one of the caller's reps' quotes
+    const res = await req('/7/email', json('POST', { to: 'c@example.com' }));
+    expect(res.status).toBe(404);
+    expect(mockEmailStoredFile).not.toHaveBeenCalled();
+  });
+
+  it('maps a FileEmailError to its own status', async () => {
+    mockGetDocument.mockResolvedValue(DOC);
+    mockEmailStoredFile.mockRejectedValue(new FileEmailError('Enter at least one email address', 400));
+    const res = await req('/7/email', json('POST', { to: '' }));
+    expect(res.status).toBe(400);
+    expect((await res.json()) as any).toEqual({ success: false, message: 'Enter at least one email address' });
   });
 });
