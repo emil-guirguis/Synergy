@@ -117,8 +117,31 @@ interface DocPlan {
 
 type EntryStatus = 'no-match' | 'up-to-date' | 'ready' | 'success' | 'partial' | 'failed';
 
+/** Per-item failure detail. The run used to collapse a whole job into one "N failed: <last
+ *  message>" string, which on a 600-folder sweep told you nothing about WHICH file broke —
+ *  so every failure now carries the job folder, the path inside it, and the size. */
+interface ItemFailure {
+  /** Job folder name — the directory under the picked root. */
+  jobName: string;
+  /** Path inside the job folder (may contain subdirectories), '' for a line-item failure. */
+  relPath: string;
+  size: number | null;
+  stage: 'upload' | 'verify' | 'metadata' | 'line-item';
+  timedOut: boolean;
+  message: string;
+}
+
+function failureLabel(f: ItemFailure): string {
+  const where = f.relPath ? `${f.jobName}/${f.relPath}` : f.jobName;
+  const size = f.size != null ? ` (${formatFileSize(f.size)})` : '';
+  return `${where}${size}: ${f.message}`;
+}
+
 interface Entry {
   key: string;
+  /** 1-based planning order — the number the progress bar counts off, so "stuck on 7" is
+   *  answerable from the table alone. */
+  index: number;
   jobName: string;
   quote: QuoteMatch | null;
   docs: DocPlan[];
@@ -128,7 +151,8 @@ interface Entry {
   linePayloads: Array<{ qb_item_id: null; item_name: string | null; description: string; quantity: number; rate: number }>;
   status: EntryStatus;
   message: string;
-  result?: { uploaded: number; failed: number; linesInserted: number };
+  failures: ItemFailure[];
+  result?: { uploaded: number; failed: number; linesInserted: number; timedOut: number };
 }
 
 const STATUS_LABELS: Record<EntryStatus, string> = {
@@ -207,6 +231,16 @@ function encodeStoragePath(path: string): string {
 const STORED_SIZE_TIMEOUT_MS = 8000;
 const PLAN_FETCH_TIMEOUT_MS = 15000;
 const PLAN_PARSE_TIMEOUT_MS = 20000;
+/** Metadata calls during the run (document row create/delete, line insert) — small JSON
+ *  round trips through the Worker, so anything past this is a hang, not slowness. */
+const RUN_API_TIMEOUT_MS = 30000;
+/** Floor for a byte upload, plus one second per 50 KB (≈50 KB/s — deliberately slower than
+ *  any real link, so only a genuinely stalled transfer trips it), capped at 5 minutes. */
+const UPLOAD_TIMEOUT_FLOOR_MS = 60000;
+const UPLOAD_TIMEOUT_CEILING_MS = 300000;
+function uploadTimeoutFor(size: number): number {
+  return Math.min(UPLOAD_TIMEOUT_CEILING_MS, Math.max(UPLOAD_TIMEOUT_FLOOR_MS, (size / (50 * 1024)) * 1000));
+}
 
 /** Caps how long the planning loop will wait on any single await — a plan over hundreds
  *  of jobs can't afford one job's network call or PDF parse to hang forever and stall
@@ -219,6 +253,43 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
     promise.then(
       (value) => { clearTimeout(timer); resolve(value); },
       () => { clearTimeout(timer); resolve(fallback); }
+    );
+  });
+}
+
+/** Marks a step that blew its deadline, so the run can log it as a timeout (with the file
+ *  and how long it waited) instead of a generic "failed". */
+class StepTimeoutError extends Error {
+  step: string;
+  ms: number;
+  constructor(step: string, ms: number) {
+    super(`Timed out after ${Math.round(ms / 1000)}s (${step}).`);
+    this.name = 'StepTimeoutError';
+    this.step = step;
+    this.ms = ms;
+  }
+}
+
+/** Run-phase deadline. Unlike planning's withTimeout (which resolves a fallback and shrugs),
+ *  a blown deadline here REJECTS: during the run every step matters, and the whole point is
+ *  to record which file stalled rather than silently carry on. `abort` is passed for the one
+ *  call that can really be cancelled (the storage upload) — everything else is left running
+ *  in the background and only stops being waited on. */
+function withDeadline<T>(step: string, ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new StepTimeoutError(step, ms));
+    }, ms);
+    run(controller.signal).then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => {
+        clearTimeout(timer);
+        // An abort raised by our own timer surfaces as the timeout, not as "aborted".
+        if (controller.signal.aborted) reject(new StepTimeoutError(step, ms));
+        else reject(err);
+      }
     );
   });
 }
@@ -314,43 +385,76 @@ async function verifyStoredSize(storagePath: string, expectedSize: number): Prom
 // silently excluded from the plan the way the old 'too-large' status used to.
 const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
 
-async function uploadDocOnce(quoteId: number, doc: DocPlan): Promise<{ ok: boolean; message: string }> {
+interface UploadOutcome {
+  ok: boolean;
+  message: string;
+  timedOut: boolean;
+  stage: ItemFailure['stage'];
+}
+
+/**
+ * Every network step here is on a deadline. Before 2026-10-16 none of them were: the byte
+ * upload is a plain fetch with no abort signal, so one stalled POST parked the whole run on
+ * whichever job hit it, with a progress bar that just stopped moving and no way to tell
+ * which file it was sitting on. The upload is genuinely cancelled (its signal reaches
+ * fetch); the Worker calls are only stopped being waited on.
+ */
+async function uploadDocOnce(quoteId: number, doc: DocPlan): Promise<UploadOutcome> {
   if (doc.size > MAX_UPLOAD_SIZE) {
     return {
       ok: false,
+      timedOut: false,
+      stage: 'upload',
       message: `File too large to attach (${formatFileSize(doc.size)} exceeds the ${formatFileSize(MAX_UPLOAD_SIZE)} limit) — not uploaded.`,
     };
   }
   const path = storagePathFor('quote', String(quoteId), doc.fileName);
+  let stage: ItemFailure['stage'] = 'upload';
   try {
-    await documentsStorage.upload(path, doc.file);
+    await withDeadline(`uploading ${formatFileSize(doc.size)}`, uploadTimeoutFor(doc.size), (signal) =>
+      documentsStorage.upload(path, doc.file, signal)
+    );
+    stage = 'verify';
     const sizeOk = await verifyStoredSize(path, doc.size);
     if (!sizeOk) {
       await documentsStorage.remove(path).catch(() => undefined);
-      return { ok: false, message: `Uploaded bytes didn't match the local file (${formatFileSize(doc.size)}).` };
+      return {
+        ok: false,
+        timedOut: false,
+        stage: 'verify',
+        message: `Uploaded bytes didn't match the local file (${formatFileSize(doc.size)}).`,
+      };
     }
-    await documentsApi.create({
-      entityType: 'quote',
-      entityId: String(quoteId),
-      fileName: doc.fileName,
-      storageBucket: RECORD_DOCS_BUCKET,
-      storagePath: path,
-      docType: doc.docType,
-      mimeType: mimeFor(doc.file),
-      fileSize: doc.size,
-    });
-    return { ok: true, message: 'Uploaded.' };
+    stage = 'metadata';
+    await withDeadline('saving the document row', RUN_API_TIMEOUT_MS, () =>
+      documentsApi.create({
+        entityType: 'quote',
+        entityId: String(quoteId),
+        fileName: doc.fileName,
+        storageBucket: RECORD_DOCS_BUCKET,
+        storagePath: path,
+        docType: doc.docType,
+        mimeType: mimeFor(doc.file),
+        fileSize: doc.size,
+      })
+    );
+    return { ok: true, timedOut: false, stage, message: 'Uploaded.' };
   } catch (e: any) {
-    return { ok: false, message: e?.message || 'Upload failed.' };
+    const timedOut = e instanceof StepTimeoutError;
+    // A timed-out upload may still be in flight server-side; the bytes it might leave behind
+    // are unreferenced (no document row was written), so drop them best-effort.
+    if (timedOut && stage === 'upload') void documentsStorage.remove(path).catch(() => undefined);
+    return { ok: false, timedOut, stage, message: e?.message || 'Upload failed.' };
   }
 }
 
 /** One retry on a verified size mismatch or a transient upload error — a 4xx validation
  *  error (bad path, oversized file) would just fail the same way twice, but a truncated
- *  transfer often doesn't repeat. */
-async function uploadDocWithRetry(quoteId: number, doc: DocPlan): Promise<{ ok: boolean; message: string }> {
+ *  transfer often doesn't repeat. A timeout is NOT retried: it already cost the full
+ *  deadline, and a second one would double the stall on every remaining job. */
+async function uploadDocWithRetry(quoteId: number, doc: DocPlan): Promise<UploadOutcome> {
   const first = await uploadDocOnce(quoteId, doc);
-  if (first.ok) return first;
+  if (first.ok || first.timedOut) return first;
   return uploadDocOnce(quoteId, doc);
 }
 
@@ -368,29 +472,61 @@ function groupByJobFolder(files: File[]): Map<string, { relPath: string; file: F
   return groups;
 }
 
+/** Job-level log: one row per planned folder, numbered the same way the table and the
+ *  progress bar number them. */
 function downloadLog(entries: Entry[]): void {
-  const header = ['Job', 'Quote', 'Documents', 'Line Items', 'Parsed Total', 'Status', 'Message'];
+  const header = ['#', 'Job Folder', 'Quote', 'Documents', 'Line Items', 'Parsed Total', 'Status', 'Timed Out', 'Failed Files', 'Message'];
   const rows = entries.map((e) => [
+    String(e.index),
     e.jobName,
     e.quote?.ref_number || '',
     `${e.docs.filter((d) => d.status === 'replace').length} overwrite, ${e.docs.filter((d) => d.status === 'upload').length} new`,
     e.linePayloads.length ? `${e.linePayloads.length} to insert` : e.existingLineCount ? `${e.existingLineCount} already present` : 'none found',
     e.parsedTotal != null ? String(e.parsedTotal) : '',
     STATUS_LABELS[e.status],
+    String(e.failures.filter((f) => f.timedOut).length),
+    e.failures.map(failureLabel).join(' | '),
     e.message,
   ]);
   downloadCsv('quote-import-log', header, rows);
+}
+
+/** File-level log: one row per failed file, so a stalled or broken file is identified by
+ *  folder + path + size + which step blew up, instead of being buried in a job summary. */
+function downloadFailureLog(entries: Entry[]): void {
+  const header = ['#', 'Job Folder', 'File', 'Directory In Folder', 'Size (bytes)', 'Stage', 'Timed Out', 'Message'];
+  const rows: string[][] = [];
+  for (const e of entries) {
+    for (const f of e.failures) {
+      const dir = f.relPath.includes('/') ? f.relPath.slice(0, f.relPath.lastIndexOf('/')) : '';
+      rows.push([
+        String(e.index),
+        f.jobName,
+        f.relPath || '(line items)',
+        dir,
+        f.size != null ? String(f.size) : '',
+        f.stage,
+        f.timedOut ? 'yes' : 'no',
+        f.message,
+      ]);
+    }
+  }
+  downloadCsv('quote-import-failures', header, rows);
 }
 
 export const QuoteImportPanel: React.FC = () => {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [planning, setPlanning] = useState(false);
   const [running, setRunning] = useState(false);
-  const [planningProgress, setPlanningProgress] = useState<{ done: number; total: number } | null>(null);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [planningProgress, setPlanningProgress] = useState<{ done: number; total: number; jobName: string } | null>(null);
+  /** `current` names the exact file being written right now — a run that stops moving is
+   *  then self-explanatory ("quote 7, this file"), which is the whole reason it exists. */
+  const [progress, setProgress] = useState<
+    { done: number; total: number; index: number; jobName: string; file: string; fileNo: number; fileCount: number } | null
+  >(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [statusFilter, setStatusFilter] = useState<EntryStatus | 'all'>('all');
-  const [runError, setRunError] = useState<{ jobName: string; message: string } | null>(null);
+  const [runError, setRunError] = useState<{ jobName: string; index: number; message: string } | null>(null);
 
   React.useEffect(() => {
     const el = folderInputRef.current;
@@ -404,7 +540,7 @@ export const QuoteImportPanel: React.FC = () => {
     setEntries([]);
     const usable = picked.filter((f) => !f.name.startsWith('.') && !IGNORED_FILE_NAMES.has(f.name));
     const groups = groupByJobFolder(usable);
-    setPlanningProgress({ done: 0, total: groups.size });
+    setPlanningProgress({ done: 0, total: groups.size, jobName: '' });
 
     // One list call covers every quote that has a job_name at all — cheap even at ~150+ rows,
     // and avoids a round trip per folder just to resolve the match.
@@ -417,6 +553,7 @@ export const QuoteImportPanel: React.FC = () => {
     const rows: Entry[] = [];
     let done = 0;
     for (const [jobName, files] of groups) {
+      setPlanningProgress((p) => (p ? { ...p, jobName } : p));
       try {
         const quote = quoteByJobName.get(normalize(jobName)) ?? null;
         const docsRaw: DocPlan[] = files.map(({ relPath, file }) => ({
@@ -430,8 +567,8 @@ export const QuoteImportPanel: React.FC = () => {
 
         if (!quote) {
           rows.push({
-            key: nextKey(), jobName, quote: null, docs: docsRaw, parsedLines: [], parsedTotal: null,
-            existingLineCount: 0, linePayloads: [], status: 'no-match',
+            key: nextKey(), index: rows.length + 1, jobName, quote: null, docs: docsRaw, parsedLines: [], parsedTotal: null,
+            existingLineCount: 0, linePayloads: [], status: 'no-match', failures: [],
             message: `No existing quote with job_name matching "${jobName}" — this tool only fixes quotes already in the system, never creates new ones.`,
           });
           continue;
@@ -482,8 +619,8 @@ export const QuoteImportPanel: React.FC = () => {
         if (!needsWork) bits.push('no local files in this folder and nothing to parse');
 
         rows.push({
-          key: nextKey(), jobName, quote, docs, parsedLines, parsedTotal,
-          existingLineCount: existingLines.length, linePayloads,
+          key: nextKey(), index: rows.length + 1, jobName, quote, docs, parsedLines, parsedTotal,
+          existingLineCount: existingLines.length, linePayloads, failures: [],
           status: needsWork ? 'ready' : 'up-to-date',
           message: bits.join('; ') + '.',
         });
@@ -510,7 +647,10 @@ export const QuoteImportPanel: React.FC = () => {
     if (!ready.length) return;
     setRunning(true);
     setRunError(null);
-    setProgress({ done: 0, total: ready.length });
+    setProgress({
+      done: 0, total: ready.length, index: ready[0].index, jobName: ready[0].jobName,
+      file: '', fileNo: 0, fileCount: ready[0].docs.length,
+    });
 
     const setEntry = (key: string, patch: Partial<Entry>) =>
       setEntries((es) => es.map((e) => (e.key === key ? { ...e, ...patch } : e)));
@@ -520,9 +660,16 @@ export const QuoteImportPanel: React.FC = () => {
       let uploaded = 0;
       let replaced = 0;
       let failed = 0;
-      let lastErrorMessage: string | null = null;
+      const failures: ItemFailure[] = [];
 
-      for (const doc of entry.docs) {
+      setProgress((p) =>
+        p ? { ...p, index: entry.index, jobName: entry.jobName, file: '', fileNo: 0, fileCount: entry.docs.length } : p
+      );
+
+      for (let i = 0; i < entry.docs.length; i++) {
+        const doc = entry.docs[i];
+        // Name the file BEFORE the await, so whatever the run is parked on is on screen.
+        setProgress((p) => (p ? { ...p, file: doc.relPath, fileNo: i + 1, fileCount: entry.docs.length } : p));
         // Upload FIRST, retire the old row only once the new bytes are verified in the
         // bucket. The reverse order (what the old force-resync did) leaves the quote with
         // no document at all whenever the upload then fails, which on a multi-hundred-job
@@ -530,37 +677,72 @@ export const QuoteImportPanel: React.FC = () => {
         const res = await uploadDocWithRetry(quoteId, doc);
         if (!res.ok) {
           failed++;
-          lastErrorMessage = res.message;
+          failures.push({
+            jobName: entry.jobName,
+            relPath: doc.relPath,
+            size: doc.size,
+            stage: res.stage,
+            timedOut: res.timedOut,
+            message: res.message,
+          });
+          // eslint-disable-next-line no-console
+          console.warn(`[quote-import] #${entry.index} ${entry.jobName}/${doc.relPath} — ${res.message}`);
           continue;
         }
         uploaded++;
         if (doc.existingDocumentId != null) {
-          await documentsApi.remove(doc.existingDocumentId).catch(() => undefined);
+          // Retiring the superseded row is best-effort and must never park the run: a
+          // leftover row is a cosmetic duplicate, a hang is a dead import.
+          const staleId = doc.existingDocumentId;
+          await withDeadline('retiring the old document row', RUN_API_TIMEOUT_MS, () =>
+            documentsApi.remove(staleId)
+          ).catch(() => undefined);
           // The old object may still be sitting there (or be an orphan metadata row with
           // no bytes — that is what makes a HEAD answer 200 for a dead object). Either
           // way it is unreferenced now.
-          if (doc.existingStoragePath) await documentsStorage.remove(doc.existingStoragePath).catch(() => undefined);
+          if (doc.existingStoragePath) {
+            const stalePath = doc.existingStoragePath;
+            await withDeadline('deleting the old stored file', RUN_API_TIMEOUT_MS, (signal) =>
+              documentsStorage.remove(stalePath, signal)
+            ).catch(() => undefined);
+          }
           replaced++;
         }
       }
 
       let linesInserted = 0;
-      for (const payload of entry.linePayloads) {
+      for (let i = 0; i < entry.linePayloads.length; i++) {
+        const payload = entry.linePayloads[i];
+        setProgress((p) => (p ? { ...p, file: `line item ${i + 1} of ${entry.linePayloads.length}` } : p));
         try {
-          await quoteLinesApi.create(quoteId, payload);
+          await withDeadline('inserting a line item', RUN_API_TIMEOUT_MS, () => quoteLinesApi.create(quoteId, payload));
           linesInserted++;
         } catch (e: any) {
           failed++;
-          lastErrorMessage = e?.message || 'Line item insert failed.';
+          failures.push({
+            jobName: entry.jobName,
+            relPath: '',
+            size: null,
+            stage: 'line-item',
+            timedOut: e instanceof StepTimeoutError,
+            message: e?.message || 'Line item insert failed.',
+          });
         }
       }
 
       const allAttempted = entry.docs.length + entry.linePayloads.length;
       const status: EntryStatus = failed === 0 ? 'success' : failed === allAttempted ? 'failed' : 'partial';
+      const timedOut = failures.filter((f) => f.timedOut).length;
       setEntry(entry.key, {
         status,
-        result: { uploaded, failed, linesInserted },
-        message: `${uploaded} uploaded (${replaced} overwritten), ${linesInserted} line item(s) added${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
+        failures,
+        result: { uploaded, failed, linesInserted, timedOut },
+        message:
+          `${uploaded} uploaded (${replaced} overwritten), ${linesInserted} line item(s) added` +
+          (failed
+            ? `, ${failed} failed${timedOut ? ` (${timedOut} timed out)` : ''}: ${failures.map(failureLabel).join('; ')}`
+            : '') +
+          '.',
       });
       setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
 
@@ -570,7 +752,11 @@ export const QuoteImportPanel: React.FC = () => {
       // failed identically with no visibility into why until the whole multi-hour
       // run had already finished).
       if (status === 'failed') {
-        setRunError({ jobName: entry.jobName, message: lastErrorMessage || 'Unknown error.' });
+        setRunError({
+          jobName: entry.jobName,
+          index: entry.index,
+          message: failures.length ? failures.map(failureLabel).join('; ') : 'Unknown error.',
+        });
         break;
       }
     }
@@ -601,6 +787,9 @@ export const QuoteImportPanel: React.FC = () => {
   }];
 
   const columns: ImportColumn<Entry>[] = [
+    // The run counts jobs off by this number ("Quote 7 of 120"), so a stall is traceable
+    // straight back to a row here.
+    { header: '#', width: 56, render: (e) => e.index },
     { header: 'Job Folder', width: 260, render: (e) => e.jobName },
     { header: 'Quote', width: 160, render: (e) => (e.quote ? (e.quote.ref_number || `#${e.quote.quote_id}`) : '') },
     {
@@ -615,8 +804,18 @@ export const QuoteImportPanel: React.FC = () => {
     },
     { header: 'Parsed Total', width: 110, render: (e) => (e.parsedTotal != null ? `$${e.parsedTotal.toLocaleString()}` : '') },
     { header: 'Status', width: 140, render: (e) => <StatusChip label={STATUS_LABELS[e.status]} color={STATUS_COLOR[e.status]} /> },
+    {
+      header: 'Timed Out',
+      width: 100,
+      render: (e) => {
+        const n = e.failures.filter((f) => f.timedOut).length;
+        return n ? <StatusChip label={`${n} timed out`} color="warning" /> : '';
+      },
+    },
     { header: 'Message', render: (e) => e.message },
   ];
+
+  const failureCount = entries.reduce((n, e) => n + e.failures.length, 0);
 
   return (
     <Box>
@@ -639,6 +838,7 @@ export const QuoteImportPanel: React.FC = () => {
         {planning && (
           <Typography variant="body2" color="text.secondary">
             Resolving folder {planningProgress?.done ?? 0} of {planningProgress?.total ?? 0}
+            {planningProgress?.jobName ? ` — "${planningProgress.jobName}"` : ''}
             {entries.length ? ` — ${entries.length} planned so far…` : '…'}
           </Typography>
         )}
@@ -650,6 +850,11 @@ export const QuoteImportPanel: React.FC = () => {
         {!planning && entries.length > 0 && (
           <Button size="small" startIcon={<DownloadIcon />} onClick={() => downloadLog(filteredEntries)}>
             Download {statusFilter === 'all' ? 'log' : 'shown'} (CSV)
+          </Button>
+        )}
+        {!planning && failureCount > 0 && (
+          <Button size="small" color="error" startIcon={<DownloadIcon />} onClick={() => downloadFailureLog(entries)}>
+            Download {failureCount} failed file(s) (CSV)
           </Button>
         )}
         {!planning && entries.length > 0 && (
@@ -666,7 +871,7 @@ export const QuoteImportPanel: React.FC = () => {
 
       {runError && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRunError(null)}>
-          Stopped — "{runError.jobName}" failed completely (0 items succeeded): {runError.message}
+          Stopped at #{runError.index} — "{runError.jobName}" failed completely (0 items succeeded): {runError.message}
         </Alert>
       )}
 
@@ -681,8 +886,22 @@ export const QuoteImportPanel: React.FC = () => {
         filtersActive={statusFilter !== 'all'}
         onClearFilters={() => setStatusFilter('all')}
         facets={facets}
-        progress={progress ? { done: progress.done, total: progress.total, label: `Overwriting ${progress.done} of ${progress.total}…` } : null}
-        minTableWidth={1400}
+        progress={
+          progress
+            ? {
+                done: progress.done,
+                total: progress.total,
+                // Names the quote by its row number AND the exact file in flight — the
+                // bar standing still then says what it is stuck on, instead of just
+                // "7 of 120".
+                label:
+                  `${progress.done + 1} of ${progress.total} — quote #${progress.index} "${progress.jobName}"` +
+                  (progress.file ? ` · file ${progress.fileNo}/${progress.fileCount}: ${progress.file}` : '') +
+                  '…',
+              }
+            : null
+        }
+        minTableWidth={1500}
         columns={columns}
       />
     </Box>

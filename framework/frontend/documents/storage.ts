@@ -52,7 +52,7 @@ export function createSupabaseDocumentStorage(config: SupabaseStorageConfig): Do
   return {
     bucket: config.bucket,
 
-    async upload(path: string, file: File): Promise<void> {
+    async upload(path: string, file: File, signal?: AbortSignal): Promise<void> {
       const res = await fetch(`${base}/object/${config.bucket}/${encodePath(path)}`, {
         method: 'POST',
         headers: {
@@ -64,24 +64,26 @@ export function createSupabaseDocumentStorage(config: SupabaseStorageConfig): Do
           'cache-control': '3600',
         },
         body: file,
+        signal,
       });
       if (!res.ok) throw new Error(await readError(res));
     },
 
-    async remove(path: string): Promise<void> {
+    async remove(path: string, signal?: AbortSignal): Promise<void> {
       const res = await fetch(`${base}/object/${config.bucket}`, {
         method: 'DELETE',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ prefixes: [path] }),
+        signal,
       });
       if (!res.ok) throw new Error(await readError(res));
     },
 
-    async viewUrl(path: string): Promise<string> {
+    async viewUrl(path: string, ttlSeconds?: number): Promise<string> {
       const res = await fetch(`${base}/object/sign/${config.bucket}/${encodePath(path)}`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expiresIn: ttl }),
+        body: JSON.stringify({ expiresIn: ttlSeconds ?? ttl }),
       });
       if (!res.ok) throw new Error(await readError(res));
       const body = (await res.json()) as { signedURL: string };

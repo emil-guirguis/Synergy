@@ -47,7 +47,7 @@ export const documentsApi: DocumentsApi = {
 
 export const documentsStorage: DocumentStorage = {
   bucket: rawStorage.bucket,
-  upload: (path, file) => withAuthRetry(() => rawStorage.upload(path, file)),
-  remove: (path) => withAuthRetry(() => rawStorage.remove(path)),
+  upload: (path, file, signal) => withAuthRetry(() => rawStorage.upload(path, file, signal)),
+  remove: (path, signal) => withAuthRetry(() => rawStorage.remove(path, signal)),
   viewUrl: (path) => withAuthRetry(() => rawStorage.viewUrl(path)),
 };

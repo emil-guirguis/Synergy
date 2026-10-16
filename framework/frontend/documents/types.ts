@@ -92,10 +92,20 @@ export interface DocumentsApi {
  */
 export interface DocumentStorage {
   bucket: string;
-  upload(path: string, file: File): Promise<void>;
-  remove(path: string): Promise<void>;
-  /** Short-lived URL for viewing the object in a new tab. */
-  viewUrl(path: string): Promise<string>;
+  /**
+   * `signal` lets a caller put a deadline on the transfer. A bulk importer
+   * uploading hundreds of files cannot let one stalled POST hang the whole run
+   * (TBWC QuoteImportPanel, 2026-10-16: a run sat on one job forever because
+   * nothing here could be cancelled), and fetch only stops on an abort signal.
+   */
+  upload(path: string, file: File, signal?: AbortSignal): Promise<void>;
+  remove(path: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * Signed URL for viewing the object. Short-lived by default (the adapter's own
+   * TTL); pass `ttlSeconds` for links that outlive the click — an emailed link
+   * isn't opened until the mail is read, so the default TTL is dead by then.
+   */
+  viewUrl(path: string, ttlSeconds?: number): Promise<string>;
 }
 
 /** Object key for a record's file. Backend re-derives the prefix and rejects mismatches. */
