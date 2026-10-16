@@ -47,3 +47,6 @@ dist-worker/
 
 # Per-machine Claude Code settings
 **/.claude/settings.local.json
+
+# Supabase CLI local link cache (per-machine, not source)
+/supabase/.temp/
