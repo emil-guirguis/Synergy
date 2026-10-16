@@ -13,12 +13,12 @@
  * quotes specifically):
  *
  *  1. Documents: every local file not yet attached (by file name) gets
- *     uploaded. A file that IS already attached has its reported byte count
- *     re-verified against the actual stored object (a HEAD on the bucket,
- *     not just the document row's file_size column, since that column only
- *     ever reflects what the original uploader *claimed* — this is exactly
- *     how a silently truncated upload survives undetected) — a mismatch
- *     deletes and re-uploads it.
+ *     uploaded. A file that IS already attached has its bytes read back out
+ *     of the bucket (checkStoredObject — a one-byte ranged GET, the only
+ *     check that agrees with what a user clicking the document gets); an
+ *     object that is confirmed absent is deleted and re-uploaded. A stored
+ *     byte count that merely differs from the local copy is reported but not
+ *     acted on — most of those still open fine.
  *  2. Line items: only touched when the quote currently has ZERO lines
  *     recorded (never overwrites existing — possibly hand-corrected — lines).
  *     Parses the Bill-of-Materials table from the primary quote PDF's first
@@ -220,34 +220,74 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 type StoredObjectCheck =
-  | { status: 'found'; size: number }
-  | { status: 'missing' } // confirmed 404 — the object genuinely isn't in the bucket
-  | { status: 'unknown' }; // couldn't tell (no token/network/CORS/timeout/no Content-Length)
+  /** Bytes are really there. `size` is null when the object exists but its length
+   *  couldn't be read — callers then fall back to the DB's file_size column. */
+  | { status: 'found'; size: number | null }
+  | { status: 'missing' } // confirmed absent — the object genuinely isn't in the bucket
+  | { status: 'unknown' }; // couldn't tell (no token/network/CORS/timeout)
+
+/**
+ * Supabase Storage reports a genuinely absent object as **HTTP 400** with a body of
+ * `{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}`
+ * — the HTTP status is 400, the 404 is only inside the JSON. The old probe tested
+ * `res.status === 404`, so it NEVER recognised an absent object: every dead document fell
+ * through to 'unknown', the plan fell back to the DB's file_size column (which matches,
+ * since the bulk CLI importer wrote the row and the bytes from the same fs.statSync), the
+ * document was classified 'already', and the whole quote came out "up to date" with nothing
+ * queued. Verified against record-docs on 2026-10-16: 404 of 1456 quote documents across
+ * 157 quotes answer exactly this, and every one of them was being reported as fine.
+ */
+async function isObjectAbsent(res: Response): Promise<boolean> {
+  if (res.status === 404) return true;
+  if (res.ok) return false;
+  const body = await res.text().catch(() => '');
+  try {
+    const parsed = JSON.parse(body) as { statusCode?: unknown; error?: unknown; code?: unknown };
+    return parsed?.code === 'NoSuchKey' || parsed?.error === 'not_found' || String(parsed?.statusCode) === '404';
+  } catch {
+    return /nosuchkey|object not found|not_?found/i.test(body);
+  }
+}
 
 /** The document row's file_size only ever reflects what the uploader claimed (originally
  *  the bulk CLI importer's fs.statSync) — this checks what's actually sitting in the
  *  bucket right now, the only ground truth for whether a stored object is really bad.
- *  Distinguishes a confirmed-missing object (404 — e.g. the upload never actually landed,
- *  or got deleted later) from "couldn't check" (network blip) — only the former is reliable
- *  enough to drive an automatic re-upload; callers fall back to the DB column on 'unknown'
- *  rather than treating "couldn't check" as "bad". Hard-timed out: a plan over hundreds of
- *  jobs awaits this per-document, and a single HEAD that never resolves would otherwise
- *  hang the whole run at whichever job hit it. */
+ *  Distinguishes a confirmed-absent object (the upload never landed, or the bytes didn't
+ *  survive the Supabase region migration) from "couldn't check" (network blip) — only the
+ *  former is reliable enough to drive an automatic re-upload; callers fall back to the DB
+ *  column on 'unknown' rather than treating "couldn't check" as "bad".
+ *
+ *  Existence is settled by a ONE-BYTE RANGED GET, not a HEAD. A HEAD is answered out of
+ *  the object's metadata row and so reports 200 for a path whose bytes are gone (Villa
+ *  Hermosa, 2026-10-15: HEAD said found, the download 404'd), and a HEAD carries no body,
+ *  so there is no way to read the not_found marker out of Supabase's 400 either. A ranged
+ *  GET travels the same path as a user clicking the document, costs one byte, and comes
+ *  back with a readable error body — see isObjectAbsent.
+ *
+ *  Size comes from a parallel HEAD, because `content-range` on the 206 is NOT a
+ *  CORS-safelisted response header and Supabase sends no Access-Control-Expose-Headers,
+ *  so browser JS cannot read it; `content-length` on the HEAD is safelisted. Both requests
+ *  are in flight together, so this still costs one round trip of wall time, and a failed
+ *  HEAD only costs the (informational) size comparison, never the existence verdict.
+ *
+ *  Hard-timed out: a plan over hundreds of jobs awaits this per-document, and a single
+ *  request that never resolves would otherwise hang the run at whichever job hit it. */
 async function checkStoredObject(storagePath: string): Promise<StoredObjectCheck> {
   const token = tokenStorage.getToken();
   if (!token) return { status: 'unknown' };
+  const url = `${SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/${RECORD_DOCS_BUCKET}/${encodeStoragePath(storagePath)}`;
+  const auth = { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STORED_SIZE_TIMEOUT_MS);
   try {
-    const res = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/${RECORD_DOCS_BUCKET}/${encodeStoragePath(storagePath)}`, {
-      method: 'HEAD',
-      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
-      signal: controller.signal,
-    });
-    if (res.status === 404) return { status: 'missing' };
-    if (!res.ok) return { status: 'unknown' };
-    const len = res.headers.get('content-length');
-    return len == null ? { status: 'unknown' } : { status: 'found', size: Number(len) };
+    const [bytes, meta] = await Promise.all([
+      fetch(url, { method: 'GET', headers: { ...auth, Range: 'bytes=0-0' }, signal: controller.signal }),
+      fetch(url, { method: 'HEAD', headers: auth, signal: controller.signal }).catch(() => null),
+    ]);
+    if (await isObjectAbsent(bytes)) return { status: 'missing' };
+    if (!bytes.ok) return { status: 'unknown' };
+    const len = meta && meta.ok ? meta.headers.get('content-length') : null;
+    return { status: 'found', size: len == null ? null : Number(len) };
   } catch {
     return { status: 'unknown' };
   } finally {
@@ -256,10 +296,10 @@ async function checkStoredObject(storagePath: string): Promise<StoredObjectCheck
 }
 
 /** Best-effort: a check that couldn't be answered doesn't block the run — but a confirmed
- *  404 right after an upload we just made IS a reliable "no, it didn't take" signal. */
+ *  absence right after an upload we just made IS a reliable "no, it didn't take" signal. */
 async function verifyStoredSize(storagePath: string, expectedSize: number): Promise<boolean> {
   const check = await checkStoredObject(storagePath);
-  if (check.status === 'found') return check.size === expectedSize;
+  if (check.status === 'found' && check.size != null) return check.size === expectedSize;
   return check.status !== 'missing';
 }
 
@@ -418,7 +458,7 @@ export const QuoteImportPanel: React.FC = () => {
           if (check.status === 'missing') {
             return { ...d, status: 'missing' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
           }
-          const referenceSize = check.status === 'found' ? check.size : existing.file_size;
+          const referenceSize = check.status === 'found' && check.size != null ? check.size : existing.file_size;
           if (referenceSize != null && referenceSize !== d.size) {
             return { ...d, status: 'size-mismatch' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
           }
@@ -495,9 +535,11 @@ export const QuoteImportPanel: React.FC = () => {
       for (const doc of entry.docs) {
         if (doc.status === 'ready' || doc.status === 'missing') {
           if (doc.status === 'missing' && doc.existingDocumentId != null) {
-            // Object already confirmed gone (404) — nothing to remove from storage,
-            // just drop the stale row before writing the fresh one.
+            // Bytes are confirmed gone, but the old path can still hold an orphan
+            // storage.objects row (that is exactly what makes a HEAD answer 200 for a
+            // dead object) — clear both before writing the fresh one.
             await documentsApi.remove(doc.existingDocumentId).catch(() => undefined);
+            if (doc.existingStoragePath) await documentsStorage.remove(doc.existingStoragePath).catch(() => undefined);
           }
           const res = await uploadDocWithRetry(quoteId, doc);
           if (res.ok) uploaded++;
@@ -651,6 +693,19 @@ export const QuoteImportPanel: React.FC = () => {
         >
           Choose quotes folder…
         </Button>
+        <Tooltip title="How many job folders this pass looks at — planning reads every file's bytes back out of the bucket, so a full sweep of ~600 folders takes a while. Also caps the force-resync buttons below. Set it before picking the folder.">
+          <span>
+            <TextField
+              size="small"
+              type="number"
+              label="Folders per pass"
+              value={resyncLimit}
+              onChange={(e) => setResyncLimit(Math.max(1, Number(e.target.value) || 1))}
+              disabled={planning || running}
+              sx={{ width: 150 }}
+            />
+          </span>
+        </Tooltip>
         {planning && (
           <Typography variant="body2" color="text.secondary">
             Resolving folder {planningProgress?.done ?? 0} of {planningProgress?.total ?? 0}
@@ -679,19 +734,6 @@ export const QuoteImportPanel: React.FC = () => {
       </Box>
       {!planning && matchedCount > 0 && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-          <Tooltip title="Bypasses all detection above. Deletes EVERY document row and storage object this quote currently has — even ones with no local counterpart in this folder — then re-uploads every local file fresh. No diffing, no guessing. Validate on a small batch before running it on everything.">
-            <span>
-              <TextField
-                size="small"
-                type="number"
-                label="Batch size"
-                value={resyncLimit}
-                onChange={(e) => setResyncLimit(Math.max(1, Number(e.target.value) || 1))}
-                disabled={running}
-                sx={{ width: 110 }}
-              />
-            </span>
-          </Tooltip>
           <Button
             color="warning"
             variant="outlined"
