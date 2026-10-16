@@ -13,6 +13,12 @@ import {
   latestRunPerJob, recentRuns, avgDurationPerJob,
   listScheduledJobs, setJobTier, type CronTier,
 } from '../cronMonitor';
+import {
+  BACKUP_BUCKETS, backupStorageToR2, storageBackupStatus,
+  restoreObjectFromR2, restoreBucketBatch,
+  backupPauseState, setBackupPaused,
+} from '../storageBackup';
+import { recentRunsForJob, runJob } from '../cronMonitor';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -86,7 +92,8 @@ app.get('/cron-log', requirePermission('setting:read'), async (c) => {
   return c.json({ success: true, data: { latest, recent, avg, jobs } });
 });
 
-const VALID_TIERS: CronTier[] = ['frequent', 'hourly', 'daily'];
+// 'off' is a valid choice, not a tier that runs — see migration 107.
+const VALID_TIERS: CronTier[] = ['frequent', 'hourly', 'daily', 'nightly', 'off'];
 
 app.put('/jobs/:jobName', requirePermission('setting:write'), async (c) => {
   const jobName = c.req.param('jobName');
@@ -148,6 +155,98 @@ app.put('/alerts/:alertKey', requirePermission('setting:write'), async (c) => {
   );
   if (!result.rows[0]) return c.json({ success: false, message: `No alert_setting row for "${alertKey}"` }, 404);
   return c.json({ success: true, data: result.rows[0], message: 'Alert setting updated' });
+});
+
+// --- Storage Backup tab: worker/storageBackup.ts's R2 mirror of Supabase
+// Storage object bytes (migration 105). The mirror job itself ('backupStorage')
+// already shows up in the Scheduled Jobs tab above via cron_run_log — these
+// endpoints are the per-bucket progress + the manual run/restore actions. ---
+
+function isBackupBucket(v: unknown): v is (typeof BACKUP_BUCKETS)[number] {
+  return typeof v === 'string' && (BACKUP_BUCKETS as readonly string[]).includes(v);
+}
+
+app.get('/storage-backup', requirePermission('setting:read'), async (c) => {
+  const [buckets, pause] = await Promise.all([storageBackupStatus(c.env), backupPauseState(c.env)]);
+  return c.json({ success: true, data: { buckets, ...pause } });
+});
+
+// Last 7 days of backupStorage runs (dates/times/status) — job-specific, not
+// the shared 100-row recentRuns() a frequent-tier job elsewhere would crowd out.
+app.get('/storage-backup/history', requirePermission('setting:read'), async (c) => {
+  const runs = await recentRunsForJob(c.env, 'backupStorage', 7);
+  return c.json({ success: true, data: runs });
+});
+
+// Runs one batch immediately (same bounded-per-call shape as the scheduled
+// tick) rather than waiting for the next tier tick — "back up now". Wrapped
+// in runJob() like the cron-triggered path, so a manual run shows up in the
+// history table (storage-backup/history below) too, not just ticks.
+app.post('/storage-backup/run', requirePermission('setting:write'), async (c) => {
+  // Refused rather than silently no-op'ing: backupStorageToR2 itself also
+  // bails when paused (so a stop is honoured no matter the entry point), but
+  // a manual run that quietly copied nothing would read as a broken button.
+  const pause = await backupPauseState(c.env);
+  if (pause.paused) {
+    return c.json({ success: false, message: 'Backup is stopped — resume it before running a batch' }, 409);
+  }
+  await runJob(c.env, 'backupStorage', () => backupStorageToR2(c.env));
+  const buckets = await storageBackupStatus(c.env);
+  return c.json({ success: true, data: { buckets, ...(await backupPauseState(c.env)) } });
+});
+
+// The stop/start switch. Writes scheduled_job.cron_tier ('off' <-> 'nightly'),
+// which both keeps future cron ticks from running the job and makes a run
+// already in progress bail at its next batch boundary (storageBackup.ts).
+app.post('/storage-backup/pause', requirePermission('setting:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (typeof body.paused !== 'boolean') {
+    return c.json({ success: false, message: 'paused (boolean) is required' }, 400);
+  }
+  try {
+    const pause = await setBackupPaused(c.env, body.paused);
+    const buckets = await storageBackupStatus(c.env);
+    return c.json({
+      success: true,
+      data: { buckets, ...pause },
+      message: pause.paused ? 'Backup stopped' : 'Backup resumed',
+    });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : 'Failed to change backup state' }, 500);
+  }
+});
+
+// Restores one object — the common "I deleted/corrupted this one file" case.
+app.post('/storage-backup/restore', requirePermission('setting:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!isBackupBucket(body.bucket)) {
+    return c.json({ success: false, message: `bucket must be one of: ${BACKUP_BUCKETS.join(', ')}` }, 400);
+  }
+  if (typeof body.path !== 'string' || !body.path) {
+    return c.json({ success: false, message: 'path is required' }, 400);
+  }
+  try {
+    await restoreObjectFromR2(c.env, body.bucket, body.path);
+    return c.json({ success: true, message: `Restored ${body.bucket}/${body.path}` });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : 'Restore failed' }, 500);
+  }
+});
+
+// Restores a whole bucket from the mirror, one cursor-paged batch per call —
+// the panel calls this in a loop until `cursor` comes back null. For
+// disaster-recovery use (bucket wiped/corrupted wholesale), not routine.
+app.post('/storage-backup/restore-bucket', requirePermission('setting:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!isBackupBucket(body.bucket)) {
+    return c.json({ success: false, message: `bucket must be one of: ${BACKUP_BUCKETS.join(', ')}` }, 400);
+  }
+  try {
+    const result = await restoreBucketBatch(c.env, body.bucket, body.cursor ?? null);
+    return c.json({ success: true, data: result });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : 'Restore failed' }, 500);
+  }
 });
 
 export default app;

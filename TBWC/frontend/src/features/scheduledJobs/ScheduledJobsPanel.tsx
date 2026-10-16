@@ -32,12 +32,21 @@ const JOB_LABELS: Record<string, string> = {
   runScheduledNotifications: 'Scheduled notifications',
   backfillDocumentIndex: 'Document text backfill',
   lockStaleReps: 'Rep re-verification lock',
+  backupStorage: 'Storage backup (R2 mirror)',
 };
 
 const TIER_LABELS: Record<CronTier, string> = {
   frequent: 'Every 15 min',
   hourly: 'Hourly',
   daily: 'Daily (6am UTC)',
+  // Cron Triggers run in UTC with no DST awareness — this is pinned to 2am
+  // Pacific Standard Time, so it actually fires at 3am Pacific during
+  // daylight saving rather than shifting to stay at 2am local.
+  nightly: 'Every other day (~2am Pacific)',
+  // Not a schedule — the stop switch (migration 107). A job parked here is
+  // never named by jobsForTier(), and backupStorage also reads this while
+  // running, so stopping it cancels a run in progress.
+  off: 'Off (stopped)',
 };
 
 // Jobs heavy enough that sharing the "frequent" tier with others risks the
@@ -243,6 +252,12 @@ export default function ScheduledJobsPanel() {
                   <MenuItem key={tier} value={tier}>{TIER_LABELS[tier]}</MenuItem>
                 ))}
               </Select>
+              {selectedTier === 'off' && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  This job is stopped — it will not run on any schedule until a schedule is picked
+                  here again.
+                </Alert>
+              )}
               {HEAVY_JOBS.has(selectedJob) && selectedTier === 'frequent' && (
                 <Alert severity="warning" sx={{ mb: 2 }}>
                   This job does real CPU work. Running it every 15 min alongside other jobs on the

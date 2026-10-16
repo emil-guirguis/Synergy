@@ -50,6 +50,11 @@ export interface Env {
   // or the impersonation route opens up in production too.
   ENABLE_IMPERSONATION?: string;
   IMPERSONATE_ALLOWED_EMAIL?: string;
+  // R2 bucket mirroring Supabase Storage object bytes (Supabase's own daily
+  // backups cover Postgres only, not storage file contents). See
+  // worker/storageBackup.ts. `any` to match HYPERDRIVE above — avoids pulling
+  // in @cloudflare/workers-types just for one binding's type.
+  STORAGE_BACKUP: any;
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {

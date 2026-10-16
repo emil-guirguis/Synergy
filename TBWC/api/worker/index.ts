@@ -41,7 +41,8 @@ import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
 import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
 import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSearch';
 import { checkQbwcStale } from './qbwc/staleAlert';
-import { runJob, jobsForTier, tierForCron } from './cronMonitor';
+import { backupStorageToR2 } from './storageBackup';
+import { runJob, jobsForTier, tierForCron, pruneOldCronRunLogs } from './cronMonitor';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -132,6 +133,8 @@ const JOB_REGISTRY: Record<string, (env: Env, now: Date) => Promise<void>> = {
     await backfillDocumentIndex(execQuery, env);
   },
   lockStaleReps: (env) => lockStaleReps(env),
+  backupStorage: (env) => backupStorageToR2(env),
+  pruneCronRunLog: (env) => pruneOldCronRunLogs(env),
 };
 
 export default {

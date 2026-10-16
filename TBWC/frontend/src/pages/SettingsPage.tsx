@@ -9,6 +9,7 @@ import SecurityIcon from '@mui/icons-material/Security';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import ScheduleIcon from '@mui/icons-material/Schedule';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import {
   SettingsPageShell,
   OrgInfoForm,
@@ -23,6 +24,7 @@ import {
 } from '../services/rolesService';
 import AiMemoryPanel from '../features/aiMemory/AiMemoryPanel';
 import ScheduledJobsPanel from '../features/scheduledJobs/ScheduledJobsPanel';
+import StorageBackupPanel from '../features/scheduledJobs/StorageBackupPanel';
 import QuoteImportPanel from '../features/quotes/QuoteImportPanel';
 import { NAV, roleOrderFromNav } from '../components/layout/navConfig';
 import { useAuth } from '../hooks/useAuth';
@@ -235,6 +237,13 @@ export default function SettingsPage() {
           icon: <ScheduleIcon fontSize="small" />,
           description: 'Cron job run history, and who the QuickBooks connection alert notifies.',
           content: <ScheduledJobsPanel />,
+        },
+        {
+          key: 'storageBackup',
+          label: 'Storage Backup',
+          icon: <CloudSyncIcon fontSize="small" />,
+          description: 'R2 mirror of document/image file bytes, and restore from it.',
+          content: <StorageBackupPanel />,
         },
         ...(canImportQuotes ? [{
           key: 'quoteImport',

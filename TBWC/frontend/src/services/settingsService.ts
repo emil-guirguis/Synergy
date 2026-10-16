@@ -74,7 +74,9 @@ export interface CronRun {
   duration_ms: number | null;
 }
 
-export type CronTier = 'frequent' | 'hourly' | 'daily';
+// 'off' parks a job so it never runs — the stop switch (migration 107), not
+// a schedule. See worker/cronMonitor.ts.
+export type CronTier = 'frequent' | 'hourly' | 'daily' | 'nightly' | 'off';
 
 export interface ScheduledJob {
   scheduled_job_id: number;
@@ -130,6 +132,90 @@ export async function updateJobTier(jobName: string, cronTier: CronTier): Promis
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify({ cron_tier: cronTier }),
+    })
+  );
+  return data.data;
+}
+
+// --- Storage Backup tab: worker/storageBackup.ts's R2 mirror of Supabase
+// Storage object bytes (migration 105). ------------------------------------
+
+export type BackupBucket = 'record-docs' | 'rep-docs' | 'item-images';
+
+export interface BucketBackupStatus {
+  bucket: BackupBucket;
+  total: number;
+  backedUp: number;
+  pending: number;
+}
+
+export interface StorageBackupState {
+  buckets: BucketBackupStatus[];
+  /** True while the job sits on the 'off' tier — no nightly ticks, and a run
+   *  in progress stops at its next batch boundary. */
+  paused: boolean;
+  tier: CronTier | null;
+}
+
+export interface RestoreBatchResult {
+  restored: number;
+  failed: number;
+  cursor: string | null;
+}
+
+export async function getStorageBackupStatus(): Promise<StorageBackupState> {
+  const data = await parse(await fetch(`${API_BASE_URL}/settings/storage-backup`, { headers: authHeaders() }));
+  return data.data;
+}
+
+/** Last 7 days of backupStorage runs, newest first — reuses CronRun's shape. */
+export async function getStorageBackupHistory(): Promise<CronRun[]> {
+  const data = await parse(await fetch(`${API_BASE_URL}/settings/storage-backup/history`, { headers: authHeaders() }));
+  return data.data;
+}
+
+/** Runs one backup batch (up to 300 objects per bucket) right now instead of
+ *  waiting for the next scheduled tick. Returns the refreshed status. Rejects
+ *  with 409 while the backup is stopped. */
+export async function runStorageBackupNow(): Promise<StorageBackupState> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/storage-backup/run`, { method: 'POST', headers: authHeaders() })
+  );
+  return data.data;
+}
+
+/** Stops or restarts the backup job: stopping skips every future scheduled
+ *  tick AND cancels a run already in progress (it bails at its next batch
+ *  boundary); restarting puts it back on the nightly schedule. */
+export async function setStorageBackupPaused(paused: boolean): Promise<StorageBackupState> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/storage-backup/pause`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ paused }),
+    })
+  );
+  return data.data;
+}
+
+export async function restoreStorageObject(bucket: BackupBucket, path: string): Promise<void> {
+  await parse(
+    await fetch(`${API_BASE_URL}/settings/storage-backup/restore`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ bucket, path }),
+    })
+  );
+}
+
+/** One cursor-paged batch of a whole-bucket restore — call again with the
+ *  returned cursor until it comes back null. */
+export async function restoreStorageBucketBatch(bucket: BackupBucket, cursor: string | null): Promise<RestoreBatchResult> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/storage-backup/restore-bucket`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ bucket, cursor }),
     })
   );
   return data.data;

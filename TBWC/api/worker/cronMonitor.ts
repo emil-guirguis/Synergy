@@ -86,6 +86,36 @@ export async function recentRuns(env: Env, limit = 100): Promise<CronRunRow[]> {
   return rows;
 }
 
+/** One job's own run history within the retention window — unlike recentRuns
+ *  (shared 100-row cap across every job), a frequent-tier job elsewhere can't
+ *  crowd this one out. Backs the Storage Backup panel's history table. */
+export async function recentRunsForJob(env: Env, jobName: string, sinceDays = 7): Promise<CronRunRow[]> {
+  const { rows } = await execQuery(
+    env,
+    `SELECT cron_run_log_id, job_name, status, error, started_at, finished_at, duration_ms
+       FROM public.cron_run_log
+      WHERE job_name = $1 AND started_at > now() - ($2 || ' days')::interval
+      ORDER BY started_at DESC`,
+    [jobName, sinceDays],
+    'cron.runLog.recentForJob'
+  );
+  return rows;
+}
+
+/** Deletes cron_run_log rows older than `retainDays` (default 7) — the
+ *  table has no retention otherwise and the frequent tier (every 15 min)
+ *  alone writes ~96 rows/day forever. Run as its own daily job
+ *  (pruneCronRunLog in JOB_REGISTRY), not folded into runJob() itself, so a
+ *  slow prune can't delay every job's own finish-row write. */
+export async function pruneOldCronRunLogs(env: Env, retainDays = 7): Promise<void> {
+  await execQuery(
+    env,
+    `DELETE FROM public.cron_run_log WHERE started_at < now() - ($1 || ' days')::interval`,
+    [retainDays],
+    'cron.runLog.prune'
+  );
+}
+
 /** Average duration of successful runs per job, last `sinceHours` — context for "is this run slow". */
 export async function avgDurationPerJob(env: Env, sinceHours = 24): Promise<{ job_name: string; avg_ms: number; runs: number }[]> {
   const { rows } = await execQuery(
@@ -100,49 +130,71 @@ export async function avgDurationPerJob(env: Env, sinceHours = 24): Promise<{ jo
   return rows;
 }
 
-// --- public.scheduled_job (migration 103) — which of the 3 Cloudflare Cron
-// Trigger tiers (see wrangler.toml) each named job runs on. Editable from
+// --- public.scheduled_job (migration 103) — which Cloudflare Cron Trigger
+// tier (see wrangler.toml) each named job runs on. Editable from
 // Settings > Scheduled Jobs; a change takes effect on that tier's next tick,
-// no redeploy. Kept to 3 fixed tiers on purpose — see migration 103's header
-// on why this isn't a free-text cron column. ---------------------------
+// no redeploy. Kept to a fixed tier set on purpose — see migration 103's
+// header on why this isn't a free-text cron column. ---------------------
 
-export type CronTier = 'frequent' | 'hourly' | 'daily';
+// 'off' is the stop switch (migration 107), not a tier: no cron maps to it,
+// so jobsForTier() never names an 'off' job and it simply never runs. Jobs
+// that can also be cancelled mid-run (backupStorage) re-read their own tier
+// while running and bail when they see 'off' — see isJobPaused below.
+export type RunnableCronTier = 'frequent' | 'hourly' | 'daily' | 'nightly';
+export type CronTier = RunnableCronTier | 'off';
 
 // Matches wrangler.toml's [triggers]/[env.production.triggers] crons exactly.
-export const TIER_CRON: Record<CronTier, string> = {
+// 'nightly' = 0 10 */2 * * UTC, chosen as ~2am Pacific every other day — Cron
+// Triggers have no timezone concept (so it reads as 3am Pacific during
+// daylight saving) and day-of-month step doesn't divide evenly across month
+// boundaries (e.g. day 31 then day 1 are two calendar-adjacent runs, not two
+// days apart) — an occasional off-by-one-day is fine for a backup cadence.
+export const TIER_CRON: Record<RunnableCronTier, string> = {
   frequent: '*/15 * * * *',
   hourly: '0 * * * *',
   daily: '0 6 * * *',
+  nightly: '0 10 */2 * *',
 };
 
-const CRON_TIER: Record<string, CronTier> = Object.fromEntries(
-  Object.entries(TIER_CRON).map(([tier, cron]) => [cron, tier as CronTier])
+const CRON_TIER: Record<string, RunnableCronTier> = Object.fromEntries(
+  Object.entries(TIER_CRON).map(([tier, cron]) => [cron, tier as RunnableCronTier])
 );
 
-export function tierForCron(cron: string): CronTier | null {
+export function tierForCron(cron: string): RunnableCronTier | null {
   return CRON_TIER[cron] ?? null;
 }
 
 // Fallback if public.scheduled_job is missing a row (or the table itself,
 // pre-migration) — today's hardcoded assignment, so a missing row degrades
 // to current behavior rather than silently dropping a job from every tier.
-const DEFAULT_TIER_JOBS: Record<CronTier, string[]> = {
+const DEFAULT_TIER_JOBS: Record<RunnableCronTier, string[]> = {
   frequent: ['checkQbwcStale', 'runScheduledNotifications'],
   hourly: ['backfillDocumentIndex'],
-  daily: ['lockStaleReps'],
+  daily: ['lockStaleReps', 'pruneCronRunLog'],
+  nightly: ['backupStorage'],
 };
 
-/** Job names assigned to run on this tier, per public.scheduled_job. */
-export async function jobsForTier(env: Env, tier: CronTier): Promise<string[]> {
+/** Job names assigned to run on this tier, per public.scheduled_job.
+ *
+ *  Reads the whole table rather than filtering in SQL on purpose: a tier with
+ *  no rows has to be told apart from a table with no rows at all. Only the
+ *  latter falls back to DEFAULT_TIER_JOBS (the pre-migration-103 safety net) —
+ *  an empty result for one tier is a real answer, "nothing runs here", which
+ *  is exactly what parking every job on 'off' (migration 107) produces. Doing
+ *  it the other way round made the stop switch a no-op: moving the only
+ *  nightly job to 'off' emptied that tier, and the fallback re-added it. */
+export async function jobsForTier(env: Env, tier: RunnableCronTier): Promise<string[]> {
   try {
     const { rows } = await execQuery(
       env,
-      `SELECT job_name FROM public.scheduled_job WHERE cron_tier = $1`,
-      [tier],
+      `SELECT job_name, cron_tier FROM public.scheduled_job`,
+      [],
       'cron.scheduledJob.byTier'
     );
     if (rows.length === 0) return DEFAULT_TIER_JOBS[tier] ?? [];
-    return rows.map((r: { job_name: string }) => r.job_name);
+    return rows
+      .filter((r: { cron_tier: string }) => r.cron_tier === tier)
+      .map((r: { job_name: string }) => r.job_name);
   } catch (e) {
     console.error(`[cron] scheduled_job lookup failed for tier ${tier}, using built-in default:`, e instanceof Error ? e.message : e);
     return DEFAULT_TIER_JOBS[tier] ?? [];
@@ -165,6 +217,34 @@ export async function listScheduledJobs(env: Env): Promise<ScheduledJobRow[]> {
     'cron.scheduledJob.list'
   );
   return rows;
+}
+
+/** One job's current tier, or null if it has no scheduled_job row. */
+export async function jobTier(env: Env, jobName: string): Promise<CronTier | null> {
+  const { rows } = await execQuery(
+    env,
+    `SELECT cron_tier FROM public.scheduled_job WHERE job_name = $1`,
+    [jobName],
+    'cron.scheduledJob.tier'
+  );
+  return rows[0]?.cron_tier ?? null;
+}
+
+/** True when this job is parked on the 'off' tier (migration 107) — i.e. the
+ *  user has stopped it. Read both before a run starts and periodically during
+ *  a long run (storageBackup.ts), so the switch also cancels work already in
+ *  flight, not just future ticks.
+ *
+ *  Fails open: a lookup error answers "not paused", so a database hiccup
+ *  can't silently stop a backup. The job's own error handling covers the case
+ *  where the database is genuinely unreachable. */
+export async function isJobPaused(env: Env, jobName: string): Promise<boolean> {
+  try {
+    return (await jobTier(env, jobName)) === 'off';
+  } catch (e) {
+    console.error(`[cron] pause check failed for ${jobName}, treating as not paused:`, e instanceof Error ? e.message : e);
+    return false;
+  }
 }
 
 export async function setJobTier(env: Env, jobName: string, tier: CronTier): Promise<ScheduledJobRow | null> {

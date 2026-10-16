@@ -46,6 +46,14 @@ binding = "HYPERDRIVE"
 id = "00000000000000000000000000000000"
 localConnectionString = "postgresql://postgres.ihnezwvduwimprqascsf:h6kJwcfbGAiR8B2jjXwyLTud@aws-0-us-west-1.pooler.supabase.com:5432/postgres"
 
+# Mirror of Supabase Storage object bytes (Supabase's own backups cover
+# Postgres only — see worker/storageBackup.ts). Bucket created manually via
+# `wrangler r2 bucket create tbwc-storage-backup` (needs R2 enabled on the
+# CF account first — dashboard-only, not scriptable).
+[[r2_buckets]]
+binding = "STORAGE_BACKUP"
+bucket_name = "tbwc-storage-backup"
+
 [observability]
 [observability.logs]
 enabled = true
@@ -64,12 +72,24 @@ enabled = true
 #   0 6 * * *    -> lockStaleReps (90-day re-verification sweep; idempotent,
 #                    its real cadence need is daily — the */15 it ran at
 #                    before was only collateral from runScheduledNotifications
-#                    needing that granularity, not its own requirement).
+#                    needing that granularity, not its own requirement) +
+#                    pruneCronRunLog (7-day retention on this very log).
+#   0 10 */2 * * -> backupStorage (R2 mirror of Supabase Storage objects,
+#                    worker/storageBackup.ts). ~2am Pacific every other day —
+#                    Cron Triggers have no timezone concept (reads as 3am
+#                    Pacific during daylight saving) and day-of-month step
+#                    doesn't divide evenly across month boundaries (an
+#                    occasional day run back-to-back is fine for a backup
+#                    cadence). A separate tier from the other daily job
+#                    (lockStaleReps, 0 6 * * *) only because the user asked
+#                    for this one specifically, not because it needs
+#                    isolating from lockStaleReps the way backfillDocumentIndex
+#                    needed isolating from checkQbwcStale above.
 # `wrangler dev` doesn't fire this without --test-scheduler; must be
 # duplicated under [env.production.triggers] below since named envs don't
 # inherit this.
 [triggers]
-crons = ["*/15 * * * *", "0 * * * *", "0 6 * * *"]
+crons = ["*/15 * * * *", "0 * * * *", "0 6 * * *", "0 10 */2 * *"]
 
 # --- production -------------------------------------------------------------
 # Deploy with:  wrangler deploy --env production
@@ -107,9 +127,13 @@ PORTAL_URL = "https://tbwctechnology.com/portal/"
 binding = "HYPERDRIVE"
 id = "74980b729f904abe855ed1b48b7f304d"
 
+[[env.production.r2_buckets]]
+binding = "STORAGE_BACKUP"
+bucket_name = "tbwc-storage-backup"
+
 [env.production.observability.logs]
 enabled = true
 
 # Named envs don't inherit [triggers] either — duplicate of the block above.
 [env.production.triggers]
-crons = ["*/15 * * * *", "0 * * * *", "0 6 * * *"]
+crons = ["*/15 * * * *", "0 * * * *", "0 6 * * *", "0 10 */2 * *"]
