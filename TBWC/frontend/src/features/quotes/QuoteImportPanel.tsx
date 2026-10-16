@@ -37,7 +37,7 @@
  *     correctly — see buildLinePayloads().
  */
 import React, { useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, LinearProgress, TextField, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, LinearProgress, Tooltip, Typography } from '@mui/material';
 import DriveFolderUploadIcon from '@mui/icons-material/DriveFolderUpload';
 import DownloadIcon from '@mui/icons-material/Download';
 import {
@@ -391,7 +391,6 @@ export const QuoteImportPanel: React.FC = () => {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [statusFilter, setStatusFilter] = useState<EntryStatus | 'all'>('all');
   const [runError, setRunError] = useState<{ jobName: string; message: string } | null>(null);
-  const [foldersPerPass, setFoldersPerPass] = useState(30);
 
   React.useEffect(() => {
     const el = folderInputRef.current;
@@ -400,13 +399,12 @@ export const QuoteImportPanel: React.FC = () => {
     el.setAttribute('directory', '');
   }, []);
 
-  const buildPlan = async (picked: File[], limit: number) => {
+  const buildPlan = async (picked: File[]) => {
     setPlanning(true);
     setEntries([]);
     const usable = picked.filter((f) => !f.name.startsWith('.') && !IGNORED_FILE_NAMES.has(f.name));
     const groups = groupByJobFolder(usable);
-    const groupTotal = Math.min(groups.size, limit);
-    setPlanningProgress({ done: 0, total: groupTotal });
+    setPlanningProgress({ done: 0, total: groups.size });
 
     // One list call covers every quote that has a job_name at all — cheap even at ~150+ rows,
     // and avoids a round trip per folder just to resolve the match.
@@ -419,7 +417,6 @@ export const QuoteImportPanel: React.FC = () => {
     const rows: Entry[] = [];
     let done = 0;
     for (const [jobName, files] of groups) {
-      if (done >= groupTotal) break;
       try {
         const quote = quoteByJobName.get(normalize(jobName)) ?? null;
         const docsRaw: DocPlan[] = files.map(({ relPath, file }) => ({
@@ -505,7 +502,7 @@ export const QuoteImportPanel: React.FC = () => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
     setRunError(null);
-    if (picked.length) void buildPlan(picked, foldersPerPass);
+    if (picked.length) void buildPlan(picked);
   };
 
   const runImport = async () => {
@@ -624,7 +621,8 @@ export const QuoteImportPanel: React.FC = () => {
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Pick the folder that holds one subfolder per job (e.g. "2026 Quotes") — rerunnable any time.
+        Pick the folder that holds one subfolder per job (e.g. "2026 Quotes") — every job folder in it is
+        planned, and the run is rerunnable any time.
         Every local file is written over the document attached under the same name, no questions asked, so an
         unopenable stored copy is replaced whether or not anything about it looks wrong from the outside.
         Only touches quotes already in the system, and never creates new ones.
@@ -638,19 +636,6 @@ export const QuoteImportPanel: React.FC = () => {
         >
           Choose quotes folder…
         </Button>
-        <Tooltip title="How many job folders this pass looks at. Planning costs two API calls per folder, so a full sweep of ~600 is slow but not prohibitive — the uploads themselves are what take the time. Set it before picking the folder.">
-          <span>
-            <TextField
-              size="small"
-              type="number"
-              label="Folders per pass"
-              value={foldersPerPass}
-              onChange={(e) => setFoldersPerPass(Math.max(1, Number(e.target.value) || 1))}
-              disabled={planning || running}
-              sx={{ width: 150 }}
-            />
-          </span>
-        </Tooltip>
         {planning && (
           <Typography variant="body2" color="text.secondary">
             Resolving folder {planningProgress?.done ?? 0} of {planningProgress?.total ?? 0}
