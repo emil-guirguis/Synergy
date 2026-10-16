@@ -122,6 +122,12 @@ export function whereFromQuery(
       where[column] = true;
     } else if (value === 'false') {
       where[column] = false;
+    } else if (value.includes(',')) {
+      // A multiselect filter (e.g. support_ticket.type checkboxes) posts its
+      // selected values comma-joined in one query param — split back into an
+      // array so findAll() below emits `column = ANY(...)` instead of a
+      // literal exact-match against the joined string.
+      where[column] = value.split(',').filter(Boolean);
     } else {
       where[column] = value;
     }
@@ -261,6 +267,10 @@ export function createCrud(execQuery: ExecQueryFn) {
         whereClauses.push(`"${table}".${key} IS NOT NULL`);
       } else if (value === null) {
         whereClauses.push(`"${table}".${key} IS NULL`);
+      } else if (Array.isArray(value)) {
+        whereClauses.push(`"${table}".${key} = ANY($${paramIdx})`);
+        params.push(value);
+        paramIdx++;
       } else {
         whereClauses.push(`"${table}".${key} = $${paramIdx}`);
         params.push(value);

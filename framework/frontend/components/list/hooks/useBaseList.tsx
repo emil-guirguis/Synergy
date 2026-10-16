@@ -154,6 +154,21 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     itemName: string;
   }>({ isOpen: false, item: null, itemName: '' });
 
+  // A multiselect filter's checkbox panel (<details>, see renderFilters below)
+  // has no native "click outside to close" behavior — left open, it's an
+  // absolutely-positioned block that sits on top of (and blocks clicks on)
+  // whatever's underneath, usually the table. Close any open one on an
+  // outside mousedown, same as a normal dropdown.
+  useEffect(() => {
+    function closeOpenMultiselects(e: MouseEvent) {
+      document.querySelectorAll('details.list__filter-item--multiselect[open]').forEach((el) => {
+        if (!el.contains(e.target as Node)) el.removeAttribute('open');
+      });
+    }
+    document.addEventListener('mousedown', closeOpenMultiselects);
+    return () => document.removeEventListener('mousedown', closeOpenMultiselects);
+  }, []);
+
   // Memoize columns to prevent unnecessary re-renders
   const memoizedColumns = useMemo(() => columns, [columns]);
 
@@ -728,6 +743,39 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
                   </div>
                 )}
               </div>
+            );
+          }
+
+          if (filter.type === 'multiselect') {
+            const options = typeof filter.options === 'function'
+              ? filter.options(store.items || [])
+              : filter.options || [];
+            const selected: string[] = Array.isArray(filterValue) ? filterValue : [];
+
+            return (
+              <details key={filter.key} className={`list__filter-item list__filter-item--multiselect ${filter.className || ''}`}>
+                <summary className="form-control list__multiselect-toggle" aria-label={filter.label}>
+                  {selected.length > 0 ? `${filter.label} (${selected.length})` : (filter.placeholder || `All ${filter.label}`)}
+                </summary>
+                <div className="list__multiselect-dropdown">
+                  {options.map((option) => (
+                    <label key={option.value} className="list__multiselect-option">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(String(option.value))}
+                        disabled={filter.disabled}
+                        onChange={(e) => {
+                          const next = e.target.checked
+                            ? [...selected, String(option.value)]
+                            : selected.filter((v) => v !== String(option.value));
+                          setFilter(filter.key, next);
+                        }}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </details>
             );
           }
 

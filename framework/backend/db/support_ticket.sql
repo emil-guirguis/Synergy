@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS public.support_ticket (
     resolved_at timestamp without time zone,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT support_ticket_type_check CHECK (type::text = ANY (ARRAY['bug'::text, 'feature_request'::text, 'billing'::text, 'account'::text, 'technical'::text, 'general'::text])),
+    CONSTRAINT support_ticket_type_check CHECK (type::text = ANY (ARRAY['bug'::text, 'feature_request'::text, 'billing'::text, 'account'::text, 'technical'::text, 'general'::text, 'rma'::text])),
     CONSTRAINT support_ticket_status_check CHECK (status::text = ANY (ARRAY['open'::text, 'in_progress'::text, 'resolved'::text, 'closed'::text])),
     CONSTRAINT support_ticket_priority_check CHECK (priority::text = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'urgent'::text]))
 );

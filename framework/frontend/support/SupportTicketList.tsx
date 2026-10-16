@@ -46,9 +46,14 @@ export const SupportTicketList: React.FC<SupportTicketListProps> = ({
     // support_ticket columns, so a free-text filter on them would try to
     // query a nonexistent column.
     const { assigned_to_name, created_by_name, client_tenant_name, ticket_number, ...filterableFields } = schema.formFields;
-    return generateFiltersFromSchema(filterableFields, {
+    const generated = generateFiltersFromSchema(filterableFields, {
       fieldOrder: ['status', 'priority', 'type'],
     });
+    // Ticket type is the one filter a ticket plausibly matches more than one
+    // value of interest at a time (e.g. reviewing both 'bug' and 'rma'
+    // tickets together) — checkboxes instead of generateFiltersFromSchema's
+    // default single-value dropdown.
+    return generated.map((f) => (f.key === 'type' ? { ...f, type: 'multiselect' as const } : f));
   }, [schema]);
 
   const baseList = useBaseList<SupportTicket, ReturnType<typeof useStore>>({

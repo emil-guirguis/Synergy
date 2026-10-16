@@ -259,7 +259,7 @@ export function useSchemaForm({
 
         if (fd.enumValues) {
           if (!fd.enumValues.includes(value)) {
-            const readable = fd.enumValues.map((v: string) => fd.enumLabels?.[v] ?? v);
+            const readable = fd.enumValues.map((v: string) => fd.enumLabels?.[v] ?? v.split('_').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
             newErrors[fieldName] = `${fd.label} must be one of: ${readable.join(', ')}`;
           }
         }

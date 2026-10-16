@@ -29,8 +29,29 @@ function normalize(t: any): SupportTicket {
 }
 
 const api = {
-  async getAll(): Promise<{ items: SupportTicket[]; total: number; hasMore: boolean }> {
-    const res = await request<any>('/support');
+  async getAll(params?: any): Promise<{ items: SupportTicket[]; total: number; hasMore: boolean }> {
+    const q = new URLSearchParams();
+    if (params?.page) q.append('page', String(params.page));
+    if (params?.pageSize) q.append('limit', String(params.pageSize));
+    if (params?.limit) q.append('limit', String(params.limit));
+    if (params?.sortBy) q.append('sortBy', params.sortBy);
+    if (params?.sortOrder) q.append('sortOrder', params.sortOrder);
+    if (params?.search) q.append('search', params.search);
+    if (params?.filters) {
+      Object.entries(params.filters).forEach(([k, v]: [string, any]) => {
+        if (v === '' || v === null || v === undefined) return;
+        // Multiselect filters (e.g. type checkboxes) post an array —
+        // comma-join into one param; backend's whereFromQuery splits it back
+        // out into an IN-style match (framework/backend/api/base/crud.ts).
+        if (Array.isArray(v)) {
+          if (v.length > 0) q.append(k, v.join(','));
+        } else {
+          q.append(k, String(v));
+        }
+      });
+    }
+    const qs = q.toString();
+    const res = await request<any>(`/support${qs ? `?${qs}` : ''}`);
     const items = (res.data?.items ?? []).map(normalize);
     return { items, total: res.data?.total ?? items.length, hasMore: false };
   },

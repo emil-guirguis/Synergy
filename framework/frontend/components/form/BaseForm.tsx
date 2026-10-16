@@ -344,7 +344,10 @@ export const BaseForm: React.FC<BaseFormProps> = ({
       fieldType = 'select';
       fieldOptions = fieldDef.enumValues.map((val: string) => ({
         value: val,
-        label: fieldDef.enumLabels?.[val] ?? (val.charAt(0).toUpperCase() + val.slice(1)),
+        // 'feature_request' -> 'Feature Request' when there's no explicit
+        // enumLabels override, instead of just capitalizing the raw value
+        // and leaving the underscore in (val.charAt(0).toUpperCase()...).
+        label: fieldDef.enumLabels?.[val] ?? val.split('_').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
       }));
     }
 

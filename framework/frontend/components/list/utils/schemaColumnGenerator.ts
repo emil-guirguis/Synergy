@@ -28,6 +28,15 @@ interface ExtendedFieldDefinition extends FieldDefinition {
   filterable?: boolean;
 }
 
+/** 'feature_request' -> 'Feature Request'. Fallback display for an enum value with no explicit enumLabels entry. */
+function humanizeEnumValue(val: string): string {
+  return val
+    .split('_')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 /**
  * Generate column definitions from schema fields
  * 
@@ -141,14 +150,19 @@ export function generateColumnsFromSchema<T extends Record<string, any>>(
         column.render = (_value: any, row: T) => {
           const val = row[fieldName as keyof T];
           if (val === null || val === undefined || val === '') return '';
-          return fieldDef.enumLabels?.[String(val)] ?? String(val);
+          return fieldDef.enumLabels?.[String(val)] ?? humanizeEnumValue(String(val));
         };
         break;
 
       default:
         column.render = (_value: any, row: T) => {
           const val = row[fieldName as keyof T];
-          return val ? String(val) : '';
+          if (val === null || val === undefined || val === '') return '';
+          // A STRING-typed schema field (not FieldTypes.SELECT) can still carry
+          // enumValues (e.g. support_ticket.type) — give it the same humanized
+          // display as a real select column instead of the raw snake_case value.
+          if (fieldDef.enumValues) return fieldDef.enumLabels?.[String(val)] ?? humanizeEnumValue(String(val));
+          return String(val);
         };
     }
 
@@ -209,7 +223,7 @@ export function generateFiltersFromSchema(
           label: fieldDef.label || fieldName,
           type: 'select' as const,
           options: fieldDef.enumValues.map((val: string) => ({
-            label: val,
+            label: fieldDef.enumLabels?.[val] ?? humanizeEnumValue(val),
             value: val,
           })),
           placeholder: `All ${fieldName == 'active' ? 'Statuses' : fieldDef.label || fieldName}`,

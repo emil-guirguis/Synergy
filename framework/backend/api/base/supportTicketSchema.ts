@@ -39,7 +39,9 @@ export const supportTicketSchema = defineSchema({
             // it's a display id, not something a filer or admin ever edits.
             field({ name: 'ticket_number', order: 1, type: FieldTypes.STRING, default: '', required: false, readOnly: true, label: 'Ticket #', dbField: 'ticket_number', showOn: ['list', 'form'] }),
             field({ name: 'title',       order: 2, type: FieldTypes.STRING,   default: '', required: true,  readOnly: false, label: 'Title',       dbField: 'title',    maxLength: 200, showOn: ['list', 'form'] }),
-            field({ name: 'type',        order: 3, type: FieldTypes.STRING,   default: 'general', required: false, readOnly: false, label: 'Type',   dbField: 'type',     enumValues: ['bug', 'feature_request', 'billing', 'account', 'technical', 'general'], showOn: ['list', 'form'] }),
+            // enumLabels only overrides 'rma' — every other value already reads fine
+            // through BaseForm's generic "split on _, capitalize each word" fallback.
+            field({ name: 'type',        order: 3, type: FieldTypes.STRING,   default: 'general', required: false, readOnly: false, label: 'Type',   dbField: 'type',     enumValues: ['bug', 'feature_request', 'billing', 'account', 'technical', 'general', 'rma'], enumLabels: { rma: 'RMA' }, showOn: ['list', 'form'] }),
             field({ name: 'description', order: 4, type: FieldTypes.TEXTAREA, default: '',  required: false, readOnly: false, label: 'Description', dbField: 'description', rows: 5, showOn: ['form'] }),
             // Not a support_ticket column — joined from public.users (routes/
             // support.ts SELECT_WITH_USERS/JOIN_USERS), same convention as
