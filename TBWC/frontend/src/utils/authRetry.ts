@@ -10,18 +10,24 @@
  */
 import { authService } from '../services/authService';
 
-const AUTH_ERROR_PATTERNS = [
-  'invalid or expired token',
-  'access token required',
-  'unauthorized',
-  'authentication required',
-  // Supabase Storage/PostgREST's jose-based JWT verification, verbatim.
-  "'exp' claim timestamp check failed",
+const AUTH_ERROR_PATTERNS: RegExp[] = [
+  /invalid or expired token/,
+  /access token required/,
+  /unauthorized/,
+  /authentication required/,
+  // Supabase Storage/PostgREST's jose-based JWT verification. The claim name's
+  // quoting is NOT stable: it has been emitted both as 'exp' and as "exp"
+  // (2026-10-16: a multi-hour quote import died on every upload once the token
+  // aged out, because this list only matched the single-quoted spelling and so
+  // never triggered the refresh below). Match either, or none.
+  /["']?exp["']? claim timestamp check failed/,
+  /jwt expired/,
+  /token (?:is |has )?expired/,
 ];
 
 export function isAuthError(error: unknown): boolean {
   const message = error instanceof Error ? error.message.toLowerCase() : '';
-  return AUTH_ERROR_PATTERNS.some((p) => message.includes(p.toLowerCase()));
+  return AUTH_ERROR_PATTERNS.some((p) => p.test(message));
 }
 
 export function forceLogout(): void {

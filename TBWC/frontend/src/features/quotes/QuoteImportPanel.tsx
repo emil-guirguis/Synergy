@@ -52,6 +52,7 @@ import { quotesService, quoteLinesApi } from './quotesStore';
 import { extractQuotePdf, mergeHeaders, type ParsedQuoteHeader, type ParsedQuoteLine } from './quotePdfParse';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../config/api';
 import { tokenStorage } from '../../utils/tokenStorage';
+import { authService } from '../../services/authService';
 
 const IGNORED_FILE_NAMES = new Set(['Thumbs.db', 'desktop.ini', '.DS_Store']);
 const MAX_PARSE_PAGES = 3;
@@ -299,6 +300,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
       () => { clearTimeout(timer); resolve(fallback); }
     );
   });
+}
+
+/**
+ * A sweep over hundreds of folders outlives a Supabase access token (1h by default), and
+ * the bytes go straight to Storage with whatever token tokenStorage holds at that moment.
+ * withAuthRetry refreshes reactively after a rejection, but that costs one failed upload
+ * per expiry at best — and when the rejection's wording isn't recognised, it costs the
+ * whole run (2026-10-16: every file of a job failed with `"exp" claim timestamp check
+ * failed`). Refreshing BEFORE the token is close to expiring keeps the run off that path
+ * entirely; a failure here is not fatal, since the reactive retry still stands behind it.
+ */
+async function keepSessionFresh(): Promise<void> {
+  try {
+    if (!tokenStorage.isTokenExpiringSoon()) return;
+    await authService.refresh();
+  } catch {
+    // Leave it to withAuthRetry — a refresh that fails here will fail there too, and
+    // there it is attached to a specific file we can report.
+  }
 }
 
 /** Marks a step that blew its deadline, so the run can log it as a timeout (with the file
@@ -745,7 +765,12 @@ export const QuoteImportPanel: React.FC = () => {
   };
 
   const runImport = async () => {
-    const ready = entries.filter((e) => e.status === 'ready');
+    // 'failed' jobs are included so the button doubles as "continue": the run stops on a
+    // job that failed outright (usually something systemic, like an expired session), and
+    // pressing it again should pick that job back up rather than require a fresh plan over
+    // hundreds of folders. 'partial' is deliberately NOT retried — its successful uploads
+    // would be duplicated. A planning failure has no quote and nothing to upload.
+    const ready = entries.filter((e) => e.status === 'ready' || (e.status === 'failed' && e.quote));
     if (!ready.length) return;
     setRunning(true);
     setRunError(null);
@@ -776,6 +801,8 @@ export const QuoteImportPanel: React.FC = () => {
         beginStep();
         // Let the browser paint the name above before the transfer starts.
         await yieldToBrowser();
+        // Cheap (a localStorage read) except in the minutes before expiry.
+        await keepSessionFresh();
         // Upload FIRST, retire the old row only once the new bytes are verified in the
         // bucket. The reverse order (what the old force-resync did) leaves the quote with
         // no document at all whenever the upload then fails, which on a multi-hundred-job
@@ -880,6 +907,10 @@ export const QuoteImportPanel: React.FC = () => {
   };
 
   const readyCount = entries.filter((e) => e.status === 'ready').length;
+  /** Jobs a press of the button would touch — see runImport: untouched jobs plus the one
+   *  a stopped run failed on, so the same button continues where it left off. */
+  const retryCount = entries.filter((e) => e.status === 'failed' && e.quote).length;
+  const runnableCount = readyCount + retryCount;
   const hasRun = entries.some((e) => e.status === 'success' || e.status === 'partial' || e.status === 'failed');
   const statusCounts = useMemo(() => {
     const counts = {} as Record<EntryStatus, number>;
@@ -958,7 +989,9 @@ export const QuoteImportPanel: React.FC = () => {
         )}
         {!planning && entries.length > 0 && (
           <Typography variant="body2" color="text.secondary">
-            {entries.length} job(s) planned — {readyCount} to overwrite{hasRun ? ', run complete' : ''}.
+            {entries.length} job(s) planned — {readyCount} to overwrite
+            {retryCount ? `, ${retryCount} failed job(s) to retry` : ''}
+            {hasRun ? ', run complete' : ''}.
           </Typography>
         )}
         {!planning && entries.length > 0 && (
@@ -974,8 +1007,12 @@ export const QuoteImportPanel: React.FC = () => {
         {!planning && entries.length > 0 && (
           <Tooltip title="Writes every local file over the document attached under the same name, with no checking — the stored copy is replaced whether or not anything looks wrong with it. Each upload is verified in the bucket before the old document row is retired, so a failed upload leaves the existing one in place. Documents attached to a quote that have no local counterpart in this folder are left alone.">
             <span>
-              <Button variant="contained" color="warning" onClick={() => void runImport()} disabled={running || readyCount === 0}>
-                {running ? 'Overwriting…' : `Overwrite ${readyCount} Quote(s)`}
+              <Button variant="contained" color="warning" onClick={() => void runImport()} disabled={running || runnableCount === 0}>
+                {running
+                  ? 'Overwriting…'
+                  : retryCount
+                    ? `Continue — ${runnableCount} Quote(s) Left`
+                    : `Overwrite ${runnableCount} Quote(s)`}
               </Button>
             </span>
           </Tooltip>
