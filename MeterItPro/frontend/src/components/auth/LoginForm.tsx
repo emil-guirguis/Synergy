@@ -6,7 +6,6 @@ import { useAuth } from '../../hooks/useAuth';
 import { TwoFactorVerificationModal } from './TwoFactorVerificationModal';
 import { Turnstile } from './Turnstile';
 import authService from '../../services/authService';
-import { getVersionDisplay } from '../../utils/version';
 
 interface LoginFormProps {
   onSuccess?: (response?: any) => void;
@@ -86,14 +85,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         onForgotPasswordClick={() => navigate('/forgot-password')}
         extraSlot={<Turnstile onVerify={handleTurnstileVerify} onExpire={handleTurnstileExpire} />}
         footer={
-          <>
-            <Typography variant="body2" color="text.secondary">
-              © 2025 MeterIt Pro. All rights reserved.
-            </Typography>
-            <Typography variant="caption" color="text.disabled">
-              {getVersionDisplay()}
-            </Typography>
-          </>
+          <Typography variant="body2" color="text.secondary">
+            © 2025 MeterIt Pro. All rights reserved.
+          </Typography>
         }
       />
 

@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import { getVersionDisplay } from '../../utils/version';
 
 export interface LoginFormCredentials {
   email: string;
@@ -61,8 +62,15 @@ export interface LoginFormProps {
   submitDisabled?: boolean;
   /** Shows a "Forgot your password?" link when provided; caller owns navigation. */
   onForgotPasswordClick?: () => void;
-  /** Rendered below the card (copyright, version, etc). */
+  /** Rendered below the card (copyright, links, etc). */
   footer?: React.ReactNode;
+  /**
+   * The build version is printed under the card on every app's login page — it is
+   * the one screen everyone reaches before signing in, so "what build am I on?" is
+   * answerable from a screenshot. Set false to suppress it; both apps used to pass
+   * their own copy through `footer`, which is what this replaces.
+   */
+  showVersion?: boolean;
 }
 
 export const LoginForm: React.FC<LoginFormProps> = ({
@@ -78,6 +86,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   submitDisabled = false,
   onForgotPasswordClick,
   footer,
+  showVersion = true,
 }) => {
   const [credentials, setCredentials] = useState<LoginFormCredentials>({
     email: prefilledEmail,
@@ -269,7 +278,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({
           </CardContent>
         </Card>
 
-        {footer && <Box sx={{ mt: 4, textAlign: 'center' }}>{footer}</Box>}
+        {(footer || showVersion) && (
+          <Box sx={{ mt: 4, textAlign: 'center' }}>
+            {footer}
+            {showVersion && (
+              <Typography variant="caption" color="text.disabled" display="block" data-testid="login-version">
+                {getVersionDisplay()}
+              </Typography>
+            )}
+          </Box>
+        )}
       </Box>
     </Container>
   );
