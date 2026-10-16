@@ -12,13 +12,18 @@
  * 2026-10-13 in favor of the CLI scripts — this restores that pattern for
  * quotes specifically):
  *
- *  1. Documents: every local file not yet attached (by file name) gets
- *     uploaded. A file that IS already attached has its bytes read back out
- *     of the bucket (checkStoredObject — a one-byte ranged GET, the only
- *     check that agrees with what a user clicking the document gets); an
- *     object that is confirmed absent is deleted and re-uploaded. A stored
- *     byte count that merely differs from the local copy is reported but not
- *     acted on — most of those still open fine.
+ *  1. Documents: EVERY local file is uploaded, over the top of whatever is
+ *     already attached under the same name. No detection, deliberately — no
+ *     remote check can answer the question that actually matters ("does this
+ *     file open?"): the stored byte count matches the DB's file_size column
+ *     on every object that still has bytes, a HEAD returns 200 for ones that
+ *     don't, and a 2026-10-16 sample of 40 stored PDFs found every present
+ *     one structurally whole. Two rounds of heuristics (file_size column,
+ *     then HEAD) both reported "up to date" over files nobody could open, so
+ *     the heuristics are gone. The upload is verified in the bucket before
+ *     the superseded document row is retired, so a failure leaves the old
+ *     one attached rather than nothing at all. Documents with no local
+ *     counterpart in the folder are never touched.
  *  2. Line items: only touched when the quote currently has ZERO lines
  *     recorded (never overwrites existing — possibly hand-corrected — lines).
  *     Parses the Bill-of-Materials table from the primary quote PDF's first
@@ -95,7 +100,9 @@ interface QuoteMatch {
   total: number | null;
 }
 
-type DocStatus = 'ready' | 'already' | 'size-mismatch' | 'missing';
+/** No detection: every local file is written. 'replace' only records that an older row
+ *  with the same file name has to be retired once the fresh upload lands. */
+type DocStatus = 'upload' | 'replace';
 
 interface DocPlan {
   relPath: string;
@@ -115,9 +122,6 @@ interface Entry {
   jobName: string;
   quote: QuoteMatch | null;
   docs: DocPlan[];
-  /** Every document row this quote actually has right now, not just the ones matched to a
-   *  local filename — forceResyncJob wipes all of these, so a resync needs the full list. */
-  existingDocs: DocumentRecord[];
   parsedLines: ParsedQuoteLine[];
   parsedTotal: number | null;
   existingLineCount: number;
@@ -129,10 +133,10 @@ interface Entry {
 
 const STATUS_LABELS: Record<EntryStatus, string> = {
   'no-match': 'no matching quote',
-  'up-to-date': 'up to date',
-  ready: 'needs fixing',
-  success: 'fixed',
-  partial: 'partially fixed',
+  'up-to-date': 'nothing to upload',
+  ready: 'will overwrite',
+  success: 'overwritten',
+  partial: 'partly overwritten',
   failed: 'failed',
 };
 const STATUS_COLOR: Record<EntryStatus, 'success' | 'default' | 'error' | 'warning' | 'info'> = {
@@ -249,13 +253,12 @@ async function isObjectAbsent(res: Response): Promise<boolean> {
   }
 }
 
-/** The document row's file_size only ever reflects what the uploader claimed (originally
- *  the bulk CLI importer's fs.statSync) — this checks what's actually sitting in the
- *  bucket right now, the only ground truth for whether a stored object is really bad.
- *  Distinguishes a confirmed-absent object (the upload never landed, or the bytes didn't
- *  survive the Supabase region migration) from "couldn't check" (network blip) — only the
- *  former is reliable enough to drive an automatic re-upload; callers fall back to the DB
- *  column on 'unknown' rather than treating "couldn't check" as "bad".
+/** Post-upload verification ONLY — nothing in the plan consults this any more. Read what
+ *  actually landed in the bucket for an object we just wrote ourselves, where we know the
+ *  expected byte count exactly; that is a question a remote check can answer, unlike "is
+ *  this months-old file openable", which it cannot (see the header comment).
+ *  Distinguishes a confirmed-absent object from "couldn't check" (network blip), so a blip
+ *  never causes a good upload to be thrown away.
  *
  *  Existence is settled by a ONE-BYTE RANGED GET, not a HEAD. A HEAD is answered out of
  *  the object's metadata row and so reports 200 for a path whose bytes are gone (Villa
@@ -370,7 +373,7 @@ function downloadLog(entries: Entry[]): void {
   const rows = entries.map((e) => [
     e.jobName,
     e.quote?.ref_number || '',
-    `${e.docs.filter((d) => d.status === 'ready').length} new, ${e.docs.filter((d) => d.status === 'missing').length} missing, ${e.docs.filter((d) => d.status === 'size-mismatch').length} size-differs, ${e.docs.filter((d) => d.status === 'already').length} ok`,
+    `${e.docs.filter((d) => d.status === 'replace').length} overwrite, ${e.docs.filter((d) => d.status === 'upload').length} new`,
     e.linePayloads.length ? `${e.linePayloads.length} to insert` : e.existingLineCount ? `${e.existingLineCount} already present` : 'none found',
     e.parsedTotal != null ? String(e.parsedTotal) : '',
     STATUS_LABELS[e.status],
@@ -388,7 +391,7 @@ export const QuoteImportPanel: React.FC = () => {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [statusFilter, setStatusFilter] = useState<EntryStatus | 'all'>('all');
   const [runError, setRunError] = useState<{ jobName: string; message: string } | null>(null);
-  const [resyncLimit, setResyncLimit] = useState(30);
+  const [foldersPerPass, setFoldersPerPass] = useState(30);
 
   React.useEffect(() => {
     const el = folderInputRef.current;
@@ -425,12 +428,12 @@ export const QuoteImportPanel: React.FC = () => {
           file,
           size: file.size,
           docType: classifyQuoteFile(relPath),
-          status: 'ready',
+          status: 'upload',
         }));
 
         if (!quote) {
           rows.push({
-            key: nextKey(), jobName, quote: null, docs: docsRaw, existingDocs: [], parsedLines: [], parsedTotal: null,
+            key: nextKey(), jobName, quote: null, docs: docsRaw, parsedLines: [], parsedTotal: null,
             existingLineCount: 0, linePayloads: [], status: 'no-match',
             message: `No existing quote with job_name matching "${jobName}" — this tool only fixes quotes already in the system, never creates new ones.`,
           });
@@ -443,27 +446,22 @@ export const QuoteImportPanel: React.FC = () => {
         ]);
         const existingByName = new Map(existingDocs.map((d) => [d.file_name.trim().toLowerCase(), d]));
 
-        // Trust the real stored bytes over the DB's file_size column — the original bulk
-        // importer wrote that column from a local fs.statSync at CLI-import time, and
-        // plenty of those have drifted from what's actually in the bucket without the
-        // bucket object itself being wrong. Comparing against the column alone flagged
-        // nearly everything as a "mismatch" even though most of those files opened fine.
-        const docs: DocPlan[] = await Promise.all(docsRaw.map(async (d) => {
+        // No probing. Every local file is uploaded over whatever is attached under the same
+        // name, because no remote check can actually answer "is this file openable": the
+        // stored byte count matches the DB column on every object that still has bytes, and
+        // a HEAD reports 200 for ones that don't. Planning therefore costs two API calls per
+        // job (documents + lines) instead of two network round trips per document, which is
+        // what made a full sweep of ~600 folders impractical.
+        const docs: DocPlan[] = docsRaw.map((d) => {
           const existing = existingByName.get(d.fileName.trim().toLowerCase());
-          if (!existing) return { ...d, status: 'ready' as DocStatus };
-          if (!existing.storage_path) {
-            return { ...d, status: 'missing' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: null };
-          }
-          const check = await checkStoredObject(existing.storage_path);
-          if (check.status === 'missing') {
-            return { ...d, status: 'missing' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
-          }
-          const referenceSize = check.status === 'found' && check.size != null ? check.size : existing.file_size;
-          if (referenceSize != null && referenceSize !== d.size) {
-            return { ...d, status: 'size-mismatch' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
-          }
-          return { ...d, status: 'already' as DocStatus, existingDocumentId: existing.document_id, existingStoragePath: existing.storage_path };
-        }));
+          if (!existing) return { ...d, status: 'upload' as DocStatus };
+          return {
+            ...d,
+            status: 'replace' as DocStatus,
+            existingDocumentId: existing.document_id,
+            existingStoragePath: existing.storage_path,
+          };
+        });
 
         const quoteCandidates = docs.filter((d) => d.docType === 'quote');
         const { header, lines: parsedLines } = await withTimeout(
@@ -474,26 +472,20 @@ export const QuoteImportPanel: React.FC = () => {
         const parsedTotal = header.total ?? null;
         const linePayloads = existingLines.length === 0 ? buildLinePayloads(parsedLines, parsedTotal) : [];
 
-        const toUpload = docs.filter((d) => d.status === 'ready').length;
-        // Confirmed-missing (404 on the actual bucket object) is a hard signal — always
-        // re-upload. Size-mismatch is informational only — a different byte count than
-        // your local copy doesn't by itself mean the stored file is broken (most still
-        // open fine), so it no longer queues an automatic delete-and-reupload on its own.
-        const toReupload = docs.filter((d) => d.status === 'missing').length;
-        const toFix = docs.filter((d) => d.status === 'size-mismatch').length;
-        const needsWork = toUpload > 0 || toReupload > 0 || linePayloads.length > 0;
+        const toUpload = docs.filter((d) => d.status === 'upload').length;
+        const toReplace = docs.filter((d) => d.status === 'replace').length;
+        const needsWork = docs.length > 0 || linePayloads.length > 0;
 
         const bits: string[] = [];
+        if (toReplace) bits.push(`${toReplace} attached document(s) will be overwritten from your local copy`);
         if (toUpload) bits.push(`${toUpload} new document(s) to attach`);
-        if (toReupload) bits.push(`${toReupload} document(s) missing from storage — will re-upload`);
-        if (toFix) bits.push(`${toFix} document(s) have a different stored byte count than your local copy — not necessarily broken, review manually`);
         if (linePayloads.length) bits.push(`${linePayloads.length} line item(s) parsed from "${quoteCandidates.find((c) => c.docType === 'quote')?.fileName ?? 'the quote PDF'}" (currently has none)`);
         else if (existingLines.length === 0 && quoteCandidates.length === 0) bits.push('no quote PDF found to parse lines from');
         else if (existingLines.length === 0) bits.push('no BOM table found in the first 3 pages');
-        if (!needsWork) bits.push('already up to date');
+        if (!needsWork) bits.push('no local files in this folder and nothing to parse');
 
         rows.push({
-          key: nextKey(), jobName, quote, docs, existingDocs, parsedLines, parsedTotal,
+          key: nextKey(), jobName, quote, docs, parsedLines, parsedTotal,
           existingLineCount: existingLines.length, linePayloads,
           status: needsWork ? 'ready' : 'up-to-date',
           message: bits.join('; ') + '.',
@@ -513,7 +505,7 @@ export const QuoteImportPanel: React.FC = () => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
     setRunError(null);
-    if (picked.length) void buildPlan(picked, resyncLimit);
+    if (picked.length) void buildPlan(picked, foldersPerPass);
   };
 
   const runImport = async () => {
@@ -529,21 +521,29 @@ export const QuoteImportPanel: React.FC = () => {
     for (const entry of ready) {
       const quoteId = entry.quote!.quote_id;
       let uploaded = 0;
+      let replaced = 0;
       let failed = 0;
       let lastErrorMessage: string | null = null;
 
       for (const doc of entry.docs) {
-        if (doc.status === 'ready' || doc.status === 'missing') {
-          if (doc.status === 'missing' && doc.existingDocumentId != null) {
-            // Bytes are confirmed gone, but the old path can still hold an orphan
-            // storage.objects row (that is exactly what makes a HEAD answer 200 for a
-            // dead object) — clear both before writing the fresh one.
-            await documentsApi.remove(doc.existingDocumentId).catch(() => undefined);
-            if (doc.existingStoragePath) await documentsStorage.remove(doc.existingStoragePath).catch(() => undefined);
-          }
-          const res = await uploadDocWithRetry(quoteId, doc);
-          if (res.ok) uploaded++;
-          else { failed++; lastErrorMessage = res.message; }
+        // Upload FIRST, retire the old row only once the new bytes are verified in the
+        // bucket. The reverse order (what the old force-resync did) leaves the quote with
+        // no document at all whenever the upload then fails, which on a multi-hundred-job
+        // run is a guaranteed way to lose attachments that were merely unopenable before.
+        const res = await uploadDocWithRetry(quoteId, doc);
+        if (!res.ok) {
+          failed++;
+          lastErrorMessage = res.message;
+          continue;
+        }
+        uploaded++;
+        if (doc.existingDocumentId != null) {
+          await documentsApi.remove(doc.existingDocumentId).catch(() => undefined);
+          // The old object may still be sitting there (or be an orphan metadata row with
+          // no bytes — that is what makes a HEAD answer 200 for a dead object). Either
+          // way it is unreferenced now.
+          if (doc.existingStoragePath) await documentsStorage.remove(doc.existingStoragePath).catch(() => undefined);
+          replaced++;
         }
       }
 
@@ -558,12 +558,12 @@ export const QuoteImportPanel: React.FC = () => {
         }
       }
 
-      const allAttempted = entry.docs.filter((d) => d.status === 'ready' || d.status === 'missing').length + entry.linePayloads.length;
+      const allAttempted = entry.docs.length + entry.linePayloads.length;
       const status: EntryStatus = failed === 0 ? 'success' : failed === allAttempted ? 'failed' : 'partial';
       setEntry(entry.key, {
         status,
         result: { uploaded, failed, linesInserted },
-        message: `${uploaded} uploaded, ${linesInserted} line item(s) added${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
+        message: `${uploaded} uploaded (${replaced} overwritten), ${linesInserted} line item(s) added${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
       });
       setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
 
@@ -582,64 +582,7 @@ export const QuoteImportPanel: React.FC = () => {
     setRunning(false);
   };
 
-  /** Bypasses every detection heuristic above — HEAD-based checks have twice now
-   *  disagreed with reality (stale file_size column, then a HEAD that reports a stored
-   *  object "found" while the actual download 404s — Villa Hermosa, 2026-10-15, likely
-   *  the known Supabase region-migration RLS gap on storage.objects). Deletes every
-   *  document row + storage object this quote currently has, then re-uploads every local
-   *  file fresh. No diffing, no guessing — whatever's wrong, this always ends in the same
-   *  known-good state. Destructive: any remote document with no local counterpart in this
-   *  folder is gone for good, which is why this runs on a capped batch first. */
-  const runForceResync = async (limit: number) => {
-    const targets = entries.filter((e) => e.quote != null).slice(0, limit);
-    if (!targets.length) return;
-    setRunning(true);
-    setRunError(null);
-    setProgress({ done: 0, total: targets.length });
-
-    const setEntry = (key: string, patch: Partial<Entry>) =>
-      setEntries((es) => es.map((e) => (e.key === key ? { ...e, ...patch } : e)));
-
-    for (const entry of targets) {
-      const quoteId = entry.quote!.quote_id;
-      let removed = 0;
-      let uploaded = 0;
-      let failed = 0;
-      let lastErrorMessage: string | null = null;
-
-      for (const doc of entry.existingDocs) {
-        await documentsApi.remove(doc.document_id).catch(() => undefined);
-        if (doc.storage_path) await documentsStorage.remove(doc.storage_path).catch(() => undefined);
-        removed++;
-      }
-
-      for (const doc of entry.docs) {
-        const res = await uploadDocWithRetry(quoteId, doc);
-        if (res.ok) uploaded++;
-        else { failed++; lastErrorMessage = res.message; }
-      }
-
-      const allAttempted = entry.docs.length;
-      const status: EntryStatus = failed === 0 ? 'success' : failed === allAttempted ? 'failed' : 'partial';
-      setEntry(entry.key, {
-        status,
-        result: { uploaded, failed, linesInserted: 0 },
-        message: `Resynced: removed ${removed} old doc(s), uploaded ${uploaded} fresh${failed ? `, ${failed} failed${lastErrorMessage ? `: ${lastErrorMessage}` : ''}` : ''}.`,
-      });
-      setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
-
-      if (status === 'failed') {
-        setRunError({ jobName: entry.jobName, message: lastErrorMessage || 'Unknown error.' });
-        break;
-      }
-    }
-
-    setProgress(null);
-    setRunning(false);
-  };
-
   const readyCount = entries.filter((e) => e.status === 'ready').length;
-  const matchedCount = entries.filter((e) => e.quote != null).length;
   const hasRun = entries.some((e) => e.status === 'success' || e.status === 'partial' || e.status === 'failed');
   const statusCounts = useMemo(() => {
     const counts = {} as Record<EntryStatus, number>;
@@ -666,7 +609,7 @@ export const QuoteImportPanel: React.FC = () => {
     {
       header: 'Documents',
       width: 180,
-      render: (e) => `${e.docs.filter((d) => d.status === 'ready').length} new, ${e.docs.filter((d) => d.status === 'missing').length} missing, ${e.docs.filter((d) => d.status === 'size-mismatch').length} size-differs, ${e.docs.filter((d) => d.status === 'already').length} ok`,
+      render: (e) => `${e.docs.filter((d) => d.status === 'replace').length} overwrite, ${e.docs.filter((d) => d.status === 'upload').length} new`,
     },
     {
       header: 'Line Items',
@@ -681,8 +624,10 @@ export const QuoteImportPanel: React.FC = () => {
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Pick the folder that holds one subfolder per job (e.g. "2026 Quotes") — rerunnable any time;
-        only fixes quotes already in the system (missing/corrupt documents, missing line items, missing totals), never creates new ones.
+        Pick the folder that holds one subfolder per job (e.g. "2026 Quotes") — rerunnable any time.
+        Every local file is written over the document attached under the same name, no questions asked, so an
+        unopenable stored copy is replaced whether or not anything about it looks wrong from the outside.
+        Only touches quotes already in the system, and never creates new ones.
       </Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
         <Button
@@ -693,14 +638,14 @@ export const QuoteImportPanel: React.FC = () => {
         >
           Choose quotes folder…
         </Button>
-        <Tooltip title="How many job folders this pass looks at — planning reads every file's bytes back out of the bucket, so a full sweep of ~600 folders takes a while. Also caps the force-resync buttons below. Set it before picking the folder.">
+        <Tooltip title="How many job folders this pass looks at. Planning costs two API calls per folder, so a full sweep of ~600 is slow but not prohibitive — the uploads themselves are what take the time. Set it before picking the folder.">
           <span>
             <TextField
               size="small"
               type="number"
               label="Folders per pass"
-              value={resyncLimit}
-              onChange={(e) => setResyncLimit(Math.max(1, Number(e.target.value) || 1))}
+              value={foldersPerPass}
+              onChange={(e) => setFoldersPerPass(Math.max(1, Number(e.target.value) || 1))}
               disabled={planning || running}
               sx={{ width: 150 }}
             />
@@ -714,7 +659,7 @@ export const QuoteImportPanel: React.FC = () => {
         )}
         {!planning && entries.length > 0 && (
           <Typography variant="body2" color="text.secondary">
-            {entries.length} job(s) planned — {readyCount} need fixing{hasRun ? ', run complete' : ''}.
+            {entries.length} job(s) planned — {readyCount} to overwrite{hasRun ? ', run complete' : ''}.
           </Typography>
         )}
         {!planning && entries.length > 0 && (
@@ -723,35 +668,15 @@ export const QuoteImportPanel: React.FC = () => {
           </Button>
         )}
         {!planning && entries.length > 0 && (
-          <Tooltip title="Only acts on rows marked 'needs fixing' — matched quotes already up to date are left alone.">
+          <Tooltip title="Writes every local file over the document attached under the same name, with no checking — the stored copy is replaced whether or not anything looks wrong with it. Each upload is verified in the bucket before the old document row is retired, so a failed upload leaves the existing one in place. Documents attached to a quote that have no local counterpart in this folder are left alone.">
             <span>
-              <Button variant="contained" onClick={() => void runImport()} disabled={running || readyCount === 0}>
-                {running ? 'Fixing…' : `Fix ${readyCount} Quote(s)`}
+              <Button variant="contained" color="warning" onClick={() => void runImport()} disabled={running || readyCount === 0}>
+                {running ? 'Overwriting…' : `Overwrite ${readyCount} Quote(s)`}
               </Button>
             </span>
           </Tooltip>
         )}
       </Box>
-      {!planning && matchedCount > 0 && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-          <Button
-            color="warning"
-            variant="outlined"
-            onClick={() => void runForceResync(resyncLimit)}
-            disabled={running || matchedCount === 0}
-          >
-            {running ? 'Resyncing…' : `Force resync first ${Math.min(resyncLimit, matchedCount)} of ${matchedCount}`}
-          </Button>
-          <Button
-            color="warning"
-            variant="text"
-            onClick={() => void runForceResync(matchedCount)}
-            disabled={running || matchedCount === 0}
-          >
-            Force resync all {matchedCount} matched
-          </Button>
-        </Box>
-      )}
       <input ref={folderInputRef} type="file" hidden multiple onChange={handleFolderChosen} />
 
       {runError && (
@@ -771,7 +696,7 @@ export const QuoteImportPanel: React.FC = () => {
         filtersActive={statusFilter !== 'all'}
         onClearFilters={() => setStatusFilter('all')}
         facets={facets}
-        progress={progress ? { done: progress.done, total: progress.total, label: `Fixing ${progress.done} of ${progress.total}…` } : null}
+        progress={progress ? { done: progress.done, total: progress.total, label: `Overwriting ${progress.done} of ${progress.total}…` } : null}
         minTableWidth={1400}
         columns={columns}
       />
