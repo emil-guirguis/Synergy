@@ -126,7 +126,7 @@ interface ItemFailure {
   /** Path inside the job folder (may contain subdirectories), '' for a line-item failure. */
   relPath: string;
   size: number | null;
-  stage: 'upload' | 'verify' | 'metadata' | 'line-item';
+  stage: 'upload' | 'verify' | 'metadata' | 'line-item' | 'parse' | 'lookup' | 'planning';
   timedOut: boolean;
   message: string;
 }
@@ -186,16 +186,44 @@ function nextKey(): string {
  * printed the total, so stopping at the "best" file's own header was
  * dropping totals that a second or third PDF in the same folder did have.
  */
-async function pickPrimary(candidates: DocPlan[]): Promise<{ header: ParsedQuoteHeader; lines: ParsedQuoteLine[] }> {
+async function pickPrimary(
+  candidates: DocPlan[],
+  /** Called before each PDF is opened, so the progress bar can name the file it is on.
+   *  Without this the planning bar sat on a folder number with nothing to identify the
+   *  file a slow/corrupt PDF had parked it on. */
+  onFile?: (doc: DocPlan, index: number, total: number) => void,
+  /** Parse failures are reported rather than swallowed — an unreadable PDF is exactly
+   *  what a stalled-looking plan needs to say out loud. */
+  onFailure?: (f: ItemFailure) => void
+): Promise<{ header: ParsedQuoteHeader; lines: ParsedQuoteLine[] }> {
   const headers: ParsedQuoteHeader[] = [];
   let bestLines: ParsedQuoteLine[] = [];
-  for (const doc of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const doc = candidates[i];
+    onFile?.(doc, i + 1, candidates.length);
+    // Hand the browser a turn before a parse: pdf.js does its work on this thread, so
+    // without this yield React never repaints and the file name just set above would
+    // never actually reach the screen.
+    await yieldToBrowser();
     try {
-      const parsed = await extractQuotePdf(doc.file, MAX_PARSE_PAGES);
+      // Per FILE, not per folder. The old budget covered every candidate in the folder
+      // at once, so one 40MB PDF ate the whole allowance and the rest were skipped
+      // silently with no record of why.
+      const parsed = await withDeadline(`parsing ${doc.fileName}`, PARSE_FILE_TIMEOUT_MS, () =>
+        extractQuotePdf(doc.file, MAX_PARSE_PAGES)
+      );
       headers.push(parsed.header);
       if (parsed.lines.length > bestLines.length) bestLines = parsed.lines;
-    } catch {
-      // unreadable/corrupt PDF — leave it out of the parse, still gets uploaded as a document
+    } catch (e: any) {
+      // unreadable/corrupt/slow PDF — left out of the parse, still gets uploaded as a document
+      onFailure?.({
+        jobName: '',
+        relPath: doc.relPath,
+        size: doc.size,
+        stage: 'parse',
+        timedOut: e instanceof StepTimeoutError,
+        message: e?.message || 'Could not read this PDF.',
+      });
     }
   }
   return { header: mergeHeaders(headers), lines: bestLines };
@@ -230,7 +258,23 @@ function encodeStoragePath(path: string): string {
 
 const STORED_SIZE_TIMEOUT_MS = 8000;
 const PLAN_FETCH_TIMEOUT_MS = 15000;
-const PLAN_PARSE_TIMEOUT_MS = 20000;
+/** Deadline for ONE PDF parse (was a single 20s budget shared by every candidate in a
+ *  folder, which a big first file could spend entirely on its own). */
+const PARSE_FILE_TIMEOUT_MS = 20000;
+/** Backstop for a whole folder, covering anything the per-step deadlines don't. */
+const PLAN_FOLDER_TIMEOUT_MS = 120000;
+/** The quote list that every folder is matched against — one call, before the loop. */
+const PLAN_QUOTES_TIMEOUT_MS = 60000;
+/** How long one step may sit before the progress line calls itself out as stalled. */
+const STALL_WARN_MS = 20000;
+
+/** Lets the browser paint between CPU-bound steps. pdf.js parses on this thread, so
+ *  without a yield the progress bar never repaints and every file name set during a
+ *  parse run arrives on screen only after the whole loop is over — which is precisely
+ *  what made planning look frozen with no file named. */
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 /** Metadata calls during the run (document row create/delete, line insert) — small JSON
  *  round trips through the Worker, so anything past this is a hang, not slowness. */
 const RUN_API_TIMEOUT_MS = 30000;
@@ -518,7 +562,14 @@ export const QuoteImportPanel: React.FC = () => {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [planning, setPlanning] = useState(false);
   const [running, setRunning] = useState(false);
-  const [planningProgress, setPlanningProgress] = useState<{ done: number; total: number; jobName: string } | null>(null);
+  const [planningProgress, setPlanningProgress] = useState<
+    { done: number; total: number; jobName: string; file: string; fileNo: number; fileCount: number; step: string } | null
+  >(null);
+  /** When the step on screen started, so the label can say how long it has been sitting
+   *  there and call itself stalled — the difference between "slow" and "hung". */
+  const [stepStartedAt, setStepStartedAt] = useState<number>(() => Date.now());
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const [planError, setPlanError] = useState<string | null>(null);
   /** `current` names the exact file being written right now — a run that stops moving is
    *  then self-explanatory ("quote 7, this file"), which is the whole reason it exists. */
   const [progress, setProgress] = useState<
@@ -535,25 +586,45 @@ export const QuoteImportPanel: React.FC = () => {
     el.setAttribute('directory', '');
   }, []);
 
+  // Ticks only while something is in flight, so the "on this file for 42s" counter keeps
+  // moving even when the step itself produces no state change.
+  React.useEffect(() => {
+    if (!planning && !running) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [planning, running]);
+
+  /** Marks the start of a new step AND names it, so one call does both. */
+  const beginStep = React.useCallback(() => setStepStartedAt(Date.now()), []);
+  const elapsedSec = Math.max(0, Math.round((nowTick - stepStartedAt) / 1000));
+
   const buildPlan = async (picked: File[]) => {
     setPlanning(true);
+    setPlanError(null);
     setEntries([]);
+    beginStep();
     const usable = picked.filter((f) => !f.name.startsWith('.') && !IGNORED_FILE_NAMES.has(f.name));
     const groups = groupByJobFolder(usable);
-    setPlanningProgress({ done: 0, total: groups.size, jobName: '' });
-
-    // One list call covers every quote that has a job_name at all — cheap even at ~150+ rows,
-    // and avoids a round trip per folder just to resolve the match.
-    const { items: allQuotes } = await quotesService.getAll({ limit: 2000 });
-    const quoteByJobName = new Map<string, QuoteMatch>();
-    for (const q of allQuotes as QuoteMatch[]) {
-      if (q.job_name) quoteByJobName.set(normalize(q.job_name), q);
-    }
+    setPlanningProgress({ done: 0, total: groups.size, jobName: '', file: '', fileNo: 0, fileCount: 0, step: 'loading quotes' });
 
     const rows: Entry[] = [];
     let done = 0;
+    try {
+      // One list call covers every quote that has a job_name at all — cheap even at ~150+ rows,
+      // and avoids a round trip per folder just to resolve the match. On a deadline like
+      // everything else: this used to be the one unbounded await before the loop.
+      const { items: allQuotes } = await withDeadline('loading the quote list', PLAN_QUOTES_TIMEOUT_MS, () =>
+        quotesService.getAll({ limit: 2000 })
+      );
+      const quoteByJobName = new Map<string, QuoteMatch>();
+      for (const q of allQuotes as QuoteMatch[]) {
+        if (q.job_name) quoteByJobName.set(normalize(q.job_name), q);
+      }
+
     for (const [jobName, files] of groups) {
-      setPlanningProgress((p) => (p ? { ...p, jobName } : p));
+      setPlanningProgress((p) => (p ? { ...p, jobName, file: '', fileNo: 0, fileCount: 0, step: 'reading what is attached' } : p));
+      beginStep();
+      const planFailures: ItemFailure[] = [];
       try {
         const quote = quoteByJobName.get(normalize(jobName)) ?? null;
         const docsRaw: DocPlan[] = files.map(({ relPath, file }) => ({
@@ -599,8 +670,17 @@ export const QuoteImportPanel: React.FC = () => {
 
         const quoteCandidates = docs.filter((d) => d.docType === 'quote');
         const { header, lines: parsedLines } = await withTimeout(
-          pickPrimary(quoteCandidates),
-          PLAN_PARSE_TIMEOUT_MS,
+          pickPrimary(
+            quoteCandidates,
+            (doc, i, total) => {
+              setPlanningProgress((p) =>
+                p ? { ...p, file: doc.relPath, fileNo: i, fileCount: total, step: 'parsing' } : p
+              );
+              beginStep();
+            },
+            (f) => planFailures.push({ ...f, jobName })
+          ),
+          PLAN_FOLDER_TIMEOUT_MS,
           { header: mergeHeaders([]), lines: [] as ParsedQuoteLine[] }
         );
         const parsedTotal = header.total ?? null;
@@ -617,12 +697,26 @@ export const QuoteImportPanel: React.FC = () => {
         else if (existingLines.length === 0 && quoteCandidates.length === 0) bits.push('no quote PDF found to parse lines from');
         else if (existingLines.length === 0) bits.push('no BOM table found in the first 3 pages');
         if (!needsWork) bits.push('no local files in this folder and nothing to parse');
+        if (planFailures.length) bits.push(`could not read ${planFailures.length} PDF(s): ${planFailures.map(failureLabel).join('; ')}`);
 
         rows.push({
           key: nextKey(), index: rows.length + 1, jobName, quote, docs, parsedLines, parsedTotal,
-          existingLineCount: existingLines.length, linePayloads, failures: [],
+          existingLineCount: existingLines.length, linePayloads, failures: planFailures,
           status: needsWork ? 'ready' : 'up-to-date',
           message: bits.join('; ') + '.',
+        });
+      } catch (e: any) {
+        // Without this catch a single throw here abandoned the whole loop: `planning`
+        // stayed true, the bar froze on whatever folder number it had reached, and
+        // nothing on screen said why. One bad folder is now one failed row.
+        const message = e?.message || String(e);
+        // eslint-disable-next-line no-console
+        console.error(`[quote-import] planning failed on "${jobName}"`, e);
+        rows.push({
+          key: nextKey(), index: rows.length + 1, jobName, quote: null, docs: [], parsedLines: [], parsedTotal: null,
+          existingLineCount: 0, linePayloads: [], status: 'failed',
+          failures: [...planFailures, { jobName, relPath: '', size: null, stage: 'planning', timedOut: e instanceof StepTimeoutError, message }],
+          message: `Could not plan this folder: ${message}`,
         });
       } finally {
         done += 1;
@@ -630,9 +724,17 @@ export const QuoteImportPanel: React.FC = () => {
         setPlanningProgress((p) => (p ? { ...p, done } : p));
       }
     }
-
-    setPlanningProgress(null);
-    setPlanning(false);
+    } catch (e: any) {
+      // Anything outside the per-folder try (the quote list load) — surfaced instead of
+      // leaving the panel spinning.
+      const message = e?.message || String(e);
+      // eslint-disable-next-line no-console
+      console.error('[quote-import] planning aborted', e);
+      setPlanError(message);
+    } finally {
+      setPlanningProgress(null);
+      setPlanning(false);
+    }
   };
 
   const handleFolderChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -655,6 +757,7 @@ export const QuoteImportPanel: React.FC = () => {
     const setEntry = (key: string, patch: Partial<Entry>) =>
       setEntries((es) => es.map((e) => (e.key === key ? { ...e, ...patch } : e)));
 
+    try {
     for (const entry of ready) {
       const quoteId = entry.quote!.quote_id;
       let uploaded = 0;
@@ -670,6 +773,9 @@ export const QuoteImportPanel: React.FC = () => {
         const doc = entry.docs[i];
         // Name the file BEFORE the await, so whatever the run is parked on is on screen.
         setProgress((p) => (p ? { ...p, file: doc.relPath, fileNo: i + 1, fileCount: entry.docs.length } : p));
+        beginStep();
+        // Let the browser paint the name above before the transfer starts.
+        await yieldToBrowser();
         // Upload FIRST, retire the old row only once the new bytes are verified in the
         // bucket. The reverse order (what the old force-resync did) leaves the quote with
         // no document at all whenever the upload then fails, which on a multi-hundred-job
@@ -760,9 +866,17 @@ export const QuoteImportPanel: React.FC = () => {
         break;
       }
     }
-
-    setProgress(null);
-    setRunning(false);
+    } catch (e: any) {
+      // Same lesson as planning: an unexpected throw used to leave the panel stuck on
+      // "Overwriting…" with the bar parked and no reason given.
+      const message = e?.message || String(e);
+      // eslint-disable-next-line no-console
+      console.error('[quote-import] run aborted', e);
+      setRunError({ jobName: 'the run', index: 0, message });
+    } finally {
+      setProgress(null);
+      setRunning(false);
+    }
   };
 
   const readyCount = entries.filter((e) => e.status === 'ready').length;
@@ -872,6 +986,50 @@ export const QuoteImportPanel: React.FC = () => {
       {runError && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRunError(null)}>
           Stopped at #{runError.index} — "{runError.jobName}" failed completely (0 items succeeded): {runError.message}
+        </Alert>
+      )}
+
+      {planError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setPlanError(null)}>
+          Planning stopped: {planError}
+        </Alert>
+      )}
+
+      {/* One line, always on screen while anything is in flight, naming the exact file and
+          how long it has been on it. The run's own bar lives inside ImportPanel and the
+          planning bar had no label at all, so a stalled import had nothing to point at. */}
+      {(planningProgress || progress) && (
+        <Alert
+          severity={elapsedSec >= STALL_WARN_MS / 1000 ? 'warning' : 'info'}
+          icon={false}
+          sx={{ mb: 1, py: 0.5, '& .MuiAlert-message': { width: '100%' } }}
+        >
+          <Typography variant="body2" component="div" sx={{ wordBreak: 'break-all' }}>
+            {progress ? (
+              <>
+                <strong>Uploading</strong> — quote #{progress.index} of {progress.total} · "{progress.jobName}"
+                {progress.file ? (
+                  <>
+                    {' '}· file {progress.fileNo}/{progress.fileCount}: <strong>{progress.file}</strong>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <strong>Planning</strong> — folder {planningProgress!.done + 1} of {planningProgress!.total} · "
+                {planningProgress!.jobName}" · {planningProgress!.step}
+                {planningProgress!.file ? (
+                  <>
+                    {' '}· file {planningProgress!.fileNo}/{planningProgress!.fileCount}:{' '}
+                    <strong>{planningProgress!.file}</strong>
+                  </>
+                ) : null}
+              </>
+            )}
+            {' — '}
+            {elapsedSec}s on this step
+            {elapsedSec >= STALL_WARN_MS / 1000 ? ' (stalled — it will time out and be logged)' : ''}
+          </Typography>
         </Alert>
       )}
 
