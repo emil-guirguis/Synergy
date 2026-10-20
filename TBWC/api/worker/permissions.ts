@@ -64,6 +64,7 @@ const STATIC_PERMISSIONS = [
   'repPerformance:read',
   'orderToCash:read',
   'invoiceTotals:read',
+  'revenueByRegion:read',
   'inventory:read',
   'inventory:write',
   'user:read',

@@ -11,6 +11,7 @@ import { PaymentManagementPage } from '../features/payments/PaymentManagementPag
 import RepPerformancePage from '../features/reports/RepPerformancePage';
 import OrderToCashPage from '../features/reports/OrderToCashPage';
 import InvoiceTotalsPage from '../features/reports/InvoiceTotalsPage';
+import RevenueByRegionPage from '../features/reports/RevenueByRegionPage';
 import { QbSyncDashboardPage } from '../features/qbSync/QbSyncDashboardPage';
 import { UserManagementPage } from '../features/users/UserManagementPage';
 import RepPortalPage from '../features/repPortal/RepPortalPage';
@@ -65,6 +66,10 @@ export default function AppRoutes() {
       <Route
         path="/reports/invoice-totals"
         element={checkPermission('invoiceTotals:read') ? <InvoiceTotalsPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/reports/revenue-by-region"
+        element={checkPermission('revenueByRegion:read') ? <RevenueByRegionPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/qb-sync"
