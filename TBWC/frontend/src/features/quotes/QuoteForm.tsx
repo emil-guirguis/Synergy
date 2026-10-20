@@ -2,13 +2,23 @@ import React from 'react';
 import { Alert, Box, CircularProgress } from '@mui/material';
 import { BaseForm, ReferenceSearchField } from '@meterit/framework-frontend/components/form';
 import { ChildRowsGrid } from '@meterit/framework-frontend/components/datagrid/';
-import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import { DocumentsGrid, type DocumentRecord } from '@meterit/framework-frontend/documents';
 import { useQuotesEnhanced, quoteLinesApi } from './quotesStore';
+import { buildLinePayloads, extractQuotePdf } from './quotePdfParse';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { tbwcReferenceSearch, aiMatchInventory } from '../../shared/referenceSearch';
 import { useAuth } from '../../hooks/useAuth';
 import type { Quote } from '../../types/quote';
+
+const MAX_PARSE_PAGES = 3;
+
+/** Same rule as QuoteImportPanel's classifyQuoteFile: any non-email PDF is a quote-revision
+ *  candidate worth parsing for a BOM table — a generic doc_type (e.g. the shared classifier's
+ *  filename-only "quote" guess landing on a non-PDF) isn't trustworthy enough on its own. */
+function looksLikeQuotePdf(fileName: string): boolean {
+  return /\.pdf$/i.test(fileName) && !/email/i.test(fileName);
+}
 
 interface PendingCustomer {
   list_id: string;
@@ -52,6 +62,10 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
   const [freshQuote, setFreshQuote] = React.useState<Quote | undefined>(quote?.id ? undefined : withTodayDefault(quote));
   const [fetching, setFetching] = React.useState(!!quote?.id);
   const [pendingCustomer, setPendingCustomer] = React.useState<PendingCustomer | null>(null);
+  // Bumped after an auto-parsed PDF inserts line items, so ChildRowsGrid (which only loads
+  // once per parentId) re-fetches and shows them without a full-page refetch/spinner.
+  const [linesReloadKey, setLinesReloadKey] = React.useState(0);
+  const [docParseNotice, setDocParseNotice] = React.useState<string | null>(null);
 
   const reload = React.useCallback((id: string | number) => {
     setFetching(true);
@@ -89,6 +103,39 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
     updateItem: (id: string, data: any) => quotes.updateItem(id, applyPending(data)),
   }), [quotes, applyPending]);
 
+  /**
+   * Mirrors QuoteImportPanel's "only touch lines when the quote has ZERO" rule, just fired
+   * off a single document upload instead of a folder sweep: a PDF attached to a quote that
+   * already has lines (hand-entered or previously parsed) is never auto-parsed, and the
+   * quote's displayed total (always SUM(quote_line.amount) server-side, routes/quotes.ts) is
+   * silently re-fetched afterward — not via reload(), which would show the full-page spinner
+   * over a form the user may still be editing.
+   */
+  const handleDocUploaded = React.useCallback((file: File, _record: DocumentRecord) => {
+    const quoteId = freshQuote?.id;
+    if (!quoteId || !canAddLines || !looksLikeQuotePdf(file.name)) return;
+    void (async () => {
+      try {
+        const existingLines = await quoteLinesApi.list(quoteId);
+        if (existingLines.length > 0) return;
+        const { header, lines } = await extractQuotePdf(file, MAX_PARSE_PAGES);
+        const payloads = buildLinePayloads(lines, header.total ?? null);
+        if (!payloads.length) {
+          setDocParseNotice(`No line items found in the first ${MAX_PARSE_PAGES} pages of "${file.name}".`);
+          return;
+        }
+        for (const payload of payloads) {
+          await quoteLinesApi.create(quoteId, payload);
+        }
+        setLinesReloadKey((k) => k + 1);
+        quotes.fetchItem(String(quoteId)).then((fresh) => setFreshQuote(fresh as Quote)).catch(() => undefined);
+        setDocParseNotice(`Added ${payloads.length} line item(s) parsed from "${file.name}".`);
+      } catch (e: any) {
+        setDocParseNotice(`Could not parse line items from "${file.name}": ${e?.message || e}`);
+      }
+    })();
+  }, [freshQuote?.id, canAddLines, quotes]);
+
   if (fetching) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -99,6 +146,11 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
 
   return (
     <Box>
+      {docParseNotice && (
+        <Alert severity="info" sx={{ mb: 2 }} onClose={() => setDocParseNotice(null)}>
+          {docParseNotice}
+        </Alert>
+      )}
       <BaseForm
         schemaName="quote"
         entity={freshQuote}
@@ -145,6 +197,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
                 canCreate={canAddLines}
                 canEdit={canEditLines}
                 canDelete={canDeleteLines}
+                reloadKey={linesReloadKey}
                 totalField="amount"
                 voiceAdd={canAddLines ? { column: 'qb_item_id', quantityField: 'quantity', aiFallback: aiMatchInventory } : undefined}
               />
@@ -165,6 +218,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
                 canCreate={scopeOf('quoteGridDocument:create') !== null}
                 canEdit={scopeOf('quoteGridDocument:write') !== null}
                 canDelete={scopeOf('quoteGridDocument:delete') !== null}
+                onUploaded={handleDocUploaded}
               />
             );
           }

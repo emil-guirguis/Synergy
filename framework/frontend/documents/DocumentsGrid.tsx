@@ -109,6 +109,10 @@ export interface DocumentsGridProps {
   emptyMessage?: string;
   /** Auto-set doc_type for dropped/folder files. Falls back to DEFAULT_DOC_TYPE when omitted. */
   classifyDocType?: (file: File) => DocType;
+  /** Fired after a file's metadata row is successfully written — "+Add", folder-add and
+   *  drag/drop/paste all reach it (not awaited; a caller that wants to act on the result,
+   *  e.g. auto-parsing line items out of the file, must catch its own errors). */
+  onUploaded?: (file: File, record: DocumentRecord) => void;
   /** Restrict both the visible rows and the Type dropdown to this subset — a
    *  project can show a cut-down set of types to a less-privileged viewer (e.g.
    *  TBWC hides the TBWC-only packing slip from reps). Omit to show/allow every
@@ -400,6 +404,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
   classifyDocType,
   visibleDocTypes,
   title = 'Documents',
+  onUploaded,
 }) => {
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -536,8 +541,9 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     setError(null);
     try {
       await storage.upload(path, file);
+      let created: DocumentRecord;
       try {
-        await api.create({
+        created = await api.create({
           entityType,
           entityId: recordId,
           fileName: file.name,
@@ -552,6 +558,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
         await storage.remove(path).catch(() => undefined);
         throw metaError;
       }
+      onUploaded?.(file, created);
       reload();
     } catch (err: any) {
       setError(err?.message || 'Upload failed');
@@ -801,8 +808,9 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       const path = storagePathFor(entityType, recordId, file.name);
       try {
         await storage.upload(path, file);
+        let created: DocumentRecord;
         try {
-          await api.create({
+          created = await api.create({
             entityType,
             entityId: recordId,
             fileName: file.name,
@@ -817,6 +825,7 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
           await storage.remove(path).catch(() => undefined);
           throw metaError;
         }
+        onUploaded?.(file, created);
       } catch (err: any) {
         failures.push(`${file.name}: ${err?.message || 'upload failed'}`);
       } finally {

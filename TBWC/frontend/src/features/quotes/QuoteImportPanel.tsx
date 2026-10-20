@@ -49,7 +49,7 @@ import {
 import { ImportPanel, StatusChip, downloadCsv, type ImportColumn, type ImportFacet } from '@meterit/framework-frontend/import';
 import { documentsApi, documentsStorage, RECORD_DOCS_BUCKET } from '../../services/documentsClient';
 import { quotesService, quoteLinesApi } from './quotesStore';
-import { extractQuotePdf, mergeHeaders, type ParsedQuoteHeader, type ParsedQuoteLine } from './quotePdfParse';
+import { buildLinePayloads, extractQuotePdf, mergeHeaders, type ParsedQuoteHeader, type ParsedQuoteLine } from './quotePdfParse';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../config/api';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { authService } from '../../services/authService';
@@ -228,29 +228,6 @@ async function pickPrimary(
     }
   }
   return { header: mergeHeaders(headers), lines: bestLines };
-}
-
-/** Real BOM lines first; if none of them carry a price AND the cover page's own total parsed,
- *  one placeholder line captures that total so quote.total (always SUM(quote_line.amount)) isn't 0. */
-function buildLinePayloads(lines: ParsedQuoteLine[], parsedTotal: number | null) {
-  const payloads = lines.map((l) => ({
-    qb_item_id: null as null,
-    item_name: l.itemName || null,
-    description: l.description,
-    quantity: Math.max(0, Math.round(l.quantity) || 0),
-    rate: l.rate ?? 0,
-  }));
-  const hasPricedLine = lines.some((l) => (l.amount ?? 0) > 0);
-  if (!hasPricedLine && parsedTotal && parsedTotal > 0) {
-    payloads.push({
-      qb_item_id: null,
-      item_name: null,
-      description: '(Total from PDF cover page — this revision does not print per-line pricing)',
-      quantity: 1,
-      rate: parsedTotal,
-    });
-  }
-  return payloads;
 }
 
 function encodeStoragePath(path: string): string {

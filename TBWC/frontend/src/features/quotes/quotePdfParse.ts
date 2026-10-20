@@ -186,3 +186,34 @@ export async function extractQuotePdf(file: File, maxPages = 3): Promise<{ heade
   const lines = parseLinesFromText(pageTexts);
   return { header, lines };
 }
+
+export interface ParsedLinePayload {
+  qb_item_id: null;
+  item_name: string | null;
+  description: string;
+  quantity: number;
+  rate: number;
+}
+
+/** Real BOM lines first; if none of them carry a price AND the cover page's own total parsed,
+ *  one placeholder line captures that total so quote.total (always SUM(quote_line.amount)) isn't 0. */
+export function buildLinePayloads(lines: ParsedQuoteLine[], parsedTotal: number | null): ParsedLinePayload[] {
+  const payloads: ParsedLinePayload[] = lines.map((l) => ({
+    qb_item_id: null,
+    item_name: l.itemName || null,
+    description: l.description,
+    quantity: Math.max(0, Math.round(l.quantity) || 0),
+    rate: l.rate ?? 0,
+  }));
+  const hasPricedLine = lines.some((l) => (l.amount ?? 0) > 0);
+  if (!hasPricedLine && parsedTotal && parsedTotal > 0) {
+    payloads.push({
+      qb_item_id: null,
+      item_name: null,
+      description: '(Total from PDF cover page — this revision does not print per-line pricing)',
+      quantity: 1,
+      rate: parsedTotal,
+    });
+  }
+  return payloads;
+}
