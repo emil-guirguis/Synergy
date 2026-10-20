@@ -55,6 +55,22 @@ export interface Env {
   // worker/storageBackup.ts. `any` to match HYPERDRIVE above — avoids pulling
   // in @cloudflare/workers-types just for one binding's type.
   STORAGE_BACKUP: any;
+  // Microsoft Graph app-only (client credentials) auth for real Excel Online
+  // editing — see worker/msGraph.ts. All four set via `wrangler secret put` in
+  // prod; unset => the office-edit route 503s instead of calling out.
+  MS_TENANT_ID?: string;
+  MS_CLIENT_ID?: string;
+  MS_CLIENT_SECRET?: string;
+  // SharePoint site that hosts edit-session copies of xlsx/xls files — the
+  // app's Sites.Selected permission must be explicitly granted on this one
+  // site (Graph Explorer call, no portal UI for it — see msGraph.ts header).
+  MS_SITE_ID?: string;
+  // This Worker's own public base URL (no trailing slash), e.g.
+  // "https://tbwc-api-production.emilguirguis.workers.dev" — Graph calls back
+  // here (…/api/office-edit-webhook) on every edit, so it must be reachable
+  // from the internet; local `wrangler dev` has no public URL, so live sync
+  // only works once deployed.
+  MS_WEBHOOK_BASE_URL?: string;
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {
