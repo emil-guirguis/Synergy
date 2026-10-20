@@ -7,7 +7,7 @@
  *   3. not resurrect the job via jobsForTier's pre-migration fallback, which
  *      fired on "tier has no rows" and so undid the stop entirely
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockExecQuery = vi.fn();
 vi.mock('./db', () => ({
@@ -20,10 +20,12 @@ vi.mock('@meterit/framework-backend/api/base/aiSearch', () => ({
 }));
 
 import { jobsForTier, isJobPaused, TIER_CRON, tierForCron } from './cronMonitor';
-import { backupStorageToR2 } from './storageBackup';
+import { backupStorageToSupabase } from './storageBackup';
 
-const r2Put = vi.fn();
-const ENV = { STORAGE_BACKUP: { put: r2Put } } as any;
+// uploadToBackupBucket/restoreObjectFromBackup call the global fetch()
+// directly (a Supabase Storage REST call), not an R2 binding — stub it.
+const mockFetch = vi.fn();
+const ENV = { SUPABASE_URL: 'https://x.test', SUPABASE_SERVICE_ROLE_KEY: 'k' } as any;
 
 /** Routes each query by its logged label, so a handler doesn't depend on the
  *  order the module happens to issue them in. */
@@ -38,6 +40,12 @@ function respondByTag(handlers: Record<string, (params: any[]) => any>) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockFetchBytes.mockResolvedValue(new Uint8Array([1, 2, 3]));
+  mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
+  vi.stubGlobal('fetch', mockFetch);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("'off' is not a runnable tier", () => {
@@ -97,11 +105,11 @@ describe('isJobPaused', () => {
   });
 });
 
-describe('backupStorageToR2 honours the switch', () => {
+describe('backupStorageToSupabase honours the switch', () => {
   it('copies nothing at all while paused', async () => {
     respondByTag({ 'cron.scheduledJob.tier': () => ({ rows: [{ cron_tier: 'off' }] }) });
-    await backupStorageToR2(ENV);
-    expect(r2Put).not.toHaveBeenCalled();
+    await backupStorageToSupabase(ENV);
+    expect(mockFetch).not.toHaveBeenCalled();
     expect(mockFetchBytes).not.toHaveBeenCalled();
   });
 
@@ -125,12 +133,12 @@ describe('backupStorageToR2 honours the switch', () => {
       'storageBackup.markBackedUp': () => ({ rows: [] }),
     });
 
-    await backupStorageToR2(ENV);
+    await backupStorageToSupabase(ENV);
 
     // Stopped at the first mid-run check rather than copying all 100...
-    expect(r2Put).toHaveBeenCalledTimes(25);
+    expect(mockFetch).toHaveBeenCalledTimes(25);
     // ...and the remaining buckets were skipped, not swept.
-    const buckets = new Set(r2Put.mock.calls.map((c) => String(c[0]).split('/')[0]));
+    const buckets = new Set(mockFetch.mock.calls.map((c) => String(c[0]).split('/storage-backup/')[1].split('/')[0]));
     expect(buckets).toEqual(new Set(['record-docs']));
   });
 
@@ -143,8 +151,11 @@ describe('backupStorageToR2 honours the switch', () => {
       'storageBackup.markBackedUp': () => ({ rows: [] }),
     });
 
-    await backupStorageToR2(ENV);
-    expect(r2Put).toHaveBeenCalledTimes(1);
-    expect(r2Put).toHaveBeenCalledWith('record-docs/a.pdf', expect.anything());
+    await backupStorageToSupabase(ENV);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://x.test/storage/v1/object/storage-backup/record-docs/a.pdf',
+      expect.objectContaining({ method: 'POST' })
+    );
   });
 });

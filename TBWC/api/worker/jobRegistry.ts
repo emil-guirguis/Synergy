@@ -14,7 +14,7 @@ import { lockStaleReps } from './reverification';
 import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
 import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSearch';
 import { checkQbwcStale } from './qbwc/staleAlert';
-import { backupStorageToR2 } from './storageBackup';
+import { backupStorageToSupabase } from './storageBackup';
 import { pruneOldCronRunLogs } from './cronMonitor';
 
 export const JOB_REGISTRY: Record<string, (env: Env, now: Date) => Promise<Record<string, unknown> | void>> = {
@@ -23,6 +23,6 @@ export const JOB_REGISTRY: Record<string, (env: Env, now: Date) => Promise<Recor
     runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } }),
   backfillDocumentIndex: (env) => backfillDocumentIndex(execQuery, env),
   lockStaleReps: (env) => lockStaleReps(env),
-  backupStorage: (env) => backupStorageToR2(env),
+  backupStorage: (env) => backupStorageToSupabase(env),
   pruneCronRunLog: (env) => pruneOldCronRunLogs(env),
 };

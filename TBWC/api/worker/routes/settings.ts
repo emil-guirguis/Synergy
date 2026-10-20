@@ -14,8 +14,8 @@ import {
   listScheduledJobs, setJobTier, jobTier, type CronTier,
 } from '../cronMonitor';
 import {
-  BACKUP_BUCKETS, backupStorageToR2, storageBackupStatus,
-  restoreObjectFromR2, restoreBucketBatch,
+  BACKUP_BUCKETS, backupStorageToSupabase, storageBackupStatus,
+  restoreObjectFromBackup, restoreBucketBatch,
   backupPauseState, setBackupPaused,
 } from '../storageBackup';
 import { recentRunsForJob, runJob } from '../cronMonitor';
@@ -183,8 +183,9 @@ app.put('/alerts/:alertKey', requirePermission('setting:write'), async (c) => {
   return c.json({ success: true, data: result.rows[0], message: 'Alert setting updated' });
 });
 
-// --- Storage Backup tab: worker/storageBackup.ts's R2 mirror of Supabase
-// Storage object bytes (migration 105). The mirror job itself ('backupStorage')
+// --- Storage Backup tab: worker/storageBackup.ts's mirror of Supabase
+// Storage object bytes into a second bucket in this same project (migration
+// 105/109). The mirror job itself ('backupStorage')
 // already shows up in the Scheduled Jobs tab above via cron_run_log — these
 // endpoints are the per-bucket progress + the manual run/restore actions. ---
 
@@ -209,14 +210,15 @@ app.get('/storage-backup/history', requirePermission('setting:read'), async (c) 
 // in runJob() like the cron-triggered path, so a manual run shows up in the
 // history table (storage-backup/history below) too, not just ticks.
 app.post('/storage-backup/run', requirePermission('setting:write'), async (c) => {
-  // Refused rather than silently no-op'ing: backupStorageToR2 itself also
-  // bails when paused (so a stop is honoured no matter the entry point), but
-  // a manual run that quietly copied nothing would read as a broken button.
+  // Refused rather than silently no-op'ing: backupStorageToSupabase itself
+  // also bails when paused (so a stop is honoured no matter the entry
+  // point), but a manual run that quietly copied nothing would read as a
+  // broken button.
   const pause = await backupPauseState(c.env);
   if (pause.paused) {
     return c.json({ success: false, message: 'Backup is stopped — resume it before running a batch' }, 409);
   }
-  await runJob(c.env, 'backupStorage', () => backupStorageToR2(c.env));
+  await runJob(c.env, 'backupStorage', () => backupStorageToSupabase(c.env));
   const buckets = await storageBackupStatus(c.env);
   return c.json({ success: true, data: { buckets, ...(await backupPauseState(c.env)) } });
 });
@@ -252,7 +254,7 @@ app.post('/storage-backup/restore', requirePermission('setting:write'), async (c
     return c.json({ success: false, message: 'path is required' }, 400);
   }
   try {
-    await restoreObjectFromR2(c.env, body.bucket, body.path);
+    await restoreObjectFromBackup(c.env, body.bucket, body.path);
     return c.json({ success: true, message: `Restored ${body.bucket}/${body.path}` });
   } catch (e) {
     return c.json({ success: false, message: e instanceof Error ? e.message : 'Restore failed' }, 500);

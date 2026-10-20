@@ -50,11 +50,6 @@ export interface Env {
   // or the impersonation route opens up in production too.
   ENABLE_IMPERSONATION?: string;
   IMPERSONATE_ALLOWED_EMAIL?: string;
-  // R2 bucket mirroring Supabase Storage object bytes (Supabase's own daily
-  // backups cover Postgres only, not storage file contents). See
-  // worker/storageBackup.ts. `any` to match HYPERDRIVE above — avoids pulling
-  // in @cloudflare/workers-types just for one binding's type.
-  STORAGE_BACKUP: any;
   // Microsoft Graph app-only (client credentials) auth for real Excel Online
   // editing — see worker/msGraph.ts. All four set via `wrangler secret put` in
   // prod; unset => the office-edit route 503s instead of calling out.

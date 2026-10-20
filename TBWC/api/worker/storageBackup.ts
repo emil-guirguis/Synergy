@@ -1,18 +1,23 @@
 /**
- * Mirrors Supabase Storage bucket objects (file bytes) into the R2 bucket
- * bound as env.STORAGE_BACKUP. Born from confirming Supabase's own daily
- * physical backups cover Postgres only — storage.objects rows (metadata)
- * are in that dump, the actual bytes in record-docs/rep-docs/item-images
- * are not backed up anywhere.
+ * Mirrors Supabase Storage bucket objects (file bytes) into a second bucket
+ * ('storage-backup', migration 109) in this same Supabase project. Born from
+ * confirming Supabase's own daily physical backups cover Postgres only —
+ * storage.objects rows (metadata) are in that dump, the actual bytes in
+ * record-docs/rep-docs/item-images are not backed up anywhere. A second
+ * bucket is still an independent copy (separate RLS, survives the same
+ * "bytes missing from one bucket" failure this was built for) — it was R2
+ * originally, moved here (migration 109) since R2 needs enabling through
+ * the Cloudflare dashboard before any deploy, and this reuses the
+ * SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY already configured, no new secret.
  *
  * Runs incrementally, one bounded batch per invocation (see worker/index.ts's
  * scheduled() -> JOB_REGISTRY.backupStorage, tier 'nightly' per migration
  * 106; parking it on 'off' stops it, see setBackupPaused): each call does
  * at most BATCH_SIZE objects, so a fresh ~13GB/11.4k-object backlog
- * (record-docs today) trickles in over many ticks rather than one shot —
- * the Worker's per-invocation subrequest cap (fetch() to Supabase Storage;
- * the R2 binding's own calls don't count against it) makes a single-pass
- * sweep of that many objects impossible anyway. public.storage_backup_object
+ * (record-docs today) trickles in over many ticks rather than one shot — the
+ * Worker's per-invocation subrequest cap (1000 on a paid plan; every object
+ * here costs one fetch() to Supabase Storage) makes a single-pass sweep of
+ * that many objects impossible anyway. public.storage_backup_object
  * (migration 105) is the resumability ledger: each tick anti-joins
  * storage.objects against it to find what's still missing, so progress
  * survives restarts/redeploys with no separate cursor to track.
@@ -33,11 +38,41 @@ import { fetchDocumentBytes } from '@meterit/framework-backend/api/base/aiSearch
 export const BACKUP_BUCKETS = ['record-docs', 'rep-docs', 'item-images'] as const;
 export type BackupBucket = (typeof BACKUP_BUCKETS)[number];
 
-// Only env.SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY-based fetch() calls count
-// against the Worker's per-invocation subrequest cap (1000 on a paid plan);
-// R2 binding calls don't. Kept well under that cap per bucket per tick, with
-// room for the odd retry, rather than tuned to the exact limit.
+/** The Supabase Storage bucket holding the mirror itself (migration 109) —
+ *  distinct from BACKUP_BUCKETS, the source buckets being mirrored. Each
+ *  object is stored under `${sourceBucket}/${path}` so one backup bucket can
+ *  hold all three sources without name collisions. */
+const BACKUP_BUCKET = 'storage-backup';
+
+// Every object copy costs one fetch() to Supabase Storage, which counts
+// against the Worker's per-invocation subrequest cap (1000 on a paid plan).
+// Kept well under that cap per bucket per tick, with room for the odd retry,
+// rather than tuned to the exact limit.
 const BATCH_SIZE = 300;
+
+function requireSupabaseEnv(env: Env): { url: string; key: string } {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Supabase service role key not configured');
+  }
+  return { url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY };
+}
+
+/** Uploads bytes into the backup bucket, overwriting any existing copy —
+ *  same REST call shape as restoreObjectFromBackup's reverse direction. */
+async function uploadToBackupBucket(env: Env, sourceBucket: string, path: string, bytes: ArrayBuffer): Promise<void> {
+  const { url, key } = requireSupabaseEnv(env);
+  const res = await fetch(`${url}/storage/v1/object/${BACKUP_BUCKET}/${sourceBucket}/${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      apikey: key,
+      'Content-Type': 'application/octet-stream',
+      'x-upsert': 'true',
+    },
+    body: bytes,
+  });
+  if (!res.ok) throw new Error(`Supabase backup upload failed: ${res.status} ${await res.text().catch(() => '')}`);
+}
 
 /** The job_name this module runs under in public.scheduled_job (103) and
  *  cron_run_log (102) — also the row the pause switch flips. */
@@ -53,7 +88,7 @@ export const BACKUP_DEFAULT_TIER: CronTier = 'nightly';
  *  Reused as the elapsed-time check's cadence too, below. */
 const CANCEL_CHECK_EVERY = 25;
 
-/** Wall-clock budget for one backupStorageToR2 call, across all 3 buckets.
+/** Wall-clock budget for one backupStorageToSupabase call, across all 3 buckets.
  *  Unlike aiSearch.ts's backfillDocumentIndex, this job had no self-imposed
  *  deadline at all — only BATCH_SIZE (a request-count cap, not a time cap)
  *  stood between it and the Worker's own execution-duration limit. A
@@ -63,10 +98,6 @@ const CANCEL_CHECK_EVERY = 25;
  *  as a user-requested stop: whatever's copied stays copied, ledger picks up
  *  next tick) keeps the finish write reachable regardless of backlog size. */
 const MAX_TICK_MILLIS = 25_000;
-
-function r2Key(bucket: string, path: string): string {
-  return `${bucket}/${path}`;
-}
 
 interface PendingObject {
   name: string;
@@ -133,7 +164,7 @@ async function backupBucket(
       console.error(`[storageBackup] fetch failed, leaving for next tick: ${bucket}/${obj.name}`);
       continue;
     }
-    await env.STORAGE_BACKUP.put(r2Key(bucket, obj.name), bytes);
+    await uploadToBackupBucket(env, bucket, obj.name, bytes);
     await markBackedUp(env, bucket, obj.name, obj.size ?? bytes.byteLength);
     copied++;
   }
@@ -151,8 +182,7 @@ export type StorageBackupRunDetail = {
   stopped: boolean;
 };
 
-export async function backupStorageToR2(env: Env): Promise<StorageBackupRunDetail> {
-  if (!env.STORAGE_BACKUP) throw new Error('STORAGE_BACKUP R2 binding not configured');
+export async function backupStorageToSupabase(env: Env): Promise<StorageBackupRunDetail> {
   // Belt and braces with scheduled()'s own tier filter: a paused job isn't
   // named by jobsForTier() at all, but this also covers the manual
   // "back up now" path and a tick that was already dispatched when the
@@ -236,26 +266,33 @@ export async function storageBackupStatus(env: Env): Promise<BucketBackupStatus[
   });
 }
 
-/** Restores one object from the R2 mirror back into live Supabase Storage,
- *  overwriting whatever (if anything) is there now — for recovering a
- *  deleted or corrupted file. Admin-triggered only; never run automatically. */
-export async function restoreObjectFromR2(env: Env, bucket: string, path: string): Promise<void> {
-  if (!env.STORAGE_BACKUP) throw new Error('STORAGE_BACKUP R2 binding not configured');
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Supabase service role key not configured');
-  const obj = await env.STORAGE_BACKUP.get(r2Key(bucket, path));
-  if (!obj) throw new Error(`${bucket}/${path} not found in backup`);
-  const bytes = await obj.arrayBuffer();
-  const res = await fetch(`${env.SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+/** Restores one object from the backup bucket back into live Supabase
+ *  Storage, overwriting whatever (if anything) is there now — for
+ *  recovering a deleted or corrupted file. Admin-triggered only; never run
+ *  automatically. A same-project copy — Supabase's own object/copy API does
+ *  it server-side in one call, no bytes round-tripping through the Worker
+ *  (unlike the old R2 version, which had to download then re-upload). */
+export async function restoreObjectFromBackup(env: Env, bucket: string, path: string): Promise<void> {
+  const { url, key } = requireSupabaseEnv(env);
+  const res = await fetch(`${url}/storage/v1/object/copy`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
-      'x-upsert': 'true',
+      Authorization: `Bearer ${key}`,
+      apikey: key,
+      'Content-Type': 'application/json',
     },
-    body: bytes,
+    body: JSON.stringify({
+      bucketId: BACKUP_BUCKET,
+      sourceKey: `${bucket}/${path}`,
+      destinationBucket: bucket,
+      destinationKey: path,
+    }),
   });
-  if (!res.ok) throw new Error(`Supabase upload failed: ${res.status} ${await res.text().catch(() => '')}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    if (res.status === 404) throw new Error(`${bucket}/${path} not found in backup`);
+    throw new Error(`Supabase restore copy failed: ${res.status} ${body}`);
+  }
 }
 
 export interface RestoreBatchResult {
@@ -265,27 +302,38 @@ export interface RestoreBatchResult {
   cursor: string | null;
 }
 
-/** Restores one bounded page of a whole bucket's R2-mirrored objects back
- *  into live Supabase Storage (unconditional overwrite — restoring an
- *  object already current in Supabase is a harmless no-op), unconditionally
- *  — call repeatedly with the returned `cursor` (the Settings panel drives
- *  this loop itself) until it comes back null. Cursor-paged rather than
- *  always listing from the start, or every call would just re-restore the
- *  same first BATCH_SIZE objects forever. */
+/** Restores one bounded page of a whole bucket's backed-up objects back into
+ *  live Supabase Storage (unconditional overwrite — restoring an object
+ *  already current in Supabase is a harmless no-op) — call repeatedly with
+ *  the returned `cursor` (the Settings panel drives this loop itself) until
+ *  it comes back null. Keyset-paged on name (not offset) so a restore
+ *  already in progress isn't thrown off by rows the backup job adds
+ *  mid-restore. Queries storage.objects directly (same project, so this is
+ *  just SQL) rather than Supabase Storage's list API, which paginates by
+ *  folder level, not a flat prefix the way R2's list() did. */
 export async function restoreBucketBatch(env: Env, bucket: string, cursor?: string | null): Promise<RestoreBatchResult> {
-  if (!env.STORAGE_BACKUP) throw new Error('STORAGE_BACKUP R2 binding not configured');
-  const listed = await env.STORAGE_BACKUP.list({ prefix: `${bucket}/`, limit: BATCH_SIZE, cursor: cursor ?? undefined });
+  const { rows } = await execQuery(
+    env,
+    `SELECT name FROM storage.objects
+      WHERE bucket_id = $1 AND name LIKE $2 AND name > $3
+      ORDER BY name
+      LIMIT $4`,
+    [BACKUP_BUCKET, `${bucket}/%`, cursor ? `${bucket}/${cursor}` : '', BATCH_SIZE],
+    'storageBackup.restoreBatch.list'
+  );
   let restored = 0;
   let failed = 0;
-  for (const key of listed.objects) {
-    const path = key.name.slice(bucket.length + 1);
+  let lastPath: string | null = null;
+  for (const row of rows) {
+    const path = row.name.slice(bucket.length + 1);
     try {
-      await restoreObjectFromR2(env, bucket, path);
+      await restoreObjectFromBackup(env, bucket, path);
       restored++;
     } catch (e) {
       failed++;
       console.error(`[storageBackup] restore failed for ${bucket}/${path}:`, e instanceof Error ? e.message : e);
     }
+    lastPath = path;
   }
-  return { restored, failed, cursor: listed.truncated ? listed.cursor ?? null : null };
+  return { restored, failed, cursor: rows.length === BATCH_SIZE ? lastPath : null };
 }

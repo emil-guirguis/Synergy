@@ -1,11 +1,11 @@
 /**
  * Settings > Storage Backup. Supabase's own daily backups cover Postgres
  * only — the file bytes in record-docs/rep-docs/item-images aren't backed
- * up anywhere else, so worker/storageBackup.ts mirrors them into a
- * Cloudflare R2 bucket (one bounded batch per scheduled cron tick; see
- * migrations 105/106). This panel shows per-bucket progress, a manual "back
- * up now" action, a stop/resume switch, and restore (one file, or a whole
- * bucket) from the mirror.
+ * up anywhere else, so worker/storageBackup.ts mirrors them into a second
+ * bucket ('storage-backup') in this same Supabase project (one bounded
+ * batch per scheduled cron tick; see migrations 105/106/109). This panel
+ * shows per-bucket progress, a manual "back up now" action, a stop/resume
+ * switch, and restore (one file, or a whole bucket) from the mirror.
  *
  * The copying itself happens in the Worker on a Cron Trigger, so it keeps
  * going with this page closed — this panel only observes it and flips
@@ -193,7 +193,7 @@ export default function StorageBackupPanel() {
                 )}
               </Stack>
               <Typography variant="body2" color="text.secondary">
-                Mirrors file bytes into Cloudflare R2. Supabase's own backups cover the database only.
+                Mirrors file bytes into a second bucket. Supabase's own backups cover the database only.
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Runs on the server on a schedule (nightly, ~2am Pacific) — this page does not need to be open.
@@ -226,7 +226,7 @@ export default function StorageBackupPanel() {
           {paused && (
             <Alert severity="warning" sx={{ mb: 2 }} data-testid="storage-backup-paused-alert">
               Backup is stopped — no scheduled runs, and a run already in progress stops within a few
-              dozen files. Everything already mirrored stays in R2; resuming picks up where it left off.
+              dozen files. Everything already mirrored stays backed up; resuming picks up where it left off.
             </Alert>
           )}
 
@@ -267,7 +267,7 @@ export default function StorageBackupPanel() {
           <Typography variant="h6" sx={{ mb: 1 }}>Restore a single file</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Enter the bucket and storage path (as shown on the document/image record) to overwrite it
-            with the backed-up copy from R2.
+            with the backed-up copy.
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField
@@ -356,7 +356,7 @@ export default function StorageBackupPanel() {
         <DialogContent>
           <DialogContentText>
             This overwrites every object currently in <strong>{bulkRestoreBucket}</strong> with its
-            backed-up copy from R2. Anything uploaded after that copy was taken will be lost. This
+            backed-up copy. Anything uploaded after that copy was taken will be lost. This
             cannot be undone.
           </DialogContentText>
           {bulkRestoring && (

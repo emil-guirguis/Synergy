@@ -163,8 +163,9 @@ export async function updateJobTier(jobName: string, cronTier: CronTier): Promis
   return data.data;
 }
 
-// --- Storage Backup tab: worker/storageBackup.ts's R2 mirror of Supabase
-// Storage object bytes (migration 105). ------------------------------------
+// --- Storage Backup tab: worker/storageBackup.ts's mirror of Supabase
+// Storage object bytes into a second bucket in this same project
+// (migration 105/109). --------------------------------------------------
 
 export type BackupBucket = 'record-docs' | 'rep-docs' | 'item-images';
 
