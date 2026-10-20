@@ -374,6 +374,16 @@ export async function indexDocumentContent(
  * error that somehow escaped its own try/catch, a transient DB error) must
  * not abort the rest of the batch — so each row is isolated in its own
  * try/catch rather than letting the loop's single await propagate.
+ *
+ * The size filter below requires a *known* file_size under the cap, not
+ * "unknown size, let it through": an oversized legacy row with no file_size
+ * recorded would otherwise bypass MAX_CONTENT_FILE_SIZE, and a single huge
+ * PDF/docx/xlsx parse can exceed the Worker's CPU limit mid-row — the
+ * deadline check below only runs *between* rows, so it can't stop that.
+ * That kills the invocation before cron_run_log's finish write, and since
+ * the row never gets extracted_text set, the next tick picks the exact same
+ * row first (oldest, still NULL) and crashes again — a permanently stuck
+ * 'running' row, every tick, forever.
  */
 export async function backfillDocumentIndex(
   execQuery: ExecQueryFn,
@@ -391,7 +401,7 @@ export async function backfillDocumentIndex(
          FROM public.${table}
         WHERE extracted_text IS NULL
           AND storage_bucket IS NOT NULL AND storage_path IS NOT NULL
-          AND (file_size IS NULL OR file_size <= $1)
+          AND file_size IS NOT NULL AND file_size <= $1
         ORDER BY created_at ASC
         LIMIT $2`,
       [MAX_CONTENT_FILE_SIZE, limit],

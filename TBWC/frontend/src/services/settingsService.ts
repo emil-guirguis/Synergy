@@ -72,6 +72,10 @@ export interface CronRun {
   started_at: string;
   finished_at: string | null;
   duration_ms: number | null;
+  /** Job-shaped result of a successful run (e.g. {indexed, attempted} for
+   *  backfillDocumentIndex, {copied, failed, stopped} for backupStorage) —
+   *  null for 'running'/'error' rows and runs from before migration 108. */
+  detail: Record<string, unknown> | null;
 }
 
 // 'off' parks a job so it never runs — the stop switch (migration 107), not
@@ -121,6 +125,28 @@ export async function updateAlertSetting(alertKey: string, updates: Partial<Aler
       method: 'PUT',
       headers: authHeaders(),
       body: JSON.stringify(updates),
+    })
+  );
+  return data.data;
+}
+
+/** Last 7 days of one job's own runs, newest first — backs the Scheduled
+ *  Jobs drawer's history table (same shape as getStorageBackupHistory,
+ *  which is really just this call pinned to 'backupStorage'). */
+export async function getCronHistory(jobName: string): Promise<CronRun[]> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/cron-log/${encodeURIComponent(jobName)}/history`, { headers: authHeaders() })
+  );
+  return data.data;
+}
+
+/** Runs a job right now instead of waiting for its tier's next tick. Rejects
+ *  with 409 while the job is parked on 'off'. Returns the finished run. */
+export async function runJobNow(jobName: string): Promise<CronRun | null> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/jobs/${encodeURIComponent(jobName)}/run`, {
+      method: 'POST',
+      headers: authHeaders(),
     })
   );
   return data.data;

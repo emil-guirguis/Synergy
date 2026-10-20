@@ -11,7 +11,7 @@ import { AuthVariables, authenticateToken, requirePermission } from '../middlewa
 import { rowToBasicSettings, basicSettingsToRow } from '@meterit/framework-backend/api/base/settings';
 import {
   latestRunPerJob, recentRuns, avgDurationPerJob,
-  listScheduledJobs, setJobTier, type CronTier,
+  listScheduledJobs, setJobTier, jobTier, type CronTier,
 } from '../cronMonitor';
 import {
   BACKUP_BUCKETS, backupStorageToR2, storageBackupStatus,
@@ -19,6 +19,7 @@ import {
   backupPauseState, setBackupPaused,
 } from '../storageBackup';
 import { recentRunsForJob, runJob } from '../cronMonitor';
+import { JOB_REGISTRY } from '../jobRegistry';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -90,6 +91,31 @@ app.get('/cron-log', requirePermission('setting:read'), async (c) => {
     listScheduledJobs(c.env),
   ]);
   return c.json({ success: true, data: { latest, recent, avg, jobs } });
+});
+
+// Last 7 days for one job — backs the Scheduled Jobs drawer's history table
+// (same query storage-backup/history already uses for 'backupStorage').
+app.get('/cron-log/:jobName/history', requirePermission('setting:read'), async (c) => {
+  const runs = await recentRunsForJob(c.env, c.req.param('jobName'), 7);
+  return c.json({ success: true, data: runs });
+});
+
+// Runs any JOB_REGISTRY job right now instead of waiting for its tier's next
+// tick — Scheduled Jobs drawer's "Run now". Refuses a job parked on 'off'
+// (migration 107's stop switch) for the same reason storage-backup/run
+// already does: a job the admin explicitly stopped shouldn't run just
+// because someone clicked a different button.
+app.post('/jobs/:jobName/run', requirePermission('setting:write'), async (c) => {
+  const jobName = c.req.param('jobName');
+  const fn = JOB_REGISTRY[jobName];
+  if (!fn) return c.json({ success: false, message: `Unknown job "${jobName}"` }, 404);
+  if ((await jobTier(c.env, jobName)) === 'off') {
+    return c.json({ success: false, message: 'This job is stopped — resume its schedule before running it' }, 409);
+  }
+  await runJob(c.env, jobName, () => fn(c.env, new Date()));
+  // recentRunsForJob orders newest first — [0] is the run that just finished.
+  const [run] = await recentRunsForJob(c.env, jobName, 7);
+  return c.json({ success: true, data: run ?? null });
 });
 
 // 'off' is a valid choice, not a tier that runs — see migration 107.

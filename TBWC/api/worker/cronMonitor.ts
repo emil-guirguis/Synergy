@@ -10,7 +10,11 @@
  */
 import { Env, execQuery } from './db';
 
-export async function runJob(env: Env, jobName: string, fn: () => Promise<void>): Promise<void> {
+export async function runJob(
+  env: Env,
+  jobName: string,
+  fn: () => Promise<Record<string, unknown> | void>
+): Promise<void> {
   const startedAt = Date.now();
   let logId: number | null = null;
   try {
@@ -26,12 +30,12 @@ export async function runJob(env: Env, jobName: string, fn: () => Promise<void>)
   }
 
   try {
-    await fn();
+    const detail = await fn();
     if (logId != null) {
       await execQuery(
         env,
-        `UPDATE public.cron_run_log SET status = 'ok', finished_at = now(), duration_ms = $2 WHERE cron_run_log_id = $1`,
-        [logId, Date.now() - startedAt],
+        `UPDATE public.cron_run_log SET status = 'ok', finished_at = now(), duration_ms = $2, detail = $3 WHERE cron_run_log_id = $1`,
+        [logId, Date.now() - startedAt, detail ?? null],
         'cron.runLog.finishOk'
       ).catch((e) => console.error(`[cron] cron_run_log finish write failed for ${jobName}:`, e instanceof Error ? e.message : e));
     }
@@ -57,13 +61,17 @@ export interface CronRunRow {
   started_at: string;
   finished_at: string | null;
   duration_ms: number | null;
+  /** Job-shaped result of a successful run (e.g. backfillDocumentIndex's
+   *  {indexed, attempted}) — null for 'running'/'error' rows and runs from
+   *  before migration 108. */
+  detail: Record<string, unknown> | null;
 }
 
 /** Most recent row per job_name — the dashboard's "last run" tiles. */
 export async function latestRunPerJob(env: Env): Promise<CronRunRow[]> {
   const { rows } = await execQuery(
     env,
-    `SELECT DISTINCT ON (job_name) cron_run_log_id, job_name, status, error, started_at, finished_at, duration_ms
+    `SELECT DISTINCT ON (job_name) cron_run_log_id, job_name, status, error, started_at, finished_at, duration_ms, detail
        FROM public.cron_run_log
       ORDER BY job_name, started_at DESC`,
     [],
@@ -76,7 +84,7 @@ export async function latestRunPerJob(env: Env): Promise<CronRunRow[]> {
 export async function recentRuns(env: Env, limit = 100): Promise<CronRunRow[]> {
   const { rows } = await execQuery(
     env,
-    `SELECT cron_run_log_id, job_name, status, error, started_at, finished_at, duration_ms
+    `SELECT cron_run_log_id, job_name, status, error, started_at, finished_at, duration_ms, detail
        FROM public.cron_run_log
       ORDER BY started_at DESC
       LIMIT $1`,
@@ -88,11 +96,12 @@ export async function recentRuns(env: Env, limit = 100): Promise<CronRunRow[]> {
 
 /** One job's own run history within the retention window — unlike recentRuns
  *  (shared 100-row cap across every job), a frequent-tier job elsewhere can't
- *  crowd this one out. Backs the Storage Backup panel's history table. */
+ *  crowd this one out. Backs the Storage Backup panel's history table, and
+ *  Scheduled Jobs' per-job drawer. */
 export async function recentRunsForJob(env: Env, jobName: string, sinceDays = 7): Promise<CronRunRow[]> {
   const { rows } = await execQuery(
     env,
-    `SELECT cron_run_log_id, job_name, status, error, started_at, finished_at, duration_ms
+    `SELECT cron_run_log_id, job_name, status, error, started_at, finished_at, duration_ms, detail
        FROM public.cron_run_log
       WHERE job_name = $1 AND started_at > now() - ($2 || ' days')::interval
       ORDER BY started_at DESC`,

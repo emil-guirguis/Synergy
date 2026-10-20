@@ -56,6 +56,14 @@ function HistoryStatusChip({ status }: { status: CronRun['status'] }) {
   return <Chip size="small" label="ok" color="success" variant="outlined" />;
 }
 
+// detail jsonb (migration 108) on a backupStorage row is {copied, failed,
+// stopped} — see storageBackup.ts's StorageBackupRunDetail.
+function fmtDetail(detail: Record<string, unknown> | null): string {
+  if (!detail) return '—';
+  const { copied, failed, stopped } = detail as { copied?: number; failed?: number; stopped?: boolean };
+  return `${copied ?? 0} copied${failed ? `, ${failed} failed` : ''}${stopped ? ' (stopped early)' : ''}`;
+}
+
 export default function StorageBackupPanel() {
   const [state, setState] = useState<StorageBackupState | null>(null);
   const [history, setHistory] = useState<CronRun[]>([]);
@@ -313,6 +321,7 @@ export default function StorageBackupPanel() {
                     <TableCell>Started</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell align="right">Duration</TableCell>
+                    <TableCell>Copied</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -330,6 +339,9 @@ export default function StorageBackupPanel() {
                         </Stack>
                       </TableCell>
                       <TableCell align="right">{fmtDuration(run.duration_ms)}</TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">{fmtDetail(run.detail)}</Typography>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

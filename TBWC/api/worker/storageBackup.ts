@@ -49,8 +49,20 @@ export const BACKUP_DEFAULT_TIER: CronTier = 'nightly';
 /** How often a running backup re-reads its own pause state: every Nth object,
  *  not every object (that would double this job's query count for a switch
  *  that is almost never flipped) and not once per tick (a tick copies up to
- *  BATCH_SIZE objects per bucket, so "stop" would take minutes to be felt). */
+ *  BATCH_SIZE objects per bucket, so "stop" would take minutes to be felt).
+ *  Reused as the elapsed-time check's cadence too, below. */
 const CANCEL_CHECK_EVERY = 25;
+
+/** Wall-clock budget for one backupStorageToR2 call, across all 3 buckets.
+ *  Unlike aiSearch.ts's backfillDocumentIndex, this job had no self-imposed
+ *  deadline at all — only BATCH_SIZE (a request-count cap, not a time cap)
+ *  stood between it and the Worker's own execution-duration limit. A
+ *  backlog big enough to run long gets the invocation killed mid-batch,
+ *  before runJob()'s finish UPDATE — the same stuck-'running'-forever
+ *  signature as the old backfillDocumentIndex bug. Bailing out early (same
+ *  as a user-requested stop: whatever's copied stays copied, ledger picks up
+ *  next tick) keeps the finish write reachable regardless of backlog size. */
+const MAX_TICK_MILLIS = 25_000;
 
 function r2Key(bucket: string, path: string): string {
   return `${bucket}/${path}`;
@@ -92,19 +104,27 @@ async function markBackedUp(env: Env, bucket: string, path: string, bytes: numbe
   );
 }
 
-async function backupBucket(env: Env, bucket: string): Promise<{ copied: number; failed: number; cancelled: boolean }> {
+async function backupBucket(
+  env: Env,
+  bucket: string,
+  deadline: number
+): Promise<{ copied: number; failed: number; cancelled: boolean }> {
   const pending = await pendingObjects(env, bucket, BATCH_SIZE);
   let copied = 0;
   let failed = 0;
   let processed = 0;
   for (const obj of pending) {
-    // Mid-run stop (migration 107): checked between objects, so the switch
-    // takes effect within ~CANCEL_CHECK_EVERY objects instead of waiting for
-    // the whole batch. Everything already copied stays copied — the ledger
-    // row per object is written as we go, so a cancelled run is just a short
-    // one and the next run picks up exactly where this one stopped.
-    if (processed > 0 && processed % CANCEL_CHECK_EVERY === 0 && (await isJobPaused(env, BACKUP_JOB_NAME))) {
-      return { copied, failed, cancelled: true };
+    // Mid-run stop (migration 107) and the wall-clock budget (MAX_TICK_MILLIS)
+    // share this cadence: checked between objects, not every object (double
+    // query count for checks that rarely matter) and not once per tick (a
+    // tick copies up to BATCH_SIZE objects per bucket — too coarse for either
+    // check to bite in time). Everything already copied stays copied — the
+    // ledger row per object is written as we go, so stopping early (paused or
+    // out of time) is just a short run, and the next tick picks up exactly
+    // where this one stopped.
+    if (processed > 0 && processed % CANCEL_CHECK_EVERY === 0) {
+      if (Date.now() >= deadline) return { copied, failed, cancelled: true };
+      if (await isJobPaused(env, BACKUP_JOB_NAME)) return { copied, failed, cancelled: true };
     }
     processed++;
     const bytes = await fetchDocumentBytes(env, bucket, obj.name);
@@ -120,7 +140,18 @@ async function backupBucket(env: Env, bucket: string): Promise<{ copied: number;
   return { copied, failed, cancelled: false };
 }
 
-export async function backupStorageToR2(env: Env): Promise<void> {
+// A type alias, not an interface: runJob() takes fn: () => Promise<Record<
+// string, unknown> | void>, and only a type literal (not a named interface)
+// is structurally assignable to an indexed type like Record<string, unknown>.
+export type StorageBackupRunDetail = {
+  copied: number;
+  failed: number;
+  /** True if a bucket bailed on the time budget or the pause switch, leaving
+   *  buckets after it untouched this tick — not a failure, just unfinished. */
+  stopped: boolean;
+};
+
+export async function backupStorageToR2(env: Env): Promise<StorageBackupRunDetail> {
   if (!env.STORAGE_BACKUP) throw new Error('STORAGE_BACKUP R2 binding not configured');
   // Belt and braces with scheduled()'s own tier filter: a paused job isn't
   // named by jobsForTier() at all, but this also covers the manual
@@ -128,20 +159,27 @@ export async function backupStorageToR2(env: Env): Promise<void> {
   // switch was flipped.
   if (await isJobPaused(env, BACKUP_JOB_NAME)) {
     console.log('[storageBackup] paused — nothing copied');
-    return;
+    return { copied: 0, failed: 0, stopped: true };
   }
+  const deadline = Date.now() + MAX_TICK_MILLIS;
   const results: string[] = [];
+  let totalCopied = 0;
+  let totalFailed = 0;
   for (const bucket of BACKUP_BUCKETS) {
-    const { copied, failed, cancelled } = await backupBucket(env, bucket);
+    const { copied, failed, cancelled } = await backupBucket(env, bucket, deadline);
+    totalCopied += copied;
+    totalFailed += failed;
     results.push(`${bucket}: ${copied} copied${failed ? `, ${failed} failed` : ''}${cancelled ? ', stopped' : ''}`);
-    // Deliberately not thrown: a user-requested stop is not a job failure, so
-    // cron_run_log (via runJob) keeps recording the run as 'ok' — a short one.
+    // Deliberately not thrown: a user-requested stop (or running out of this
+    // tick's time budget) is not a job failure, so cron_run_log (via runJob)
+    // keeps recording the run as 'ok' — a short one.
     if (cancelled) {
-      console.log(`[storageBackup] paused mid-run, remaining buckets skipped | ${results.join(' | ')}`);
-      return;
+      console.log(`[storageBackup] stopped mid-run, remaining buckets skipped | ${results.join(' | ')}`);
+      return { copied: totalCopied, failed: totalFailed, stopped: true };
     }
   }
   console.log(`[storageBackup] ${results.join(' | ')}`);
+  return { copied: totalCopied, failed: totalFailed, stopped: false };
 }
 
 export interface BackupPauseState {

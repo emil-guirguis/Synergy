@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Card, CardContent, Chip, CircularProgress, Divider, Drawer,
+  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Divider, Drawer,
   FormControlLabel, IconButton, MenuItem, Select, Stack, Switch, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, TextField,
   Tooltip, Typography,
@@ -22,17 +22,23 @@ import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import HourglassTopIcon from '@mui/icons-material/HourglassTop';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import {
-  getCronLog, getAlertSettings, updateAlertSetting, updateJobTier,
+  getCronLog, getAlertSettings, updateAlertSetting, updateJobTier, getCronHistory, runJobNow,
   type CronLog, type CronRun, type AlertSetting, type CronTier,
 } from '../../services/settingsService';
+
+// Storage backup has its own "Run now" on the Storage Backup tab (which also
+// respects its pause switch and shows per-bucket progress) — no need to
+// duplicate the control here.
+const HAS_OWN_RUN_BUTTON = new Set(['backupStorage']);
 
 const JOB_LABELS: Record<string, string> = {
   checkQbwcStale: 'QBWC stale check',
   runScheduledNotifications: 'Scheduled notifications',
   backfillDocumentIndex: 'Document text backfill',
   lockStaleReps: 'Rep re-verification lock',
-  backupStorage: 'Storage backup (R2 mirror)',
+  backupStorage: 'Storage backup',
 };
 
 const TIER_LABELS: Record<CronTier, string> = {
@@ -76,6 +82,22 @@ function fmtDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)} s`;
 }
 
+// Each job's detail jsonb (migration 108) is shaped by that job's own
+// return value — formatted per job_name rather than dumped as raw JSON.
+// Falls back to a generic key: value join for anything not listed here.
+function fmtDetail(jobName: string, detail: Record<string, unknown> | null): string {
+  if (!detail) return '—';
+  if (jobName === 'backfillDocumentIndex') {
+    const { indexed, attempted } = detail as { indexed?: number; attempted?: number };
+    return `${indexed ?? 0} indexed / ${attempted ?? 0} attempted`;
+  }
+  if (jobName === 'backupStorage') {
+    const { copied, failed, stopped } = detail as { copied?: number; failed?: number; stopped?: boolean };
+    return `${copied ?? 0} copied${failed ? `, ${failed} failed` : ''}${stopped ? ' (stopped early)' : ''}`;
+  }
+  return Object.entries(detail).map(([k, v]) => `${k}: ${v}`).join(', ');
+}
+
 function StatusChip({ run, schedule }: { run: CronRun | null; schedule: string }) {
   if (!run) {
     return (
@@ -108,6 +130,9 @@ export default function ScheduledJobsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const [history, setHistory] = useState<CronRun[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [runningJob, setRunningJob] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,6 +149,17 @@ export default function ScheduledJobsPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!selectedJob) { setHistory([]); return; }
+    let cancelled = false;
+    setHistoryLoading(true);
+    getCronHistory(selectedJob)
+      .then((h) => { if (!cancelled) setHistory(h); })
+      .catch(() => { if (!cancelled) setHistory([]); })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedJob]);
 
   const avgFor = (job: string) => log?.avg.find((a) => a.job_name === job);
   const tierFor = (job: string) => log?.jobs.find((j) => j.job_name === job)?.cron_tier;
@@ -145,6 +181,20 @@ export default function ScheduledJobsPanel() {
       setSaving(null);
     }
   }, []);
+
+  const runNow = useCallback(async (jobName: string) => {
+    setRunningJob(jobName);
+    setError(null);
+    try {
+      await runJobNow(jobName);
+      await load();
+      setHistory(await getCronHistory(jobName));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to run job');
+    } finally {
+      setRunningJob(null);
+    }
+  }, [load]);
 
   const saveAlert = useCallback(async (alertKey: string, updates: Partial<AlertSetting>) => {
     setSaving(alertKey);
@@ -231,7 +281,7 @@ export default function ScheduledJobsPanel() {
       )}
 
       <Drawer anchor="right" open={!!selectedJob} onClose={() => setSelectedJob(null)}>
-        <Box sx={{ width: 400, p: 2.5 }} data-testid="cron-job-drawer">
+        <Box sx={{ width: 560, p: 2.5 }} data-testid="cron-job-drawer">
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
             <Typography variant="h6">{selectedJob ? JOB_LABELS[selectedJob] : ''}</Typography>
             <IconButton size="small" onClick={() => setSelectedJob(null)}><CloseIcon fontSize="small" /></IconButton>
@@ -271,13 +321,69 @@ export default function ScheduledJobsPanel() {
 
               <Divider sx={{ mb: 2 }} />
 
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>Last run</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary">Last run</Typography>
+                {!HAS_OWN_RUN_BUTTON.has(selectedJob) && (
+                  <Tooltip title={selectedTier === 'off' ? "Resume this job's schedule before running it" : ''}>
+                    <span>
+                      <Button
+                        size="small"
+                        startIcon={<PlayArrowIcon />}
+                        onClick={() => runNow(selectedJob)}
+                        disabled={runningJob === selectedJob || selectedTier === 'off'}
+                        data-testid={`cron-job-run-now-${selectedJob}`}
+                      >
+                        {runningJob === selectedJob ? 'Running…' : 'Run now'}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                )}
+              </Stack>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
                 <StatusChip run={selectedRun} schedule={selectedTier ? TIER_LABELS[selectedTier] : 'unknown'} />
                 <Typography variant="body2" color="text.secondary">
                   {selectedRun ? `${fmtTime(selectedRun.started_at)} · ${fmtDuration(selectedRun.duration_ms)}` : 'never run yet'}
                 </Typography>
               </Stack>
+
+              <Divider sx={{ mb: 2 }} />
+
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>History (7 days)</Typography>
+              {historyLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={20} /></Box>
+              ) : history.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>No runs in the last 7 days.</Typography>
+              ) : (
+                <TableContainer sx={{ mb: 2, maxHeight: 280, overflowY: 'auto' }}>
+                  <Table size="small" data-testid="cron-job-history-table">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Started</TableCell>
+                        <TableCell align="right">Duration</TableCell>
+                        <TableCell>Detail</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {history.map((run) => (
+                        <TableRow key={run.cron_run_log_id}>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            <Stack direction="row" spacing={0.5} alignItems="center">
+                              <StatusChip run={run} schedule="" />
+                              <Typography variant="caption">{fmtTime(run.started_at)}</Typography>
+                            </Stack>
+                          </TableCell>
+                          <TableCell align="right">{fmtDuration(run.duration_ms)}</TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color={run.status === 'error' ? 'error.main' : 'text.secondary'}>
+                              {run.status === 'error' ? run.error ?? 'error' : fmtDetail(run.job_name, run.detail)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
 
               {selectedAlert && (
                 <>

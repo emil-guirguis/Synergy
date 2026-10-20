@@ -37,13 +37,9 @@ import aiSearchRoutes from './routes/aiSearch';
 import aiMemoryRoutes from './routes/aiMemory';
 import supportRoutes from './routes/support';
 import contactRoutes from './routes/contact';
-import { lockStaleReps } from './reverification';
 import { handleInboundEmail, type InboundEmailMessage } from './emailToTicket';
-import { runScheduledNotifications } from '@meterit/framework-backend/api/base/scheduledNotifications';
-import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSearch';
-import { checkQbwcStale } from './qbwc/staleAlert';
-import { backupStorageToR2 } from './storageBackup';
-import { runJob, jobsForTier, tierForCron, pruneOldCronRunLogs } from './cronMonitor';
+import { runJob, jobsForTier, tierForCron } from './cronMonitor';
+import { JOB_REGISTRY } from './jobRegistry';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -122,22 +118,6 @@ app.route('/api/ai/memory', aiMemoryRoutes);
 app.route('/qbwc', qbwcRoutes);
 // Re-verification link click (no Supabase auth — the token param is the credential).
 app.route('/api/verify', verifyRoutes);
-
-// Every job scheduled() can run, keyed by the job_name public.scheduled_job
-// (migration 103) uses to say which tier it's on. Adding a new scheduled job
-// means adding it here AND seeding a row for it in a migration — nothing
-// here runs unless scheduled_job also names it.
-const JOB_REGISTRY: Record<string, (env: Env, now: Date) => Promise<void>> = {
-  checkQbwcStale: (env) => checkQbwcStale(env),
-  runScheduledNotifications: (env, now) =>
-    runScheduledNotifications(execQuery, env, now, { tenantColumn: null, notificationOptions: { tenantColumn: null } }),
-  backfillDocumentIndex: async (env) => {
-    await backfillDocumentIndex(execQuery, env);
-  },
-  lockStaleReps: (env) => lockStaleReps(env),
-  backupStorage: (env) => backupStorageToR2(env),
-  pruneCronRunLog: (env) => pruneOldCronRunLogs(env),
-};
 
 export default {
   fetch: app.fetch,

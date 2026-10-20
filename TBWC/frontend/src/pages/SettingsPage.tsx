@@ -242,7 +242,7 @@ export default function SettingsPage() {
           key: 'storageBackup',
           label: 'Storage Backup',
           icon: <CloudSyncIcon fontSize="small" />,
-          description: 'R2 mirror of document/image file bytes, and restore from it.',
+          description: 'Backup of document/image file bytes, and restore from it.',
           content: <StorageBackupPanel />,
         },
         ...(canImportQuotes ? [{
