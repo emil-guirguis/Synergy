@@ -14,16 +14,12 @@ vi.mock('./db', () => ({
   execQuery: (...a: any[]) => mockExecQuery(...a),
 }));
 
-const mockFetchBytes = vi.fn();
-vi.mock('@meterit/framework-backend/api/base/aiSearch', () => ({
-  fetchDocumentBytes: (...a: any[]) => mockFetchBytes(...a),
-}));
-
 import { jobsForTier, isJobPaused, TIER_CRON, tierForCron } from './cronMonitor';
 import { backupStorageToSupabase } from './storageBackup';
 
-// uploadToBackupBucket/restoreObjectFromBackup call the global fetch()
-// directly (a Supabase Storage REST call), not an R2 binding — stub it.
+// copyToBackupBucket/restoreObjectFromBackup call the global fetch() directly
+// (a Supabase Storage object/copy REST call — no file bytes, same project on
+// both ends), not an R2 binding — stub it.
 const mockFetch = vi.fn();
 const ENV = { SUPABASE_URL: 'https://x.test', SUPABASE_SERVICE_ROLE_KEY: 'k' } as any;
 
@@ -39,7 +35,6 @@ function respondByTag(handlers: Record<string, (params: any[]) => any>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockFetchBytes.mockResolvedValue(new Uint8Array([1, 2, 3]));
   mockFetch.mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
   vi.stubGlobal('fetch', mockFetch);
 });
@@ -110,7 +105,6 @@ describe('backupStorageToSupabase honours the switch', () => {
     respondByTag({ 'cron.scheduledJob.tier': () => ({ rows: [{ cron_tier: 'off' }] }) });
     await backupStorageToSupabase(ENV);
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(mockFetchBytes).not.toHaveBeenCalled();
   });
 
   it('stops mid-run when the switch is flipped, keeping what it already copied', async () => {
@@ -138,7 +132,7 @@ describe('backupStorageToSupabase honours the switch', () => {
     // Stopped at the first mid-run check rather than copying all 100...
     expect(mockFetch).toHaveBeenCalledTimes(25);
     // ...and the remaining buckets were skipped, not swept.
-    const buckets = new Set(mockFetch.mock.calls.map((c) => String(c[0]).split('/storage-backup/')[1].split('/')[0]));
+    const buckets = new Set(mockFetch.mock.calls.map((c) => JSON.parse(c[1].body).bucketId));
     expect(buckets).toEqual(new Set(['record-docs']));
   });
 
@@ -154,8 +148,16 @@ describe('backupStorageToSupabase honours the switch', () => {
     await backupStorageToSupabase(ENV);
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://x.test/storage/v1/object/storage-backup/record-docs/a.pdf',
-      expect.objectContaining({ method: 'POST' })
+      'https://x.test/storage/v1/object/copy',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          bucketId: 'record-docs',
+          sourceKey: 'a.pdf',
+          destinationBucket: 'storage-backup',
+          destinationKey: 'record-docs/a.pdf',
+        }),
+      })
     );
   });
 });

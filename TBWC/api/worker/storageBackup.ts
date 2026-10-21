@@ -16,8 +16,9 @@
  * at most BATCH_SIZE objects, so a fresh ~13GB/11.4k-object backlog
  * (record-docs today) trickles in over many ticks rather than one shot — the
  * Worker's per-invocation subrequest cap (1000 on a paid plan; every object
- * here costs one fetch() to Supabase Storage) makes a single-pass sweep of
- * that many objects impossible anyway. public.storage_backup_object
+ * here costs one Supabase Storage object/copy call — see copyToBackupBucket,
+ * no file bytes transit the Worker) makes a single-pass sweep of that many
+ * objects impossible anyway. public.storage_backup_object
  * (migration 105) is the resumability ledger: each tick anti-joins
  * storage.objects against it to find what's still missing, so progress
  * survives restarts/redeploys with no separate cursor to track.
@@ -33,7 +34,6 @@
  */
 import { Env, execQuery } from './db';
 import { isJobPaused, setJobTier, jobTier, type CronTier } from './cronMonitor';
-import { fetchDocumentBytes } from '@meterit/framework-backend/api/base/aiSearch';
 
 export const BACKUP_BUCKETS = ['record-docs', 'rep-docs', 'item-images'] as const;
 export type BackupBucket = (typeof BACKUP_BUCKETS)[number];
@@ -44,9 +44,10 @@ export type BackupBucket = (typeof BACKUP_BUCKETS)[number];
  *  hold all three sources without name collisions. */
 const BACKUP_BUCKET = 'storage-backup';
 
-// Every object copy costs one fetch() to Supabase Storage, which counts
-// against the Worker's per-invocation subrequest cap (1000 on a paid plan).
-// Kept well under that cap per bucket per tick, with room for the odd retry,
+// Every object costs one object/copy call to Supabase, which counts against
+// the Worker's per-invocation subrequest cap (1000 on a paid plan) — no file
+// bytes involved, so this is a request-count cap, not a bandwidth one. Kept
+// well under that cap per bucket per tick, with room for the odd retry,
 // rather than tuned to the exact limit.
 const BATCH_SIZE = 300;
 
@@ -57,21 +58,34 @@ function requireSupabaseEnv(env: Env): { url: string; key: string } {
   return { url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY };
 }
 
-/** Uploads bytes into the backup bucket, overwriting any existing copy —
- *  same REST call shape as restoreObjectFromBackup's reverse direction. */
-async function uploadToBackupBucket(env: Env, sourceBucket: string, path: string, bytes: ArrayBuffer): Promise<void> {
+/** Mirrors one object into the backup bucket via Supabase Storage's
+ *  server-side object/copy — same call restoreObjectFromBackup already uses
+ *  for the reverse direction. This replaced a download-then-reupload
+ *  (fetchDocumentBytes + a raw body POST) that round-tripped every file's
+ *  full bytes through the Worker for a copy that's same-project on both
+ *  ends: that cost ~1.8s/object even for small files and meant one 25s tick
+ *  cleared only ~25 objects. The leftover was inherited from when this
+ *  mirrored into an R2 bucket (migration 109's predecessor) — cross-provider,
+ *  so download+reupload was the only option there; moving the destination
+ *  into the same Supabase project (109) made a server-side copy possible,
+ *  but only restoreObjectFromBackup was written to use it at the time. */
+async function copyToBackupBucket(env: Env, sourceBucket: string, path: string): Promise<void> {
   const { url, key } = requireSupabaseEnv(env);
-  const res = await fetch(`${url}/storage/v1/object/${BACKUP_BUCKET}/${sourceBucket}/${path}`, {
+  const res = await fetch(`${url}/storage/v1/object/copy`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${key}`,
       apikey: key,
-      'Content-Type': 'application/octet-stream',
-      'x-upsert': 'true',
+      'Content-Type': 'application/json',
     },
-    body: bytes,
+    body: JSON.stringify({
+      bucketId: sourceBucket,
+      sourceKey: path,
+      destinationBucket: BACKUP_BUCKET,
+      destinationKey: `${sourceBucket}/${path}`,
+    }),
   });
-  if (!res.ok) throw new Error(`Supabase backup upload failed: ${res.status} ${await res.text().catch(() => '')}`);
+  if (!res.ok) throw new Error(`Supabase backup copy failed: ${res.status} ${await res.text().catch(() => '')}`);
 }
 
 /** The job_name this module runs under in public.scheduled_job (103) and
@@ -158,14 +172,14 @@ async function backupBucket(
       if (await isJobPaused(env, BACKUP_JOB_NAME)) return { copied, failed, cancelled: true };
     }
     processed++;
-    const bytes = await fetchDocumentBytes(env, bucket, obj.name);
-    if (bytes === null) {
+    try {
+      await copyToBackupBucket(env, bucket, obj.name);
+    } catch (e) {
       failed++;
-      console.error(`[storageBackup] fetch failed, leaving for next tick: ${bucket}/${obj.name}`);
+      console.error(`[storageBackup] copy failed, leaving for next tick: ${bucket}/${obj.name}:`, e instanceof Error ? e.message : e);
       continue;
     }
-    await uploadToBackupBucket(env, bucket, obj.name, bytes);
-    await markBackedUp(env, bucket, obj.name, obj.size ?? bytes.byteLength);
+    await markBackedUp(env, bucket, obj.name, obj.size);
     copied++;
   }
   return { copied, failed, cancelled: false };

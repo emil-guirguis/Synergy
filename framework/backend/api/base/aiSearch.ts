@@ -317,6 +317,14 @@ const DEFAULT_BACKFILL_BATCH = 25;
  *  depends on what happens to be in the batch; whatever it doesn't reach
  *  stays NULL and is picked up next tick. */
 const DEFAULT_MAX_MILLIS = 5000;
+/** A row whose extraction trips the Worker's CPU limit kills the isolate
+ *  outright — uncatchable, so the per-row try/catch below never runs and
+ *  extracted_text never gets set. Without a cap, that same oldest row gets
+ *  picked again every tick forever (migration 110's index_attempts), stuck
+ *  at the exact failure mode indexDocumentContent's try/catch was meant to
+ *  contain. 3 tries is enough to rule out a transient fetch blip (the only
+ *  other way this counter climbs) before writing the row off as poison. */
+const MAX_INDEX_ATTEMPTS = 3;
 
 export interface DocumentIndexTarget {
   document_id: number;
@@ -402,9 +410,10 @@ export async function backfillDocumentIndex(
         WHERE extracted_text IS NULL
           AND storage_bucket IS NOT NULL AND storage_path IS NOT NULL
           AND file_size IS NOT NULL AND file_size <= $1
+          AND index_attempts < $3
         ORDER BY created_at ASC
         LIMIT $2`,
-      [MAX_CONTENT_FILE_SIZE, limit],
+      [MAX_CONTENT_FILE_SIZE, limit, MAX_INDEX_ATTEMPTS],
       'aiSearch.documents.backfill'
     );
     rows = result.rows;
@@ -423,6 +432,21 @@ export async function backfillDocumentIndex(
     // stays extracted_text IS NULL and is picked up by the next scheduled run.
     if (Date.now() >= deadline) break;
     attempted++;
+    // Written BEFORE the risky call on purpose: a CPU-limit kill takes the
+    // whole isolate down uncatchably, so anything this function still meant
+    // to write after indexDocumentContent (including the try/catch below)
+    // never runs. Only a write ordered ahead of the crash survives it.
+    try {
+      await execQuery(
+        env,
+        `UPDATE public.${table} SET index_attempts = index_attempts + 1 WHERE document_id = $1`,
+        [row.document_id],
+        'aiSearch.documents.backfillAttempt'
+      );
+    } catch {
+      // Best-effort — a failed counter bump just means this row risks being
+      // retried a few extra times, not a stuck queue.
+    }
     try {
       if (await indexDocumentContent(execQuery, env, row, options)) indexed++;
     } catch (error) {

@@ -10,11 +10,31 @@
  */
 import { Env, execQuery } from './db';
 
+/** A 'running' row older than this is from an invocation that's definitely
+ *  dead, not just slow — every job's own MAX_TICK_MILLIS/maxMillis budget is
+ *  well under this, so a live run never trips it. Auto-heals the exact
+ *  "stuck at running forever" signature (see 2026-10-21's backfillDocumentIndex
+ *  incident, fixed with index_attempts) without a human re-running the manual
+ *  cleanup UPDATE every time an isolate gets CPU-killed. */
+const STALE_RUNNING_MILLIS = 10 * 60 * 1000;
+
+async function healStaleRunningRows(env: Env, jobName: string): Promise<void> {
+  await execQuery(
+    env,
+    `UPDATE public.cron_run_log
+        SET status = 'error', finished_at = now(), error = 'auto-cleared: previous invocation never finished (likely CPU-limit kill)'
+      WHERE job_name = $1 AND status = 'running' AND started_at < now() - ($2 || ' milliseconds')::interval`,
+    [jobName, STALE_RUNNING_MILLIS],
+    'cron.runLog.healStale'
+  ).catch((e) => console.error(`[cron] stale-running cleanup failed for ${jobName}:`, e instanceof Error ? e.message : e));
+}
+
 export async function runJob(
   env: Env,
   jobName: string,
   fn: () => Promise<Record<string, unknown> | void>
 ): Promise<void> {
+  await healStaleRunningRows(env, jobName);
   const startedAt = Date.now();
   let logId: number | null = null;
   try {

@@ -251,7 +251,8 @@ describe('backfillDocumentIndex', () => {
     const result = await backfillDocumentIndex(execQuery, { SUPABASE_URL: 'https://x.test', SUPABASE_SERVICE_ROLE_KEY: 'k' });
 
     expect(result).toEqual({ indexed: 2, attempted: 2 });
-    expect(execQuery).toHaveBeenCalledTimes(3);
+    // SELECT, then per row: index_attempts bump UPDATE + indexDocumentContent's UPDATE.
+    expect(execQuery).toHaveBeenCalledTimes(5);
     expect(execQuery.mock.calls[0][1]).toContain('extracted_text IS NULL');
   });
 
@@ -279,13 +280,16 @@ describe('backfillDocumentIndex', () => {
     ];
     const execQuery = vi.fn()
       .mockResolvedValueOnce({ rows: selectRows, rowCount: 3 }) // the backfill SELECT
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // doc 1's index_attempts bump
       .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // doc 1's UPDATE: ok
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // doc 2's index_attempts bump
       .mockRejectedValueOnce(new Error('invalid byte sequence for encoding "UTF8": 0x00')) // doc 2's UPDATE: fails
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // doc 3's index_attempts bump
       .mockResolvedValueOnce({ rows: [], rowCount: 0 }); // doc 3's UPDATE: still runs
 
     const result = await backfillDocumentIndex(execQuery, { SUPABASE_URL: 'https://x.test', SUPABASE_SERVICE_ROLE_KEY: 'k' });
 
     expect(result).toEqual({ indexed: 2, attempted: 3 });
-    expect(execQuery).toHaveBeenCalledTimes(4);
+    expect(execQuery).toHaveBeenCalledTimes(7);
   });
 });
