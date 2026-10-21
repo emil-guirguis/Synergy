@@ -18,8 +18,12 @@ import {
   restoreObjectFromBackup, restoreBucketBatch,
   backupPauseState, setBackupPaused,
 } from '../storageBackup';
-import { recentRunsForJob, runJob } from '../cronMonitor';
+import { recentRunsForJob, runJob, logCompletedRun } from '../cronMonitor';
 import { JOB_REGISTRY } from '../jobRegistry';
+import {
+  streamDatabaseDump, listLiveStorageObjects, restoreObjectToLiveBucket, listManagedBackups,
+} from '../backupExport';
+import { fetchDocumentBytes } from '@meterit/framework-backend/api/base/aiSearch';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -275,6 +279,96 @@ app.post('/storage-backup/restore-bucket', requirePermission('setting:write'), a
   } catch (e) {
     return c.json({ success: false, message: e instanceof Error ? e.message : 'Restore failed' }, 500);
   }
+});
+
+// --- Backup tab (renamed from Storage Backup — now also covers the DB and
+// a disk/external-drive path): worker/backupExport.ts. Independent of the
+// Supabase-to-Supabase mirror above, which keeps running untouched. ---------
+
+// Database: one streamed NDJSON response, browser-saved wherever the user
+// picks (showSaveFilePicker lets that be an external drive). Logs its own
+// cron_run_log row from inside the stream — see streamDatabaseDump.
+app.get('/backup/database', requirePermission('setting:read'), (c) => {
+  const stream = streamDatabaseDump(c.env);
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson',
+      'Content-Disposition': `attachment; filename="tbwc-db-${new Date().toISOString().slice(0, 10)}.ndjson"`,
+    },
+  });
+});
+
+// Supabase's own daily managed Postgres backups — read-only, nothing copied.
+app.get('/backup/managed', requirePermission('setting:read'), async (c) => {
+  return c.json({ success: true, data: await listManagedBackups(c.env) });
+});
+
+// Storage: paged listing + one-object transfer, driven in a loop by the
+// panel (File System Access API) so 14+ GB never has to pass through a
+// single Worker invocation or sit in memory at once.
+app.get('/backup/storage/list', requirePermission('setting:read'), async (c) => {
+  const bucket = c.req.query('bucket');
+  if (!isBackupBucket(bucket)) return c.json({ success: false, message: `bucket must be one of: ${BACKUP_BUCKETS.join(', ')}` }, 400);
+  const limit = Math.min(Number(c.req.query('limit') ?? 500) || 500, 1000);
+  const result = await listLiveStorageObjects(c.env, bucket, c.req.query('cursor') ?? null, limit);
+  return c.json({ success: true, data: result });
+});
+
+app.get('/backup/storage/object', requirePermission('setting:read'), async (c) => {
+  const bucket = c.req.query('bucket');
+  const path = c.req.query('path');
+  if (!isBackupBucket(bucket) || !path) return c.json({ success: false, message: 'bucket and path are required' }, 400);
+  const bytes = await fetchDocumentBytes(c.env, bucket, path);
+  if (bytes === null) return c.json({ success: false, message: 'Object not found or unreadable' }, 404);
+  return new Response(bytes, { headers: { 'Content-Type': 'application/octet-stream' } });
+});
+
+// Restore direction: re-uploads one file from a chosen local folder back
+// into the LIVE bucket (not the mirror) — overwrites whatever is there now.
+app.post('/backup/storage/object', requirePermission('setting:write'), async (c) => {
+  const bucket = c.req.query('bucket');
+  const path = c.req.query('path');
+  if (!isBackupBucket(bucket) || !path) return c.json({ success: false, message: 'bucket and path are required' }, 400);
+  try {
+    await restoreObjectToLiveBucket(c.env, bucket, path, await c.req.arrayBuffer());
+    return c.json({ success: true, message: `Restored ${bucket}/${path}` });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : 'Restore failed' }, 500);
+  }
+});
+
+// The storage export/restore loop runs in the browser, not the Worker — it
+// reports its own outcome once the loop ends via logCompletedRun, rather
+// than the Worker timing a function it never actually ran.
+app.post('/backup/log', requirePermission('setting:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (body.job_name !== 'exportStorage' && body.job_name !== 'restoreStorage') {
+    return c.json({ success: false, message: 'job_name must be exportStorage or restoreStorage' }, 400);
+  }
+  await logCompletedRun(
+    c.env,
+    body.job_name,
+    body.status === 'error' ? 'error' : 'ok',
+    body.detail ?? null,
+    body.duration_ms ?? null,
+    body.error ?? null
+  );
+  return c.json({ success: true });
+});
+
+// Combined history for all three — same 7-day window as storage-backup/history
+// above, since pruneCronRunLog deletes every job_name's rows past 7 days
+// regardless of what any one caller asks for.
+app.get('/backup/history', requirePermission('setting:read'), async (c) => {
+  const [db, storageExport, storageRestore] = await Promise.all([
+    recentRunsForJob(c.env, 'exportDatabase', 7),
+    recentRunsForJob(c.env, 'exportStorage', 7),
+    recentRunsForJob(c.env, 'restoreStorage', 7),
+  ]);
+  const all = [...db, ...storageExport, ...storageRestore].sort(
+    (a, b) => +new Date(b.started_at) - +new Date(a.started_at)
+  );
+  return c.json({ success: true, data: all });
 });
 
 export default app;

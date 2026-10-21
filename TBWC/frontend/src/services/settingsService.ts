@@ -247,3 +247,159 @@ export async function restoreStorageBucketBatch(bucket: BackupBucket, cursor: st
   );
   return data.data;
 }
+
+// --- Backup tab: worker/backupExport.ts. Manual download-to-disk for the
+// database and for storage (File System Access API, browser-driven), plus a
+// read-only view of Supabase's own managed Postgres backups. Independent of
+// the Storage Backup section above, which keeps mirroring to Supabase on its
+// own schedule. ------------------------------------------------------------
+
+function authHeadersNoContentType(): Record<string, string> {
+  const token = tokenStorage.getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface DbDumpProgress {
+  /** Count of tableOrder — from the dump's own manifest line, so this only
+   *  appears once the first chunk arrives. */
+  totalTables?: number;
+  tableIndex: number;
+  table: string;
+}
+
+/** Reads the NDJSON stream's `{"table":"name"}` header lines (streamDatabaseDump's
+ *  own per-table markers) without parsing every row — a plain prefix/suffix
+ *  check, since that's the exact literal shape it writes. Consumes `stream`
+ *  (call on a tee()'d branch, never the one also being written to disk). */
+async function scanNdjsonProgress(stream: ReadableStream<Uint8Array>, onProgress: (p: DbDumpProgress) => void): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let totalTables: number | undefined;
+  let tableIndex = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, idx);
+        buf = buf.slice(idx + 1);
+        if (totalTables === undefined && line.startsWith('{"exportedAt"')) {
+          try {
+            totalTables = (JSON.parse(line).tableOrder ?? []).length;
+          } catch { /* manifest line didn't parse — progress just won't show a total */ }
+        } else if (line.startsWith('{"table":"') && line.endsWith('"}')) {
+          tableIndex++;
+          onProgress({ totalTables, tableIndex, table: line.slice('{"table":"'.length, -2) });
+        }
+      }
+    }
+  } catch {
+    // Scanning is progress-only — a read error here shouldn't fail the
+    // actual download, which is happening on the other tee()'d branch.
+  }
+}
+
+/** Streams the full database dump and saves it wherever the user picks.
+ *  showSaveFilePicker (Chromium) pipes the response straight to disk — an
+ *  external drive included — without buffering it in page memory first;
+ *  other browsers fall back to the classic blob+<a download> trick, which
+ *  always lands in the default downloads location instead. Either way the
+ *  body is tee()'d so `onProgress` can watch the same bytes going by for the
+ *  current table name, without a second request. */
+export async function downloadDatabaseBackup(onProgress?: (p: DbDumpProgress) => void): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/settings/backup/database`, { headers: authHeadersNoContentType() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  const filename = `tbwc-db-${new Date().toISOString().slice(0, 10)}.ndjson`;
+  // Only tee when something will actually read the second branch — an
+  // un-consumed tee() branch buffers the whole body in memory forever.
+  const [toDest, toScan] = onProgress && res.body ? res.body.tee() : [res.body, null];
+  const scanPromise = toScan && onProgress ? scanNdjsonProgress(toScan, onProgress) : Promise.resolve();
+
+  const picker = (window as any).showSaveFilePicker;
+  if (typeof picker === 'function' && toDest) {
+    const handle = await picker({ suggestedName: filename });
+    const writable = await handle.createWritable();
+    await Promise.all([toDest.pipeTo(writable), scanPromise]);
+    return;
+  }
+  const blob = await new Response(toDest ?? res.body).blob();
+  await scanPromise;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export interface ManagedBackupsResult {
+  configured: boolean;
+  pitrEnabled?: boolean;
+  backups?: unknown[];
+  error?: string;
+}
+
+export async function getManagedBackups(): Promise<ManagedBackupsResult> {
+  const data = await parse(await fetch(`${API_BASE_URL}/settings/backup/managed`, { headers: authHeaders() }));
+  return data.data;
+}
+
+export interface LiveStorageObject {
+  name: string;
+  size: number | null;
+}
+
+export async function listLiveStorageObjects(
+  bucket: BackupBucket,
+  cursor: string | null
+): Promise<{ objects: LiveStorageObject[]; cursor: string | null }> {
+  const qs = new URLSearchParams({ bucket, ...(cursor ? { cursor } : {}) });
+  const data = await parse(await fetch(`${API_BASE_URL}/settings/backup/storage/list?${qs}`, { headers: authHeaders() }));
+  return data.data;
+}
+
+export async function fetchLiveStorageObjectBytes(bucket: BackupBucket, path: string): Promise<ArrayBuffer> {
+  const qs = new URLSearchParams({ bucket, path });
+  const res = await fetch(`${API_BASE_URL}/settings/backup/storage/object?${qs}`, { headers: authHeadersNoContentType() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.arrayBuffer();
+}
+
+export async function restoreLiveStorageObjectBytes(bucket: BackupBucket, path: string, bytes: ArrayBuffer): Promise<void> {
+  const qs = new URLSearchParams({ bucket, path });
+  const res = await fetch(`${API_BASE_URL}/settings/backup/storage/object?${qs}`, {
+    method: 'POST',
+    headers: { ...authHeadersNoContentType(), 'Content-Type': 'application/octet-stream' },
+    body: bytes,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `HTTP ${res.status}: ${res.statusText}`);
+  }
+}
+
+export async function logBackupRun(
+  jobName: 'exportStorage' | 'restoreStorage',
+  status: 'ok' | 'error',
+  detail?: Record<string, unknown> | null,
+  durationMs?: number | null,
+  error?: string | null
+): Promise<void> {
+  await parse(
+    await fetch(`${API_BASE_URL}/settings/backup/log`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ job_name: jobName, status, detail, duration_ms: durationMs, error }),
+    })
+  );
+}
+
+/** Last 7 days across all three Backup-tab jobs (exportDatabase, exportStorage,
+ *  restoreStorage), newest first — same CronRun shape as the rest of Settings. */
+export async function getBackupHistory(): Promise<CronRun[]> {
+  const data = await parse(await fetch(`${API_BASE_URL}/settings/backup/history`, { headers: authHeaders() }));
+  return data.data;
+}

@@ -210,6 +210,28 @@ export async function jobsForTier(env: Env, tier: RunnableCronTier): Promise<str
   }
 }
 
+/** Writes one already-finished row directly — for work the BROWSER drives
+ *  (Settings > Backup's storage export/restore loop, one HTTP call per
+ *  object) and reports its own outcome once the loop ends, unlike runJob()
+ *  which times a Worker-side async function itself. No 'running' row: the
+ *  Worker never sees the work in progress, only the summary after. */
+export async function logCompletedRun(
+  env: Env,
+  jobName: string,
+  status: 'ok' | 'error',
+  detail?: Record<string, unknown> | null,
+  durationMs?: number | null,
+  error?: string | null
+): Promise<void> {
+  await execQuery(
+    env,
+    `INSERT INTO public.cron_run_log (job_name, status, finished_at, duration_ms, detail, error)
+     VALUES ($1, $2, now(), $3, $4, $5)`,
+    [jobName, status, durationMs ?? null, detail ?? null, error ?? null],
+    'cron.runLog.logCompleted'
+  );
+}
+
 export interface ScheduledJobRow {
   scheduled_job_id: number;
   job_name: string;

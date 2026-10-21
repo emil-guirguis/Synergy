@@ -240,9 +240,9 @@ export default function SettingsPage() {
         },
         {
           key: 'storageBackup',
-          label: 'Storage Backup',
+          label: 'Backup',
           icon: <CloudSyncIcon fontSize="small" />,
-          description: 'Backup of document/image file bytes, and restore from it.',
+          description: 'Database and document/image file backups — automatic mirror, manual disk export, and Supabase\'s own managed backups.',
           content: <StorageBackupPanel />,
         },
         ...(canImportQuotes ? [{

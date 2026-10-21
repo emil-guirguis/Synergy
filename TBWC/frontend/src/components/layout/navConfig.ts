@@ -41,6 +41,7 @@ export const NAV: MenuItem[] = [
   { id: 'orders', label: 'Orders', icon: 'orders', path: '/orders', requiredPermission: 'order:read' },
   // Reps see Invoices too, scoped to their own by the API (see invoices.ts).
   { id: 'invoices', label: 'Invoices', icon: 'invoices', path: '/invoices', requiredPermission: 'invoice:read' },
+  { id: 'support', label: 'Support', icon: 'support', path: '/support', requiredPermission: 'support:read' },
   { id: 'aiChat', label: 'Ask AI', icon: 'smart_toy', path: '/ai-chat', requiredPermission: 'aichat:use' },
   {
     id: 'reports',
@@ -84,7 +85,6 @@ export const NAV: MenuItem[] = [
       { id: 'repPortal', label: 'Rep Approvals', icon: 'repPortal', path: '/rep-portal', requiredPermission: 'repApproval:write' },
       { id: 'resources', label: 'Resources', icon: 'resources', path: '/resources', requiredPermission: 'resource:read' },
       { id: 'notifications', label: 'Notifications', icon: 'notifications', path: '/notifications', requiredPermission: 'notification:read' },
-      { id: 'support', label: 'Support', icon: 'support', path: '/support', requiredPermission: 'support:read' },
     ],
   },
   { id: 'users', label: 'Users', icon: 'users', path: '/users', requiredPermission: 'user:read' },

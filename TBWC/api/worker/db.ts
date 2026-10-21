@@ -66,6 +66,12 @@ export interface Env {
   // from the internet; local `wrangler dev` has no public URL, so live sync
   // only works once deployed.
   MS_WEBHOOK_BASE_URL?: string;
+  // Supabase personal access token (Management API — distinct from
+  // SUPABASE_SERVICE_ROLE_KEY, which only talks to this project's own REST/
+  // Storage APIs). Lets Settings > Backup list Supabase's own daily managed
+  // Postgres backups. Unset => that panel section shows "not configured"
+  // instead of calling out. See worker/backupExport.ts.
+  SUPABASE_ACCESS_TOKEN?: string;
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {
