@@ -95,12 +95,18 @@ export const BACKUP_JOB_NAME = 'backupStorage';
 /** Tier the Resume button puts the job back on — migration 106's default. */
 export const BACKUP_DEFAULT_TIER: CronTier = 'nightly';
 
-/** How often a running backup re-reads its own pause state: every Nth object,
- *  not every object (that would double this job's query count for a switch
- *  that is almost never flipped) and not once per tick (a tick copies up to
- *  BATCH_SIZE objects per bucket, so "stop" would take minutes to be felt).
- *  Reused as the elapsed-time check's cadence too, below. */
-const CANCEL_CHECK_EVERY = 25;
+/** Objects are copied CONCURRENCY at a time (Promise.all per chunk), not one
+ *  at a time: copyToBackupBucket is a single small Supabase API call with no
+ *  file bytes in it (object/copy is server-side), so its cost is almost
+ *  entirely network round-trip latency, not CPU — one serial copy measured
+ *  ~1.8s (including the old download+reupload this replaced); 25 concurrent
+ *  copies measured ~300 objects in ~12s, a ~25x wall-clock improvement for
+ *  the same work. Also the cadence for re-reading the pause switch (migration
+ *  107) and the elapsed-time check below: between chunks, not between every
+ *  object (that would serialize the very thing concurrency just fixed) and
+ *  not once per tick (a tick can cover BATCH_SIZE objects — too coarse for
+ *  either check to bite in time). */
+const CONCURRENCY = 25;
 
 /** Wall-clock budget for one backupStorageToSupabase call, across all 3 buckets.
  *  Unlike aiSearch.ts's backfillDocumentIndex, this job had no self-imposed
@@ -108,10 +114,18 @@ const CANCEL_CHECK_EVERY = 25;
  *  stood between it and the Worker's own execution-duration limit. A
  *  backlog big enough to run long gets the invocation killed mid-batch,
  *  before runJob()'s finish UPDATE — the same stuck-'running'-forever
- *  signature as the old backfillDocumentIndex bug. Bailing out early (same
- *  as a user-requested stop: whatever's copied stays copied, ledger picks up
- *  next tick) keeps the finish write reachable regardless of backlog size. */
-const MAX_TICK_MILLIS = 25_000;
+ *  signature as the old backfillDocumentIndex bug (cronMonitor.ts's
+ *  healStaleRunningRows now also catches this generically). Bailing out
+ *  early (same as a user-requested stop: whatever's copied stays copied,
+ *  ledger picks up next tick) keeps the finish write reachable regardless of
+ *  backlog size.
+ *
+ *  Sized to clear BATCH_SIZE*3 (900) objects — the real ceiling per
+ *  invocation is Cloudflare's ~1000-subrequest cap, not this budget — with
+ *  margin: 900 objects at the measured concurrent-copy rate takes ~35s, so
+ *  60s leaves room for a slower night without being the thing that cuts a
+ *  tick short before the subrequest cap does. */
+const MAX_TICK_MILLIS = 60_000;
 
 interface PendingObject {
   name: string;
@@ -157,30 +171,33 @@ async function backupBucket(
   const pending = await pendingObjects(env, bucket, BATCH_SIZE);
   let copied = 0;
   let failed = 0;
-  let processed = 0;
-  for (const obj of pending) {
+  for (let i = 0; i < pending.length; i += CONCURRENCY) {
     // Mid-run stop (migration 107) and the wall-clock budget (MAX_TICK_MILLIS)
-    // share this cadence: checked between objects, not every object (double
-    // query count for checks that rarely matter) and not once per tick (a
-    // tick copies up to BATCH_SIZE objects per bucket — too coarse for either
-    // check to bite in time). Everything already copied stays copied — the
-    // ledger row per object is written as we go, so stopping early (paused or
-    // out of time) is just a short run, and the next tick picks up exactly
-    // where this one stopped.
-    if (processed > 0 && processed % CANCEL_CHECK_EVERY === 0) {
+    // share this cadence: checked between chunks, not before the first one
+    // (a stop requested before this call even started is the pre-run guard's
+    // job, in backupStorageToSupabase). Everything already copied stays
+    // copied — the ledger row per object is written as its chunk finishes,
+    // so stopping early (paused or out of time) is just a short run, and the
+    // next tick picks up exactly where this one stopped.
+    if (i > 0) {
       if (Date.now() >= deadline) return { copied, failed, cancelled: true };
       if (await isJobPaused(env, BACKUP_JOB_NAME)) return { copied, failed, cancelled: true };
     }
-    processed++;
-    try {
-      await copyToBackupBucket(env, bucket, obj.name);
-    } catch (e) {
-      failed++;
-      console.error(`[storageBackup] copy failed, leaving for next tick: ${bucket}/${obj.name}:`, e instanceof Error ? e.message : e);
-      continue;
-    }
-    await markBackedUp(env, bucket, obj.name, obj.size);
-    copied++;
+    const chunk = pending.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (obj) => {
+        try {
+          await copyToBackupBucket(env, bucket, obj.name);
+          await markBackedUp(env, bucket, obj.name, obj.size);
+          return true;
+        } catch (e) {
+          console.error(`[storageBackup] copy failed, leaving for next tick: ${bucket}/${obj.name}:`, e instanceof Error ? e.message : e);
+          return false;
+        }
+      })
+    );
+    copied += results.filter(Boolean).length;
+    failed += results.length - results.filter(Boolean).length;
   }
   return { copied, failed, cancelled: false };
 }

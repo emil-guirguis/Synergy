@@ -173,16 +173,20 @@ export type RunnableCronTier = 'frequent' | 'hourly' | 'daily' | 'nightly';
 export type CronTier = RunnableCronTier | 'off';
 
 // Matches wrangler.toml's [triggers]/[env.production.triggers] crons exactly.
-// 'nightly' = 0 10 */2 * * UTC, chosen as ~2am Pacific every other day — Cron
-// Triggers have no timezone concept (so it reads as 3am Pacific during
-// daylight saving) and day-of-month step doesn't divide evenly across month
-// boundaries (e.g. day 31 then day 1 are two calendar-adjacent runs, not two
-// days apart) — an occasional off-by-one-day is fine for a backup cadence.
+// 'nightly' fires every 20 min from 8am-1pm UTC (~1am-6am Pacific) — exclusively
+// backupStorage's tier (see DEFAULT_TIER_JOBS), repeated on purpose: Cloudflare
+// caps one invocation at ~1000 outgoing fetch() calls (one per object copied),
+// so a backlog bigger than that can't clear in a single tick no matter how
+// long its own time budget is — only more ticks get through more of it. ~15
+// ticks across the window gives it that room; once the backlog's cleared,
+// the extra ticks just find nothing pending and no-op. Cron Triggers have no
+// timezone concept, so this reads an hour earlier once daylight saving ends
+// (PST) — still inside the window, just not centered on it anymore.
 export const TIER_CRON: Record<RunnableCronTier, string> = {
   frequent: '*/15 * * * *',
   hourly: '0 * * * *',
   daily: '0 6 * * *',
-  nightly: '0 10 */2 * *',
+  nightly: '*/20 8-12 * * *',
 };
 
 const CRON_TIER: Record<string, RunnableCronTier> = Object.fromEntries(
