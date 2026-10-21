@@ -168,38 +168,54 @@ async function backupBucket(
   bucket: string,
   deadline: number
 ): Promise<{ copied: number; failed: number; cancelled: boolean }> {
-  const pending = await pendingObjects(env, bucket, BATCH_SIZE);
   let copied = 0;
   let failed = 0;
-  for (let i = 0; i < pending.length; i += CONCURRENCY) {
-    // Mid-run stop (migration 107) and the wall-clock budget (MAX_TICK_MILLIS)
-    // share this cadence: checked between chunks, not before the first one
-    // (a stop requested before this call even started is the pre-run guard's
-    // job, in backupStorageToSupabase). Everything already copied stays
-    // copied — the ledger row per object is written as its chunk finishes,
-    // so stopping early (paused or out of time) is just a short run, and the
-    // next tick picks up exactly where this one stopped.
-    if (i > 0) {
-      if (Date.now() >= deadline) return { copied, failed, cancelled: true };
-      if (await isJobPaused(env, BACKUP_JOB_NAME)) return { copied, failed, cancelled: true };
+  let firstChunk = true;
+  // Re-pages BATCH_SIZE at a time instead of fetching once: once the smaller
+  // buckets (rep-docs, item-images) are caught up, every tick's pending set
+  // is just whichever bucket still has a backlog (record-docs today) — a
+  // single BATCH_SIZE page of that bucket took ~11s to copy, so stopping
+  // after one page left ~49s of a 60s budget (and most of the 1000-subrequest
+  // cap) unused every single tick. Looping here lets one tick drain several
+  // pages of the same bucket, bounded by the real ceiling (deadline, or the
+  // pause switch) rather than an arbitrary one-page-per-tick cap.
+  while (true) {
+    if (!firstChunk && Date.now() >= deadline) return { copied, failed, cancelled: true };
+    const pending = await pendingObjects(env, bucket, BATCH_SIZE);
+    if (pending.length === 0) return { copied, failed, cancelled: false };
+    for (let i = 0; i < pending.length; i += CONCURRENCY) {
+      // Mid-run stop (migration 107) and the wall-clock budget (MAX_TICK_MILLIS)
+      // share this cadence: checked between chunks, not before the first one
+      // (a stop requested before this call even started is the pre-run guard's
+      // job, in backupStorageToSupabase). Everything already copied stays
+      // copied — the ledger row per object is written as its chunk finishes,
+      // so stopping early (paused or out of time) is just a short run, and the
+      // next tick picks up exactly where this one stopped.
+      if (!firstChunk) {
+        if (Date.now() >= deadline) return { copied, failed, cancelled: true };
+        if (await isJobPaused(env, BACKUP_JOB_NAME)) return { copied, failed, cancelled: true };
+      }
+      firstChunk = false;
+      const chunk = pending.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map(async (obj) => {
+          try {
+            await copyToBackupBucket(env, bucket, obj.name);
+            await markBackedUp(env, bucket, obj.name, obj.size);
+            return true;
+          } catch (e) {
+            console.error(`[storageBackup] copy failed, leaving for next tick: ${bucket}/${obj.name}:`, e instanceof Error ? e.message : e);
+            return false;
+          }
+        })
+      );
+      copied += results.filter(Boolean).length;
+      failed += results.length - results.filter(Boolean).length;
     }
-    const chunk = pending.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(
-      chunk.map(async (obj) => {
-        try {
-          await copyToBackupBucket(env, bucket, obj.name);
-          await markBackedUp(env, bucket, obj.name, obj.size);
-          return true;
-        } catch (e) {
-          console.error(`[storageBackup] copy failed, leaving for next tick: ${bucket}/${obj.name}:`, e instanceof Error ? e.message : e);
-          return false;
-        }
-      })
-    );
-    copied += results.filter(Boolean).length;
-    failed += results.length - results.filter(Boolean).length;
+    // A short page means this bucket's actually exhausted, not just paused
+    // between pages — no point re-querying it again this tick.
+    if (pending.length < BATCH_SIZE) return { copied, failed, cancelled: false };
   }
-  return { copied, failed, cancelled: false };
 }
 
 // A type alias, not an interface: runJob() takes fn: () => Promise<Record<
