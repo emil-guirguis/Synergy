@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import type { HeaderProps } from '../types';
 import { HamburgerIcon } from './HamburgerIcon';
 import { getIconElement } from '../../utils/iconHelper';
-import { getAppVersion, formatVersion } from '../../utils/version';
+import { getVersionDisplay } from '../../utils/version';
 import { useSystemConfig } from '../../utils/systemConfig';
 import { FormModal } from '../../components/modal';
 import UserPreferencesForm, { type UserPreferencesValues } from '../../components/settings/UserPreferencesForm';
@@ -418,7 +418,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="user-menu-divider" role="separator"></div>
                 <div className="user-menu-footer">
                   <div className="app-version">
-                    <span className="version-number">{formatVersion(getAppVersion())}</span>
+                    <span className="version-number">{getVersionDisplay()}</span>
                   </div>
                 </div>
               </div>
