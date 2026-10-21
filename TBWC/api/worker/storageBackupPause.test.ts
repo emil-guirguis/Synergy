@@ -46,7 +46,7 @@ afterEach(() => {
 describe("'off' is not a runnable tier", () => {
   it('has no cron of its own, so no Cron Trigger can ever select it', () => {
     expect(Object.keys(TIER_CRON)).not.toContain('off');
-    expect(tierForCron('*/20 8-12 * * *')).toBe('nightly');
+    expect(tierForCron('0 9 */2 * *')).toBe('nightly');
   });
 });
 
