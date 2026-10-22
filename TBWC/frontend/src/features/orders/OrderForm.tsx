@@ -7,6 +7,7 @@ import { useSchema } from '@meterit/framework-frontend/components/form/utils/sch
 import { useOrdersEnhanced } from './ordersStore';
 import { OrderLinesGrid } from './OrderLinesGrid';
 import OrderInvoicesPanel from './OrderInvoicesPanel';
+import OrderSerialNumbers from './OrderSerialNumbers';
 import { parseAllTracking, renderTrackingText } from './trackingLink';
 import { DocumentsGrid } from '@meterit/framework-frontend/documents';
 import type { DocType } from '@meterit/framework-frontend/documents';
@@ -91,16 +92,35 @@ function renderPlaceholderField(fieldDef: any, value: any, disabled: boolean, on
 export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading = false }) => {
   const orders = useOrdersEnhanced();
   const { user, isFieldVisible, scopeOf } = useAuth();
-  // Reps get a cut-down form: the general Order tab, Line Items, and (now)
-  // Documents tabs. The other tabs carry visibleFor: ['admin'] in
+  // Rep-shaped roles get a cut-down form: the general Order tab, Line Items
+  // and Documents. The other tabs carry visibleFor: ['admin'] in
   // orderSchema.ts, and BaseForm's `variant` filter drops any tab whose
   // visibleFor doesn't include the variant (tabs without visibleFor are
   // always shown).
-  const isAdmin = !!user?.is_admin;
-  const variant = isAdmin ? 'admin' : 'rep';
-  // PUT /api/orders/:id is requireAdmin, so a rep's form is a viewer: every
-  // field disabled, and OrderManagementPage hides the Save button to match.
-  const readOnly = !isAdmin;
+  //
+  // "Rep-shaped" is the order:read SCOPE, not the Administrator role — a rep
+  // sees own rows ('own'), every other role that can open Orders at all sees
+  // them all ('all'). Branching on is_admin here is what hid the whole
+  // Shipping/Financials/Notes/Serial side of the form from the Employee role,
+  // which holds order:read 'all' with nothing hidden. Field- and tab-level
+  // narrowing within the variant still comes from the role's own grant
+  // (hiddenTabs below, plus the server's redactRow).
+  const fullScope = scopeOf('order:read') === 'all';
+  const variant = fullScope ? 'admin' : 'rep';
+  // PUT /api/orders/:id is requirePermission('order:write'), so the form is a
+  // viewer for anyone without that grant: every field disabled, and
+  // OrderManagementPage hides the Save button on the same test.
+  const canWrite = scopeOf('order:write') !== null;
+  const readOnly = !canWrite;
+  // DELETE /:id is its own grant (and only ever allowed on a placeholder row).
+  const canDelete = scopeOf('order:delete') !== null;
+  // The side panel's money. Driven by the role's own field grants rather than
+  // the role itself, so "show a rep the totals but not the commission" is
+  // exactly what the grant already says — and matches what the server sends
+  // (redactRow strips any hidden column, so a hidden figure would read as $0
+  // here if it were rendered anyway).
+  const showMoney = isFieldVisible('order:read', 'total');
+  const showCommission = isFieldVisible('order:read', 'commission_total');
   // Documents are a separate CRUD path (/api/documents, not the order PUT
   // above). A plain rep's grid is view-only; a "managing rep" — one who
   // manages at least one other user via the Users form's Manages tab
@@ -119,8 +139,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   // orderGridLineSchema.ts) can hide Rate/Amount independently of the
   // rep/admin split above — the server already strips them per that grant;
   // this just drops the empty columns. Additive to readOnly, never narrower.
+  // Not tied to readOnly: the Employee role edits orders without being an
+  // admin, and a read-only viewer with the grant should still see the prices.
   const hideLineAmounts =
-    readOnly || !isFieldVisible('orderGridLine:read', 'rate') || !isFieldVisible('orderGridLine:read', 'amount');
+    !isFieldVisible('orderGridLine:read', 'rate') || !isFieldVisible('orderGridLine:read', 'amount');
   // Same field-security grid, one level up: Settings > Roles > Order > Fields
   // has a checkbox per tab (addressed as tab:<Name>, see RolesForm.tsx) that
   // feeds straight into BaseForm's own hiddenTabs prop — on top of, not
@@ -214,12 +236,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   // id. BaseForm's sidePanel prop owns the responsive row/stack split.
   return (
     <Box>
-      {isAdmin && isPlaceholder && (
+      {canWrite && isPlaceholder && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
           <Alert severity="info" sx={{ py: 0, flex: 1 }}>
             {PLACEHOLDER_LABELS[freshOrder!.order_type]} — editable in full, never sent to QuickBooks. Delete this once the real order is entered in QuickBooks.
           </Alert>
-          {freshOrder?.id && (
+          {freshOrder?.id && canDelete && (
             <Button
               variant="outlined"
               color="error"
@@ -245,8 +267,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           variant={variant}
           isDisabled={readOnly}
           hiddenTabs={hiddenTabs}
-          fieldsToClean={['id', 'lines', 'documents']}
-          sidePanel={freshOrder?.id ? <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={isAdmin} /> : undefined}
+          fieldsToClean={['id', 'lines', 'documents', 'serial_numbers']}
+          sidePanel={freshOrder?.id ? <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={showMoney} showCommission={showCommission} /> : undefined}
           renderCustomField={(fieldName, fieldDef, value, _error, isFieldDisabled, onChange) => {
             if (fieldName === 'lines') {
               // Placeholder order: an addable/removable grid with an item
@@ -357,6 +379,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
                   </Box>
                 </Box>
               );
+            }
+            // Not a stored field — the parsed block GET /:id attaches (see
+            // orderSerials.ts). Read-only by nature, so no onChange wiring.
+            if (fieldName === 'serial_numbers') {
+              return <OrderSerialNumbers value={freshOrder?.serial_numbers} />;
             }
             if (fieldName === 'documents') {
               return (

@@ -11,14 +11,16 @@
  *                     (GET /api/orders/:id/payments, one row per payment x
  *                     invoice pair) rather than in a Payments section of their
  *                     own — a payment reads as something that happened to an
- *                     invoice, not as a peer of it. Admin-only, like every
- *                     other money in this panel.
+ *                     invoice, not as a peer of it. Shown with the rest of the
+ *                     panel's money (showMoney).
  *   - Totals footer — line-item count with the order total, and commission.
  *                     Pinned to the bottom of the panel (it belongs to the
  *                     order, not to either list) and read off the order record
- *                     the form already fetched, so no extra request. Money here
- *                     is admin-only, matching the rest of the rep view (rep
- *                     list/form and OrderLinesGrid all hide order money).
+ *                     the form already fetched, so no extra request. What a
+ *                     viewer sees here is their own order:read field grant,
+ *                     not their role (showMoney/showCommission, set in
+ *                     OrderForm): reps are shown the order's totals with
+ *                     Commission alone left out.
  *
  * Clicking a row opens that invoice in a modal stacked over the order form —
  * navigating to the invoices module instead would tear down the order form
@@ -107,8 +109,13 @@ interface OrderInvoicesPanelProps {
   /** The already-fetched order — the Totals section reads lines/total/commission
    *  off it rather than re-fetching what the form just loaded. */
   order?: Order;
-  /** False for a rep: line-item count still shows, amounts don't. */
+  /** False when the viewer's order:read grant hides `total`: the line-item
+   *  count still shows, amounts don't. */
   showMoney?: boolean;
+  /** False when their grant hides `commission_total` — the one figure a rep
+   *  can be shown order totals without being shown. Independent of showMoney:
+   *  everything else in Totals can be visible while this row is not. */
+  showCommission?: boolean;
 }
 
 /** One label/value line in the Totals or Invoices summary blocks. Figures use
@@ -262,7 +269,7 @@ function InvoiceRow({
   );
 }
 
-export default function OrderInvoicesPanel({ orderId, order, showMoney = true }: OrderInvoicesPanelProps) {
+export default function OrderInvoicesPanel({ orderId, order, showMoney = true, showCommission = true }: OrderInvoicesPanelProps) {
   const [items, setItems] = useState<LinkedInvoice[]>([]);
   const [payments, setPayments] = useState<LinkedPayment[]>([]);
   const [viewing, setViewing] = useState<LinkedInvoice | null>(null);
@@ -558,13 +565,16 @@ export default function OrderInvoicesPanel({ orderId, order, showMoney = true }:
                 Outstanding uses QB's own balance_remaining (see openBalance
                 above), not Invoiced-minus-Paid, since QB already nets discounts
                 and credits into it that a payments-only sum would miss.
-                Rep view: the line count only — every amount is admin-only,
-                matching the rep list/form and OrderLinesGrid. */}
+                Which rows show is the viewer's own order:read field grant,
+                not their role: a rep is shown these totals with Commission
+                left out (Settings > Roles > Order > Fields hides
+                commission_total for them), and a role that hides `total`
+                outright gets the line count alone. */}
             {showMoney ? (
               <>
                 <SummaryLine label={`Order total (${lineCount} items)`} value={currency(Number(order?.total) || 0)} />
                 <SummaryLine label="Freight" value={currency(freight)} />
-                <SummaryLine label="Commission" value={currency(commission)} />
+                {showCommission && <SummaryLine label="Commission" value={currency(commission)} />}
                 <SummaryLine label="Invoiced" value={currency(invoiced)} />
                 <SummaryLine label="Paid" value={currency(paid)} />
                 <SummaryLine label="Outstanding" value={currency(openBalance)} />

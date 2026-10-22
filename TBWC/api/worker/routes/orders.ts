@@ -35,6 +35,7 @@ import { dateStr, toDocumentLines, sendDocumentEmail } from '../pdf/documentEmai
 import { findAll, findById, create, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { orderSchema } from './orderSchema';
 import { queueFieldPush } from '../qbwc/pushQueue';
+import { extractOrderSerials, type OrderSerials } from './orderSerials';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -164,26 +165,20 @@ async function resolveCustomer(env: Env, listId: string): Promise<{ full_name: s
 /**
  * Serial numbers, read live off the latest linked real invoice's own line
  * items — this company's QB file has no serial/lot tracking, so staff type
- * them straight into a line's Desc by hand (confirmed against live data, e.g.
- * "METER SERIAL # P032608004", "Serial #: P122607064" — mixed in with the
- * rest of that line's product description, not on a line of their own).
- * Every non-empty line Desc is joined verbatim, same as shipping_tracking
- * below — not regex-parsed out, since the surrounding text isn't consistent
- * enough to isolate just the serial reliably. Nothing is stored on the order
- * or the invoice for this (migration 082 dropped the Memo column migration
- * 080 added — wrong field entirely, serials were never there). Same
- * linked-invoice match as GET /:id/invoices (LinkedTxn, falling back to
- * customer + PO), excluding packing slips and deleted rows.
+ * them straight into a line's Desc by hand. The parsing (and why it is safe
+ * to parse at all) lives in orderSerials.ts; this just picks the invoice.
+ * Nothing is stored on the order or the invoice for this (migration 082
+ * dropped the Memo column migration 080 added — wrong field entirely,
+ * serials were never there). Same linked-invoice match as GET /:id/invoices
+ * (LinkedTxn, falling back to customer + PO), excluding packing slips and
+ * deleted rows; null when no invoice matches at all, which is what tells the
+ * form's tab to say "not invoiced yet" rather than "none found".
  */
-async function latestInvoiceSerialNumbers(env: Env, order: { txn_id: string; po_number: string | null; customer_list_id: string | null }): Promise<string | null> {
+async function latestInvoiceSerialNumbers(env: Env, order: { txn_id: string; po_number: string | null; customer_list_id: string | null }): Promise<OrderSerials | null> {
   const po = (order.po_number ?? '').trim() || null;
   const r = await execQuery(
     env,
-    `SELECT (
-       SELECT string_agg(line->>'desc', '; ' ORDER BY ord)
-         FROM jsonb_array_elements(i.lines) WITH ORDINALITY AS t(line, ord)
-        WHERE line->>'desc' IS NOT NULL AND line->>'desc' <> ''
-     ) AS serial_numbers
+    `SELECT i.ref_number, i.txn_date, i.lines
        FROM public.qb_invoice i
       WHERE i.qb_deleted_at IS NULL
         AND NOT i.is_packing_slip
@@ -196,7 +191,7 @@ async function latestInvoiceSerialNumbers(env: Env, order: { txn_id: string; po_
     [order.txn_id, po, order.customer_list_id],
     'orders.latestInvoiceSerialNumbers'
   );
-  return r.rows[0]?.serial_numbers ?? null;
+  return extractOrderSerials(r.rows[0]);
 }
 
 // Mirrors OrderList.tsx's getOrderStatusChips() exactly — the frontend's
@@ -562,7 +557,14 @@ app.put('/:id', requirePermission('order:write'), async (c) => {
   }
 
   const row = await findById(c.env, TABLE, PK, id, undefined, SELECT_WITH_REP_NAME);
-  return c.json({ success: true, data: row });
+  // Shaped exactly like GET /:id's response: serial_numbers re-read (it is not
+  // a column — see latestInvoiceSerialNumbers — so without this the form's
+  // Serial Numbers tab empties itself on save), and redacted by the caller's
+  // own order:read grant rather than returned raw, since a role can hold
+  // order:write while hiding money columns.
+  row.serial_numbers = await latestInvoiceSerialNumbers(c.env, row);
+  const perms = c.get('permissions');
+  return c.json({ success: true, data: applyEmbeddedGrid(perms, 'orderGridLine', 'lines', redactRow(perms, 'order:read', row)) });
 });
 
 // Creates a placeholder order (Hold for Release or Consignment, chosen by the

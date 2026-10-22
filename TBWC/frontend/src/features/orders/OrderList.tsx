@@ -350,10 +350,13 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // see everyone's orders) actually widens the rep dropdown + list, not just the
   // backend query.
   const canSeeAll = auth.scopeOf?.('order:read') === 'all';
-  // Hold for Release is an admin-only affordance (same bar as the 'jay'/
-  // 'service' flags) — no reason to check a dedicated permission for a
-  // button no rep role is granted order:write to use anyway.
-  const isAdmin = !!auth.user?.is_admin;
+  // Creating a placeholder order (POST /api/orders) and emailing one
+  // (POST /api/orders/:id/email) are both requirePermission('order:write') on
+  // the server, so gate both affordances on that grant — not on is_admin,
+  // which left the Employee role (order:write 'all') without either.
+  // ?? null first: authContext can be a partial stub (tests), where a missing
+  // scopeOf would otherwise read as "granted".
+  const canWrite = (auth.scopeOf?.('order:write') ?? null) !== null;
   // A rep who manages other reps (public.user_manager) still has order:read
   // scope 'own', but the server's IN-list for "own" already covers every
   // managed rep too (orders.ts visibleRepListIds) — so this list can show
@@ -409,9 +412,9 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       const poIdx = visible.findIndex((col) => col.key === 'po_number');
       visible.splice(poIdx === -1 ? 0 : poIdx + 1, 0, STATUS_CHIPS_COLUMN);
     }
-    // Email PDF — admin/employee only (matches order:write; see orders.ts's
-    // POST /:id/email, same restriction as the AI chat email_order tool).
-    if (isAdmin) {
+    // Email PDF — matches order:write (see orders.ts's POST /:id/email, same
+    // restriction as the AI chat email_order tool).
+    if (canWrite) {
       visible.push({
         key: 'email_action',
         label: '',
@@ -452,7 +455,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     }
     return visible;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, canSeeAll, isManagingReps, isAdmin]);
+  }, [schema, canSeeAll, isManagingReps, canWrite]);
   const ownRepListId = auth.user?.sales_rep_list_id ?? null;
   const ownRepLabel = [auth.user?.sales_rep_initial, auth.user?.sales_rep_name].filter(Boolean).join(' - ')
     || auth.user?.sales_rep_name || '';
@@ -610,7 +613,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       <BaseList
         title="Orders"
         toolbarContent={
-          isAdmin && onOrderCreate ? <NewOrderButton onCreate={onOrderCreate} /> : undefined
+          canWrite && onOrderCreate ? <NewOrderButton onCreate={onOrderCreate} /> : undefined
         }
         filters={
           <>

@@ -241,6 +241,39 @@ describe('GET /:id', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).data.sold_for).toBeUndefined();
   });
+
+  // serial_numbers is not a column: it is parsed out of the latest linked
+  // invoice's line descriptions on every read (orderSerials.ts).
+  it('attaches the serial block parsed off the linked invoice', async () => {
+    mockFindById.mockResolvedValue({ qb_sales_order_id: 1, txn_id: 't1', qb_deleted_at: null });
+    mockExecQuery.mockResolvedValue({
+      rows: [{
+        ref_number: '10503',
+        txn_date: '2026-10-20',
+        lines: [
+          { item: 'DI-4W/50-N1-KIT.xx', desc: 'Smart Meter.\n\nSerial #: P032609156' },
+          { item: 'CT-RGT12-0050-U', desc: '50-Amp Split-Core CT, 36" leads' },
+        ],
+      }],
+    });
+    const res = await req('/1');
+    expect((await res.json()).data.serial_numbers).toEqual({
+      invoice_ref: '10503',
+      invoice_date: '2026-10-20',
+      items: [{
+        item: 'DI-4W/50-N1-KIT.xx',
+        desc: 'Smart Meter.\n\nSerial #: P032609156',
+        serials: ['P032609156'],
+      }],
+    });
+  });
+
+  it('leaves the serial block null when no invoice is linked', async () => {
+    mockFindById.mockResolvedValue({ qb_sales_order_id: 1, txn_id: 't1', qb_deleted_at: null });
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    const res = await req('/1');
+    expect((await res.json()).data.serial_numbers).toBeNull();
+  });
 });
 
 describe('PUT /:id', () => {
@@ -276,6 +309,25 @@ describe('PUT /:id', () => {
     mockUpdate.mockResolvedValue(null);
     const res = await req('/9', json('PUT', { notes: 'x' }));
     expect(res.status).toBe(404);
+  });
+
+  // The response is shaped like GET /:id's: redacted by the caller's own
+  // order:read grant (a role can hold order:write while hiding money) and
+  // carrying the re-read serial block, which is not a column.
+  it('redacts the saved row and re-attaches the serial block', async () => {
+    currentPermSet = resolvePermissions(
+      [{ permission: 'order:read', scope: 'all', hiddenFields: ['sold_for'] },
+       { permission: 'order:write', scope: 'all', hiddenFields: [] }],
+      null, PERMISSIONS
+    );
+    mockFindById.mockResolvedValueOnce({ qb_sales_order_id: 9, txn_id: 't1' }); // existing
+    mockUpdate.mockResolvedValue({ qb_sales_order_id: 9 });
+    mockFindById.mockResolvedValueOnce({ qb_sales_order_id: 9, txn_id: 't1', sold_for: 900 }); // re-fetch
+    mockExecQuery.mockResolvedValue({ rows: [{ ref_number: '10503', txn_date: '2026-10-20', lines: [] }] });
+    const res = await req('/9', json('PUT', { notes: 'ok' }));
+    const body = await res.json();
+    expect(body.data.sold_for).toBeUndefined();
+    expect(body.data.serial_numbers).toEqual({ invoice_ref: '10503', invoice_date: '2026-10-20', items: [] });
   });
 
   it('routes a QB-owned pushable field to the push queue, not a direct update', async () => {

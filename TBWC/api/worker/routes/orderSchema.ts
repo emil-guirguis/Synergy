@@ -259,16 +259,21 @@ export const orderSchema = defineSchema({
         section({
           name: 'Serial Numbers',
           order: 1,
+          // OrderForm renders its own table here (serials per line item, with
+          // the source invoice named) — bare avoids a duplicate section title.
+          bare: true,
           fields: [
             // This company's QB file has no serial/lot tracking, so staff type
             // serial numbers straight into a line's Desc by hand (mixed in
             // with the rest of that line's product description — e.g. "METER
-            // SERIAL # P032608004"). No dbField — not a real column: GET /:id
-            // reads it live off the latest linked real invoice's line items
-            // (orders.ts's latestInvoiceSerialNumbers), same match rule as
-            // the Invoices panel. Nothing is written to the invoice or stored
-            // on the order for this.
-            field({ name: 'serial_numbers', order: 1, type: FieldTypes.TEXTAREA, default: '', required: false, readOnly: true, label: 'Serial Numbers', description: 'Line-item descriptions from the latest linked invoice', showOn: ['form'], rows: 6 }),
+            // SERIAL # P032608004"). No dbField — not a real column, and not a
+            // string either: GET /:id reads the latest linked real invoice's
+            // line items and hands over { invoice_ref, invoice_date, items[] }
+            // (orders.ts's latestInvoiceSerialNumbers + orderSerials.ts), same
+            // invoice match as the Invoices panel. Nothing is written to the
+            // invoice or stored on the order for this, so there is nothing to
+            // save — OrderForm's renderCustomField draws it read-only.
+            field({ name: 'serial_numbers', order: 1, type: FieldTypes.OBJECT, default: null, required: false, readOnly: true, label: 'Serial Numbers', showOn: ['form'] }),
           ],
         }),
       ],

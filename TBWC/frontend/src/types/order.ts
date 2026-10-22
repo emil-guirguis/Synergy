@@ -1,3 +1,19 @@
+/** One invoice line that carries serial numbers (see Order.serial_numbers). */
+export interface OrderSerialLine {
+  /** QB item code, e.g. "DI-MMU16-N1-(2)VR.xx". */
+  item: string | null;
+  /** The line's full Desc, serials and product blurb mixed together as typed. */
+  desc: string | null;
+  serials: string[];
+}
+
+/** The order's serial numbers, read off the invoice they were typed on. */
+export interface OrderSerials {
+  invoice_ref: string | null;
+  invoice_date: string | null;
+  items: OrderSerialLine[];
+}
+
 /** Order row shape (tbwc-site public.qb_sales_order). PK is `qb_sales_order_id`.
  * QB-synced fields are read-only in the UI; the TBWC-owned block at the bottom
  * (build_notes … trade_ally_fee) is what the order form edits. */
@@ -51,11 +67,12 @@ export interface Order {
    *  orderInvoiceStatus.ts) — free-typed shipping notes verbatim, not a
    *  parsed-out tracking number (the source data isn't structured enough). */
   shipping_tracking: string | null;
-  /** Denormalised from the linked invoice's own Memo field (see
-   *  orderInvoiceStatus.ts) — this QB company file has no serial/lot
-   *  tracking, so staff type serial numbers straight into that field by hand
-   *  (migration 080). Verbatim, read-only, same as shipping_tracking above. */
-  serial_numbers: string | null;
+  /** Not a column: GET /api/orders/:id parses it out of the latest linked
+   *  invoice's line descriptions on every read (api/worker/routes/orderSerials.ts
+   *  — this QB company file has no serial/lot tracking, so staff type serials
+   *  into a line's Desc by hand). null when no invoice is linked yet; `items`
+   *  empty when one is but carries no serials. Read-only, never saved. */
+  serial_numbers: OrderSerials | null;
   contact: string | null;
   customer_tax_code: string | null;
   /** SalesOrderLineRet rows, as captured by qbwc/qbxml.ts's lineItems(). */
