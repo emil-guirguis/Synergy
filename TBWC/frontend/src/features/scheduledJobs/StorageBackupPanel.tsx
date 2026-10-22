@@ -782,7 +782,13 @@ export default function StorageBackupPanel() {
   // have to add three numbers up to find that out.
   const totalBackedUp = state ? state.buckets.reduce((n, b) => n + b.backedUp, 0) : 0;
   const totalPending = state ? state.buckets.reduce((n, b) => n + b.pending, 0) : 0;
-  const overallPct = exportTotal === 0 ? 100 : Math.round((totalBackedUp / exportTotal) * 100);
+  // 100% has to mean "nothing left", never "rounded up to nothing left".
+  // 12,784 of 12,791 rounds to 100% while seven files sit unbacked, which on
+  // a backup page is the one number you must not get wrong — so anything
+  // short of complete floors, and is capped at 99.
+  const pctOf = (done: number, total: number, pending: number) =>
+    total === 0 || pending === 0 ? 100 : Math.min(99, Math.floor((done / total) * 100));
+  const overallPct = pctOf(totalBackedUp, exportTotal, totalPending);
   const diskElapsed = useElapsed(exportingDisk || restoringDisk);
 
   return (
@@ -1065,7 +1071,7 @@ export default function StorageBackupPanel() {
               {state && (
                 <Stack spacing={2}>
                   {state.buckets.map((s) => {
-                    const pct = s.total === 0 ? 100 : Math.round((s.backedUp / s.total) * 100);
+                    const pct = pctOf(s.backedUp, s.total, s.pending);
                     return (
                       <Box key={s.bucket}>
                         <Stack direction="row" justifyContent="space-between" alignItems="baseline">
