@@ -15,7 +15,7 @@ vi.mock('./db', () => ({
 }));
 
 import { jobsForTier, isJobPaused, TIER_CRON, tierForCron, runJob } from './cronMonitor';
-import { backupStorageToSupabase } from './storageBackup';
+import { backupStorageToSupabase, fullBackupBatch } from './storageBackup';
 
 // copyToBackupBucket/restoreObjectFromBackup call the global fetch() directly
 // (a Supabase Storage object/copy REST call — no file bytes, same project on
@@ -226,5 +226,89 @@ describe('the per-batch detail the one-click loop terminates on', () => {
       'cron.runLog.finishError': () => ({ rows: [] }),
     });
     expect(await runJob(ENV, 'backupStorage', async () => { throw new Error('db gone'); })).toBeUndefined();
+  });
+});
+
+/**
+ * "Back up now" is a FULL re-copy, not the incremental sweep the nightly job
+ * runs: pressing it when the mirror is already complete must still copy every
+ * file, because a manual backup that reports "nothing to do" is indistinguishable
+ * from a broken button. fullBackupBatch is the page the panel loops over.
+ */
+describe('fullBackupBatch re-copies everything', () => {
+  const okCopy = (size: number) => ({
+    ok: true,
+    text: () => Promise.resolve(JSON.stringify({ metadata: { size } })),
+  });
+
+  it('copies objects that are ALREADY in the ledger', async () => {
+    // The incremental path anti-joins the ledger and would return nothing here.
+    respondByTag({
+      'storageBackup.full.total': () => ({ rows: [{ total: 2 }] }),
+      'storageBackup.full.page': () => ({
+        rows: [
+          { bucket_id: 'record-docs', name: 'already-mirrored.pdf', size: '5' },
+          { bucket_id: 'rep-docs', name: 'also-mirrored.pdf', size: '6' },
+        ],
+      }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    mockFetch.mockImplementation((_u: string, init: any) =>
+      Promise.resolve(init?.method === 'DELETE' ? { ok: true, text: () => Promise.resolve('') } : okCopy(JSON.parse(init.body).sourceKey === 'already-mirrored.pdf' ? 5 : 6))
+    );
+
+    const res = await fullBackupBatch(ENV, null);
+    expect(res.copied).toBe(2);
+    expect(res.failed).toBe(0);
+    expect(res.total).toBe(2);
+    // Short page => the sweep is done, so no cursor to continue from.
+    expect(res.cursor).toBeNull();
+  });
+
+  it('deletes the destination before copying, since object/copy has no upsert', async () => {
+    respondByTag({
+      'storageBackup.full.total': () => ({ rows: [{ total: 1 }] }),
+      'storageBackup.full.page': () => ({ rows: [{ bucket_id: 'record-docs', name: 'a.pdf', size: '3' }] }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    mockFetch.mockImplementation((_u: string, init: any) =>
+      Promise.resolve(init?.method === 'DELETE' ? { ok: true, text: () => Promise.resolve('') } : okCopy(3))
+    );
+
+    await fullBackupBatch(ENV, null);
+    const methods = mockFetch.mock.calls.map((c) => c[1]?.method);
+    expect(methods).toEqual(['DELETE', 'POST']);
+    expect(mockFetch.mock.calls[0][0]).toContain('storage-backup/record-docs/a.pdf');
+  });
+
+  it('splits the cursor on the FIRST slash, so paths containing slashes survive', async () => {
+    // bucket ids never contain "/", object paths usually do (order/123/x.pdf).
+    let seen: any[] = [];
+    respondByTag({
+      'storageBackup.full.total': () => ({ rows: [{ total: 0 }] }),
+      'storageBackup.full.page': (params) => { seen = params; return { rows: [] }; },
+    });
+    await fullBackupBatch(ENV, 'record-docs/order/123/packing slip.pdf');
+    expect(seen[1]).toBe('record-docs');
+    expect(seen[2]).toBe('order/123/packing slip.pdf');
+  });
+
+  it('hands back a cursor when the page is full, so the panel keeps going', async () => {
+    // A full page means there is probably more after it.
+    const rows = Array.from({ length: 150 }, (_, i) => ({
+      bucket_id: 'record-docs', name: `doc-${String(i).padStart(3, '0')}.pdf`, size: '1',
+    }));
+    respondByTag({
+      'storageBackup.full.total': () => ({ rows: [{ total: 1000 }] }),
+      'storageBackup.full.page': () => ({ rows }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    mockFetch.mockImplementation((_u: string, init: any) =>
+      Promise.resolve(init?.method === 'DELETE' ? { ok: true, text: () => Promise.resolve('') } : okCopy(1))
+    );
+
+    const res = await fullBackupBatch(ENV, null);
+    expect(res.cursor).toBe('record-docs/doc-149.pdf');
+    expect(res.total).toBe(1000);
   });
 });

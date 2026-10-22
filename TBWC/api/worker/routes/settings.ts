@@ -14,7 +14,7 @@ import {
   listScheduledJobs, setJobTier, jobTier, type CronTier,
 } from '../cronMonitor';
 import {
-  BACKUP_BUCKETS, backupStorageToSupabase, storageBackupStatus,
+  BACKUP_BUCKETS, backupStorageToSupabase, storageBackupStatus, fullBackupBatch,
   restoreObjectFromBackup, restoreBucketBatch,
   backupPauseState, setBackupPaused,
 } from '../storageBackup';
@@ -233,6 +233,21 @@ app.post('/storage-backup/run', requirePermission('setting:write'), async (c) =>
   const pause = await backupPauseState(c.env);
   if (pause.paused) {
     return c.json({ success: false, message: 'Backup is stopped — resume it before running a batch' }, 409);
+  }
+  // full: re-copy every object, mirrored or not — what "Back up now" does, so
+  // a manual run always actually backs up rather than reporting that the
+  // incremental job already covered everything. Paged by `cursor`, which the
+  // panel feeds back until it comes home null.
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  if (body.full) {
+    const batch = await runJob(c.env, 'backupStorage', () =>
+      fullBackupBatch(c.env, typeof body.cursor === 'string' ? body.cursor : null)
+    );
+    const buckets = await storageBackupStatus(c.env);
+    return c.json({
+      success: true,
+      data: { buckets, ...(await backupPauseState(c.env)), full: batch ?? null },
+    });
   }
   const detail = await runJob(c.env, 'backupStorage', () => backupStorageToSupabase(c.env));
   const buckets = await storageBackupStatus(c.env);

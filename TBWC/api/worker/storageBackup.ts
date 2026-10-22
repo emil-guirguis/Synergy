@@ -312,6 +312,109 @@ export async function backupStorageToSupabase(env: Env): Promise<StorageBackupRu
   return { copied: totalCopied, failed: totalFailed, stopped: false };
 }
 
+/** Deletes the mirrored copy so a fresh one can be copied over it. Supabase's
+ *  object/copy has no upsert, so a re-copy of a file that's already mirrored
+ *  needs the destination gone first. A 404 here is fine — nothing to remove. */
+async function deleteFromBackupBucket(env: Env, destinationKey: string): Promise<void> {
+  const { url, key } = requireSupabaseEnv(env);
+  const res = await fetch(
+    `${url}/storage/v1/object/${BACKUP_BUCKET}/${destinationKey.split('/').map(encodeURIComponent).join('/')}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${key}`, apikey: key } }
+  );
+  if (!res.ok && res.status !== 404 && res.status !== 400) {
+    throw new Error(`Supabase backup delete failed: ${res.status} ${await res.text().catch(() => '')}`);
+  }
+}
+
+// A type alias, not an interface, for the same reason as
+// StorageBackupRunDetail above: runJob takes Record<string, unknown> | void,
+// and a named interface is not structurally assignable to an indexed type.
+export type FullBackupBatchResult = {
+  copied: number;
+  failed: number;
+  /** Every live object across all three buckets — the progress denominator. */
+  total: number;
+  /** `<bucket>/<path>` of the last object handled; pass back to continue.
+   *  null means the sweep is finished. */
+  cursor: string | null;
+};
+
+/** One bounded page of a FULL re-copy: every object in every bucket, whether
+ *  or not it's already mirrored. Driven in a loop by the Settings panel's
+ *  "Back up now" (same shape as restoreBucketBatch) — the nightly job keeps
+ *  using backupStorageToSupabase, which only copies what's missing.
+ *
+ *  Keyset-paged on (bucket, name) rather than offset so objects added
+ *  mid-sweep can't shift the window. Bounded by BATCH_SIZE and the same
+ *  wall-clock budget as a scheduled tick, because the per-invocation
+ *  subrequest cap applies here too — each object costs a delete plus a copy,
+ *  so pages are half the size. */
+export async function fullBackupBatch(env: Env, cursor?: string | null): Promise<FullBackupBatchResult> {
+  const slash = cursor ? cursor.indexOf('/') : -1;
+  const curBucket = slash >= 0 ? cursor!.slice(0, slash) : '';
+  const curPath = slash >= 0 ? cursor!.slice(slash + 1) : '';
+  const { rows: totalRows } = await execQuery(
+    env,
+    `SELECT count(*)::int AS total FROM storage.objects
+      WHERE bucket_id = ANY($1) AND is_delete_marker = false AND archived_at IS NULL`,
+    [BACKUP_BUCKETS as unknown as string[]],
+    'storageBackup.full.total'
+  );
+  const total = totalRows[0]?.total ?? 0;
+
+  // Half BATCH_SIZE: a re-copy is two subrequests per object (delete + copy).
+  const pageSize = Math.floor(BATCH_SIZE / 2);
+  const { rows } = await execQuery(
+    env,
+    `SELECT bucket_id, name, (metadata->>'size')::bigint AS size
+       FROM storage.objects
+      WHERE bucket_id = ANY($1) AND is_delete_marker = false AND archived_at IS NULL
+        AND (bucket_id, name) > ($2, $3)
+      ORDER BY bucket_id, name
+      LIMIT $4`,
+    [BACKUP_BUCKETS as unknown as string[], curBucket, curPath, pageSize],
+    'storageBackup.full.page'
+  );
+  if (rows.length === 0) return { copied: 0, failed: 0, total, cursor: null };
+
+  const deadline = Date.now() + MAX_TICK_MILLIS;
+  let copied = 0;
+  let failed = 0;
+  let last: { bucket_id: string; name: string } | null = null;
+
+  for (let i = 0; i < rows.length; i += CONCURRENCY) {
+    if (i > 0 && Date.now() >= deadline) break;
+    const chunk = rows.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (row: any) => {
+        try {
+          const destinationKey = `${row.bucket_id}/${row.name}`;
+          await deleteFromBackupBucket(env, destinationKey);
+          await copyToBackupBucket(env, row.bucket_id, row.name, row.size);
+          await markBackedUp(env, row.bucket_id, row.name, row.size);
+          return true;
+        } catch (e) {
+          console.error(`[storageBackup] full re-copy failed: ${row.bucket_id}/${row.name}:`, e instanceof Error ? e.message : e);
+          return false;
+        }
+      })
+    );
+    copied += results.filter(Boolean).length;
+    failed += results.length - results.filter(Boolean).length;
+    last = chunk[chunk.length - 1];
+  }
+
+  // Only report "done" when the final page was short AND fully processed;
+  // otherwise hand back where to resume.
+  const finished = rows.length < pageSize && last === rows[rows.length - 1];
+  return {
+    copied,
+    failed,
+    total,
+    cursor: finished || !last ? null : `${last.bucket_id}/${last.name}`,
+  };
+}
+
 export interface BackupPauseState {
   paused: boolean;
   tier: CronTier | null;

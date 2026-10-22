@@ -35,7 +35,7 @@ import FolderIcon from '@mui/icons-material/Folder';
 import UploadIcon from '@mui/icons-material/Upload';
 import { formatDateTime } from '@meterit/framework-frontend/utils';
 import {
-  getStorageBackupStatus, getStorageBackupHistory, runStorageBackupNow,
+  getStorageBackupStatus, getStorageBackupHistory, runFullStorageBackup,
   restoreStorageObject, restoreStorageBucketBatch, setStorageBackupPaused,
   downloadDatabaseBackup, getManagedBackups, listLiveStorageObjects,
   fetchLiveStorageObjectBytes, restoreLiveStorageObjectBytes, logBackupRun,
@@ -228,7 +228,10 @@ const LAST_RUN_SEVERITY: Record<LastRun['outcome'], 'success' | 'info' | 'warnin
 function lastRunHeadline(r: LastRun): string {
   if (r.outcome === 'failed') return 'Last run failed';
   if (r.outcome === 'stopped') return 'Last run was stopped';
-  if (r.outcome === 'uptodate') return 'Last run: nothing to copy — already up to date';
+  // Only a scheduled run can land here: it copies just what's new, so zero
+  // copied means nothing was added since the run before it. "Back up now"
+  // always re-copies everything, so a manual run is never 'uptodate'.
+  if (r.outcome === 'uptodate') return 'Last scheduled run: no new files to copy';
   return 'Last run finished';
 }
 
@@ -278,6 +281,9 @@ export default function StorageBackupPanel() {
   // own (that shows the standing totals, not this run's contribution).
   const [runCopied, setRunCopied] = useState(0);
   const [runBatches, setRunBatches] = useState(0);
+  // Total files this run will copy — reported by the server, since a full
+  // backup's denominator is every object, not just the pending ones.
+  const [runTotal, setRunTotal] = useState(0);
   // Outcome of the last run, kept on screen inside the card rather than only
   // in the transient banner at the top of the panel. The banner is ~1000px
   // above the button (past the history table, inside an inner scroll
@@ -590,6 +596,7 @@ export default function StorageBackupPanel() {
     setStopRequested(false);
     setRunCopied(0);
     setRunBatches(0);
+    setRunTotal(0);
     setLastRun(null);
     let copiedTotal = 0;
     let failedTotal = 0;
@@ -604,28 +611,25 @@ export default function StorageBackupPanel() {
       getStorageBackupStatus().then(setState).catch(() => {});
     }, 1500);
     try {
+      let cursor: string | null = null;
       for (;;) {
-        const next = await runStorageBackupNow();
+        const next = await runFullStorageBackup(cursor);
         setState(next);
         batches++;
-        // undefined detail = the job threw; runJob swallows job errors, so the
+        // null `full` = the job threw; runJob swallows job errors, so the
         // reason is in the history table rather than this response. Stop
         // either way — retrying a throwing job in a tight loop is pointless.
-        const copied = next.detail?.copied ?? 0;
-        failedTotal += next.detail?.failed ?? 0;
-        copiedTotal += copied;
+        if (!next.full) break;
+        copiedTotal += next.full.copied;
+        failedTotal += next.full.failed;
         setRunCopied(copiedTotal);
         setRunBatches(batches);
-        if (copied === 0 || runCancelledRef.current) break;
+        setRunTotal(next.full.total);
+        cursor = next.full.cursor;
+        if (cursor === null || runCancelledRef.current) break;
       }
       setLastRun({
-        outcome: runCancelledRef.current
-          ? 'stopped'
-          : failedTotal > 0
-            ? 'failed'
-            : copiedTotal > 0
-              ? 'complete'
-              : 'uptodate',
+        outcome: runCancelledRef.current ? 'stopped' : failedTotal > 0 ? 'failed' : 'complete',
         copied: copiedTotal,
         failed: failedTotal,
         batches,
@@ -638,8 +642,6 @@ export default function StorageBackupPanel() {
         setMessage(
           `Stopped after ${copiedTotal.toLocaleString()} files${took}. Everything copied so far stays backed up — running again picks up where this left off.`
         );
-      } else if (copiedTotal === 0 && failedTotal === 0) {
-        setMessage('Already up to date — every file is already backed up, nothing to copy.');
       } else if (failedTotal > 0) {
         setMessage(
           `Copied ${copiedTotal.toLocaleString()} files${took}. ${failedTotal.toLocaleString()} could not be copied and are still pending — see the run history for the reason.`
@@ -723,18 +725,14 @@ export default function StorageBackupPanel() {
   // count the Cloud tab shows) as the denominator for the export's progress
   // bar — no separate count-everything-first pass needed.
   const exportTotal = state ? state.buckets.reduce((n, b) => n + b.total, 0) : 0;
-  const totalPending = state ? state.buckets.reduce((n, b) => n + b.pending, 0) : 0;
   const runElapsed = useElapsed(running);
   // This session's run if there's been one, otherwise whatever the newest
   // logged run did — so the card is never silent about the last backup.
   const lastRunShown = lastRun ?? lastRunFromHistory(history[0]);
+  // A full backup's denominator is every object; until the first batch reports
+  // it, fall back to the bucket totals already on screen.
+  const runDenominator = runTotal || exportTotal;
   const diskElapsed = useElapsed(exportingDisk || restoringDisk);
-  // The run's own denominator: what it has already copied plus what's still
-  // outstanding. Derived rather than captured at the start because `state`
-  // refreshes mid-run (the 1.5s poll), and a run can legitimately grow its own
-  // workload — a document uploaded while the sweep is in flight becomes
-  // pending too, and gets picked up by a later batch.
-  const runTarget = runCopied + totalPending;
 
   return (
     <Box data-testid="storage-backup-panel">
@@ -854,9 +852,9 @@ export default function StorageBackupPanel() {
                     Runs on the server on a schedule (nightly, ~2am Pacific) — this page does not need to be open.
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    "Back up now" copies everything outstanding in one go instead of waiting for tonight —
-                    keep this page open while it runs (roughly a minute per 900 files). Stopping it, or
-                    closing the page, loses nothing: it resumes from where it stopped.
+                    "Back up now" re-copies every file, not just new ones — keep this page open while it
+                    runs (around 15 minutes for all {exportTotal.toLocaleString()}). Stopping it is safe:
+                    everything already copied stays backed up.
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>
@@ -963,17 +961,16 @@ export default function StorageBackupPanel() {
               {running && (
                 <Box sx={{ mb: 2 }} data-testid="storage-backup-running-progress">
                   <LinearProgress
-                    variant={runTarget > 0 ? 'determinate' : 'indeterminate'}
-                    value={runTarget > 0 ? Math.min(100, Math.round((runCopied / runTarget) * 100)) : undefined}
+                    variant={runDenominator > 0 ? 'determinate' : 'indeterminate'}
+                    value={runDenominator > 0 ? Math.min(100, Math.round((runCopied / runDenominator) * 100)) : undefined}
                   />
                   <Typography variant="caption" color="text.secondary">
                     {runCopied === 0
                       ? `Starting… · ${fmtDuration(runElapsed)} elapsed`
                       : [
-                          `${runCopied.toLocaleString()} of ${runTarget.toLocaleString()} files copied`,
-                          totalPending > 0 ? `${totalPending.toLocaleString()} to go` : null,
+                          `${runCopied.toLocaleString()} of ${runDenominator.toLocaleString()} files copied`,
                           `${fmtDuration(runElapsed)} elapsed`,
-                          etaText(runCopied, runTarget, runElapsed) || null,
+                          etaText(runCopied, runDenominator, runElapsed) || null,
                         ].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>

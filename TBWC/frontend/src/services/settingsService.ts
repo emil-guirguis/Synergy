@@ -231,6 +231,32 @@ export async function runStorageBackupNow(): Promise<StorageBackupState> {
   return data.data;
 }
 
+export interface FullBackupBatch {
+  copied: number;
+  failed: number;
+  /** Every live object across all buckets — the progress denominator. */
+  total: number;
+  /** Pass back as `cursor` to continue; null means finished. */
+  cursor: string | null;
+}
+
+/** One page of a FULL backup — re-copies every file, already mirrored or not.
+ *  Call repeatedly with the returned cursor until it's null; that loop is what
+ *  the panel's "Back up now" runs, so a manual backup always backs everything
+ *  up rather than reporting that nothing changed. */
+export async function runFullStorageBackup(
+  cursor: string | null
+): Promise<StorageBackupState & { full: FullBackupBatch | null }> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/storage-backup/run`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ full: true, cursor }),
+    })
+  );
+  return data.data;
+}
+
 /** Stops or restarts the backup job: stopping skips every future scheduled
  *  tick AND cancels a run already in progress (it bails at its next batch
  *  boundary); restarting puts it back on the nightly schedule. */
