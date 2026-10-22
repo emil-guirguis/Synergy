@@ -772,6 +772,17 @@ export default function StorageBackupPanel() {
                       <Chip size="small" label="Stopped" color="warning" data-testid="storage-backup-paused-chip" />
                     )}
                   </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    Mirrors file bytes into a second bucket. The cloud provider's own backups cover the database only.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    Runs on the server on a schedule (nightly, ~2am Pacific) — this page does not need to be open.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    "Back up now" copies everything outstanding in one go instead of waiting for tonight —
+                    keep this page open while it runs (roughly a minute per 900 files). Stopping it, or
+                    closing the page, loses nothing: it resumes from where it stopped.
+                  </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>
                   <Button
