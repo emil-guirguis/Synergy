@@ -213,6 +213,18 @@ app.get('/storage-backup/history', requirePermission('setting:read'), async (c) 
 // tick) rather than waiting for the next tier tick — "back up now". Wrapped
 // in runJob() like the cron-triggered path, so a manual run shows up in the
 // history table (storage-backup/history below) too, not just ticks.
+//
+// One call can NOT drain a whole backlog, and no amount of tuning changes
+// that: Cloudflare caps a single invocation at 1000 subrequests, and every
+// object costs one Supabase object/copy fetch — so ~900-1000 objects is the
+// hard per-call ceiling however long the budget is (storageBackup.ts's
+// MAX_TICK_MILLIS is already sized to land just under it). The "back up
+// everything in one click" the Settings panel offers is therefore a loop on
+// the CLIENT side, re-POSTing here until nothing's pending — which is why
+// this returns the run's own `detail` (copied/failed/stopped) and not just
+// the refreshed status: the caller needs to know whether a call made
+// progress, so a backlog of objects that fail every time (bad source bytes,
+// say) ends the loop instead of spinning on it forever.
 app.post('/storage-backup/run', requirePermission('setting:write'), async (c) => {
   // Refused rather than silently no-op'ing: backupStorageToSupabase itself
   // also bails when paused (so a stop is honoured no matter the entry
@@ -222,9 +234,9 @@ app.post('/storage-backup/run', requirePermission('setting:write'), async (c) =>
   if (pause.paused) {
     return c.json({ success: false, message: 'Backup is stopped — resume it before running a batch' }, 409);
   }
-  await runJob(c.env, 'backupStorage', () => backupStorageToSupabase(c.env));
+  const detail = await runJob(c.env, 'backupStorage', () => backupStorageToSupabase(c.env));
   const buckets = await storageBackupStatus(c.env);
-  return c.json({ success: true, data: { buckets, ...(await backupPauseState(c.env)) } });
+  return c.json({ success: true, data: { buckets, ...(await backupPauseState(c.env)), detail } });
 });
 
 // The stop/start switch. Writes scheduled_job.cron_tier ('off' <-> 'nightly'),

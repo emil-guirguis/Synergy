@@ -182,6 +182,20 @@ export interface StorageBackupState {
    *  in progress stops at its next batch boundary. */
   paused: boolean;
   tier: CronTier | null;
+  /** What the batch just run actually did — only present on the response to
+   *  runStorageBackupNow(), never on a plain status GET. undefined means the
+   *  run threw (runJob swallows job errors; the reason lands in the history
+   *  table instead). */
+  detail?: StorageBackupRunDetail;
+}
+
+/** worker/storageBackup.ts's StorageBackupRunDetail. `stopped` means the run
+ *  bailed on its own time budget or the pause switch with work still pending —
+ *  not a failure. */
+export interface StorageBackupRunDetail {
+  copied: number;
+  failed: number;
+  stopped: boolean;
 }
 
 export interface RestoreBatchResult {
@@ -201,9 +215,15 @@ export async function getStorageBackupHistory(): Promise<CronRun[]> {
   return data.data;
 }
 
-/** Runs one backup batch (up to 300 objects per bucket) right now instead of
- *  waiting for the next scheduled tick. Returns the refreshed status. Rejects
- *  with 409 while the backup is stopped. */
+/** Runs ONE backup batch right now instead of waiting for the next scheduled
+ *  tick, and returns the refreshed status plus that batch's own `detail`.
+ *
+ *  One call can't clear a large backlog: Cloudflare caps a Worker invocation
+ *  at 1000 subrequests and every object costs one Supabase copy call, so
+ *  ~900-1000 objects is the hard ceiling per call no matter the time budget.
+ *  To back up everything in one action, call this repeatedly while
+ *  `detail.copied > 0` — that loop is what StorageBackupPanel's "Back up now"
+ *  does. Rejects with 409 while the backup is stopped. */
 export async function runStorageBackupNow(): Promise<StorageBackupState> {
   const data = await parse(
     await fetch(`${API_BASE_URL}/settings/storage-backup/run`, { method: 'POST', headers: authHeaders() })

@@ -69,8 +69,26 @@ function requireSupabaseEnv(env: Env): { url: string; key: string } {
  *  so download+reupload was the only option there; moving the destination
  *  into the same Supabase project (109) made a server-side copy possible,
  *  but only restoreObjectFromBackup was written to use it at the time. */
-async function copyToBackupBucket(env: Env, sourceBucket: string, path: string): Promise<void> {
+/** True if the destination object exists with real, matching bytes. Uses a
+ *  ranged GET, not HEAD — this project's Storage API has a known history of
+ *  HEAD returning 200 for objects with no real bytes behind them (the same
+ *  ghost-object class as the quote-doc-bytes audit), so HEAD can't be
+ *  trusted here. expectedSize is only checked when known (the 409 retry path
+ *  below doesn't have one). */
+async function destinationLooksReal(env: Env, destinationKey: string, expectedSize: string | null): Promise<boolean> {
   const { url, key } = requireSupabaseEnv(env);
+  const res = await fetch(`${url}/storage/v1/object/${BACKUP_BUCKET}/${destinationKey.split('/').map(encodeURIComponent).join('/')}`, {
+    headers: { Authorization: `Bearer ${key}`, apikey: key, Range: 'bytes=0-0' },
+  });
+  if (res.status !== 206) return false;
+  if (expectedSize == null) return true;
+  const total = res.headers.get('content-range')?.split('/')[1];
+  return total != null && Number(total) === Number(expectedSize);
+}
+
+async function copyToBackupBucket(env: Env, sourceBucket: string, path: string, expectedSize: string | null): Promise<void> {
+  const { url, key } = requireSupabaseEnv(env);
+  const destinationKey = `${sourceBucket}/${path}`;
   const res = await fetch(`${url}/storage/v1/object/copy`, {
     method: 'POST',
     headers: {
@@ -82,10 +100,44 @@ async function copyToBackupBucket(env: Env, sourceBucket: string, path: string):
       bucketId: sourceBucket,
       sourceKey: path,
       destinationBucket: BACKUP_BUCKET,
-      destinationKey: `${sourceBucket}/${path}`,
+      destinationKey,
     }),
   });
-  if (!res.ok) throw new Error(`Supabase backup copy failed: ${res.status} ${await res.text().catch(() => '')}`);
+  const bodyText = await res.text().catch(() => '');
+  if (!res.ok) {
+    // object/copy has no upsert — if an earlier attempt's copy actually
+    // landed but the ledger write after it never happened (worker killed
+    // between the two, or two overlapping runs racing the same object), the
+    // retry 409s forever with nothing to tell it the object's already there.
+    // That's the exact shape of bug this project's hit before (ledger/mirror
+    // disagreeing — see the quote-doc-bytes audit): confirm with a real byte
+    // read rather than leaving it permanently stuck pending.
+    let code: string | undefined;
+    try { code = JSON.parse(bodyText)?.code; } catch { /* not JSON, not this case */ }
+    if (code === 'KeyAlreadyExists' && (await destinationLooksReal(env, destinationKey, expectedSize))) return;
+    throw new Error(`Supabase backup copy failed: ${res.status} ${bodyText}`);
+  }
+  // A 200 here isn't proof the mirror object actually stuck — same ghost-
+  // object risk as above. Checking the copy response's own reported size
+  // against what we queried from storage.objects catches a bogus/short
+  // write at the moment it happens, instead of only on the next integrity
+  // audit — a mismatch (or unparseable body) is treated as a failed copy,
+  // same as a non-2xx, so the ledger is never written and the object stays
+  // pending for retry.
+  let reportedSize: number | undefined;
+  try {
+    reportedSize = JSON.parse(bodyText)?.metadata?.size;
+  } catch {
+    throw new Error(`Supabase backup copy returned an unparseable body: ${bodyText.slice(0, 200)}`);
+  }
+  // expectedSize comes from a Postgres bigint column, which node-postgres
+  // returns as a string (not a number) to avoid silent precision loss — a
+  // strict !== here compared that string against reportedSize's JSON number
+  // and rejected every single copy as a false mismatch. Number() on both
+  // sides is safe: document sizes are nowhere near Number.MAX_SAFE_INTEGER.
+  if (expectedSize != null && Number(reportedSize) !== Number(expectedSize)) {
+    throw new Error(`Supabase backup copy size mismatch for ${sourceBucket}/${path}: expected ${expectedSize}, got ${reportedSize}`);
+  }
 }
 
 /** The job_name this module runs under in public.scheduled_job (103) and
@@ -129,7 +181,8 @@ const MAX_TICK_MILLIS = 60_000;
 
 interface PendingObject {
   name: string;
-  size: number | null;
+  // node-postgres returns bigint columns as strings, not numbers.
+  size: string | null;
 }
 
 async function pendingObjects(env: Env, bucket: string, limit: number): Promise<PendingObject[]> {
@@ -152,7 +205,7 @@ async function pendingObjects(env: Env, bucket: string, limit: number): Promise<
   return rows;
 }
 
-async function markBackedUp(env: Env, bucket: string, path: string, bytes: number | null): Promise<void> {
+async function markBackedUp(env: Env, bucket: string, path: string, bytes: string | null): Promise<void> {
   await execQuery(
     env,
     `INSERT INTO public.storage_backup_object (bucket, storage_path, bytes)
@@ -200,7 +253,7 @@ async function backupBucket(
       const results = await Promise.all(
         chunk.map(async (obj) => {
           try {
-            await copyToBackupBucket(env, bucket, obj.name);
+            await copyToBackupBucket(env, bucket, obj.name, obj.size);
             await markBackedUp(env, bucket, obj.name, obj.size);
             return true;
           } catch (e) {

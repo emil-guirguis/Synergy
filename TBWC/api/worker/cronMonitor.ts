@@ -29,11 +29,17 @@ async function healStaleRunningRows(env: Env, jobName: string): Promise<void> {
   ).catch((e) => console.error(`[cron] stale-running cleanup failed for ${jobName}:`, e instanceof Error ? e.message : e));
 }
 
-export async function runJob(
+// Returns whatever the job itself returned (the same object written to
+// cron_run_log.detail), or undefined when the job threw — errors are logged
+// and swallowed here, never rethrown, so a failed job can't take down the
+// scheduled() handler or the caller's response. Most callers ignore the
+// return; settings.ts's manual "back up now" uses it to decide whether its
+// client-driven loop should run another batch.
+export async function runJob<T extends Record<string, unknown> | void>(
   env: Env,
   jobName: string,
-  fn: () => Promise<Record<string, unknown> | void>
-): Promise<void> {
+  fn: () => Promise<T>
+): Promise<T | undefined> {
   await healStaleRunningRows(env, jobName);
   const startedAt = Date.now();
   let logId: number | null = null;
@@ -59,6 +65,7 @@ export async function runJob(
         'cron.runLog.finishOk'
       ).catch((e) => console.error(`[cron] cron_run_log finish write failed for ${jobName}:`, e instanceof Error ? e.message : e));
     }
+    return detail;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[cron] ${jobName} failed:`, message);

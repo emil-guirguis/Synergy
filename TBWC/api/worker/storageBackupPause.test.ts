@@ -14,7 +14,7 @@ vi.mock('./db', () => ({
   execQuery: (...a: any[]) => mockExecQuery(...a),
 }));
 
-import { jobsForTier, isJobPaused, TIER_CRON, tierForCron } from './cronMonitor';
+import { jobsForTier, isJobPaused, TIER_CRON, tierForCron, runJob } from './cronMonitor';
 import { backupStorageToSupabase } from './storageBackup';
 
 // copyToBackupBucket/restoreObjectFromBackup call the global fetch() directly
@@ -159,5 +159,72 @@ describe('backupStorageToSupabase honours the switch', () => {
         }),
       })
     );
+  });
+});
+
+/**
+ * "Back up now" copies everything outstanding in one click, but it can't be
+ * one request: Cloudflare caps an invocation at 1000 subrequests and every
+ * object costs one Supabase copy call, so the panel re-POSTs /storage-backup/run
+ * until a batch reports copying nothing. That loop's termination depends on two
+ * contracts below — if either breaks, one click either stops after a single
+ * batch (leaving the backlog) or spins forever on objects that can never copy.
+ */
+describe('the per-batch detail the one-click loop terminates on', () => {
+  const okCopy = (size: number) => ({
+    ok: true,
+    text: () => Promise.resolve(JSON.stringify({ metadata: { size } })),
+  });
+
+  it('reports copied counts, so a batch that did work keeps the loop going', async () => {
+    respondByTag({
+      'cron.scheduledJob.tier': () => ({ rows: [{ cron_tier: 'nightly' }] }),
+      'storageBackup.pending': (params) => ({
+        rows: params[0] === 'rep-docs' ? [{ name: 'a.pdf', size: '3' }, { name: 'b.pdf', size: '4' }] : [],
+      }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    mockFetch.mockImplementation((_u: string, init: any) =>
+      Promise.resolve(okCopy(JSON.parse(init.body).sourceKey === 'a.pdf' ? 3 : 4))
+    );
+
+    expect(await backupStorageToSupabase(ENV)).toEqual({ copied: 2, failed: 0, stopped: false });
+  });
+
+  it('reports copied:0 with failures, so the loop stops instead of retrying forever', async () => {
+    // Objects whose source bytes can't be copied stay pending on every tick.
+    // Looping on "pending > 0" would spin on them until the tab closed —
+    // copied === 0 is the floor the panel stops at.
+    respondByTag({
+      'cron.scheduledJob.tier': () => ({ rows: [{ cron_tier: 'nightly' }] }),
+      'storageBackup.pending': (params) => ({
+        rows: params[0] === 'record-docs' ? [{ name: 'broken.pdf', size: '9' }] : [],
+      }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom') });
+
+    expect(await backupStorageToSupabase(ENV)).toEqual({ copied: 0, failed: 1, stopped: false });
+  });
+
+  it('hands the job\'s detail back through runJob, which the route returns to the client', async () => {
+    // runJob used to return void and swallow the detail, so the route had
+    // nothing to tell the client whether a batch made progress.
+    respondByTag({
+      'cron.runLog.healStale': () => ({ rows: [] }),
+      'cron.runLog.start': () => ({ rows: [{ cron_run_log_id: 7 }] }),
+      'cron.runLog.finishOk': () => ({ rows: [] }),
+    });
+    expect(await runJob(ENV, 'backupStorage', async () => ({ copied: 5, failed: 0, stopped: false })))
+      .toEqual({ copied: 5, failed: 0, stopped: false });
+  });
+
+  it('returns undefined when the job throws, so the loop stops rather than hammering a broken job', async () => {
+    respondByTag({
+      'cron.runLog.healStale': () => ({ rows: [] }),
+      'cron.runLog.start': () => ({ rows: [{ cron_run_log_id: 8 }] }),
+      'cron.runLog.finishError': () => ({ rows: [] }),
+    });
+    expect(await runJob(ENV, 'backupStorage', async () => { throw new Error('db gone'); })).toBeUndefined();
   });
 });

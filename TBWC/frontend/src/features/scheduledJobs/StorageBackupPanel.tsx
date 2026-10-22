@@ -52,6 +52,55 @@ async function dirFor(root: any, parts: string[]): Promise<any> {
   return dir;
 }
 
+/** dirFor, memoised on the directory path, for the concurrent export/restore
+ *  loops below. Two purposes: it skips re-walking the same folder chain for
+ *  every file in it, and — because the cached value is the in-flight promise,
+ *  not the resolved handle — it means two files in the same new folder can't
+ *  race each other into two concurrent `getDirectoryHandle(..., {create:true})`
+ *  calls for the same name. One cache per export run; handles are only valid
+ *  for the `root` the user picked that time. */
+function dirForCached(root: any, parts: string[], cache: Map<string, Promise<any>>): Promise<any> {
+  const key = parts.join('/');
+  let pending = cache.get(key);
+  if (!pending) {
+    pending = dirFor(root, parts);
+    cache.set(key, pending);
+  }
+  return pending;
+}
+
+/** Files handled at once by the to-disk export/restore loops. Unlike the
+ *  server-side mirror's CONCURRENCY of 25 (storageBackup.ts — small API calls,
+ *  no bytes moving, pure round-trip latency), every file here really does
+ *  travel Supabase -> Worker -> browser -> disk, so this is bounded by
+ *  bandwidth and disk rather than latency, and a high number just thrashes.
+ *  8 keeps the pipe full while the previous writes land. It is still the
+ *  difference between a strictly serial loop and finishing a ~12.8k-file,
+ *  ~16GB export in a sitting. */
+const DISK_CONCURRENCY = 8;
+
+/** Enough consecutive-ish per-file failures to call the whole run broken
+ *  rather than carrying on. A handful of failures is a transient 500 on one
+ *  object and shouldn't abandon an hour-long export; hundreds means something
+ *  systemic (folder permission revoked, disk full, session expired), and
+ *  grinding through thousands of doomed files to report it is worse than
+ *  stopping. */
+const DISK_FAILURE_LIMIT = 100;
+
+/** Splits an async iterable into fixed-size arrays, so the restore loop can
+ *  walk a directory tree lazily but still hand whole chunks to Promise.all. */
+async function* inChunks<T>(it: AsyncIterable<T>, size: number): AsyncGenerator<T[]> {
+  let chunk: T[] = [];
+  for await (const item of it) {
+    chunk.push(item);
+    if (chunk.length >= size) {
+      yield chunk;
+      chunk = [];
+    }
+  }
+  if (chunk.length) yield chunk;
+}
+
 /** Walks a directory handle recursively, yielding [relativePath, fileHandle]
  *  for every file — used to replay a previously exported folder back into
  *  live storage, one object per file found. */
@@ -79,7 +128,46 @@ function fmtTime(iso: string): string {
 
 function fmtDuration(ms: number | null): string {
   if (ms == null) return '—';
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  const mins = Math.floor(ms / 60_000);
+  return `${mins}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
+
+/** Coarse "how long left" for a run in progress, from the rate it has
+ *  actually achieved so far rather than any assumed throughput — the two
+ *  differ by orders of magnitude between the server-side mirror (no bytes
+ *  move) and the to-disk export (every byte does). Returns '' until there's
+ *  enough done to extrapolate from; a wrong ETA is worse than none. */
+function etaText(done: number, total: number, elapsedMs: number): string {
+  const remaining = total - done;
+  if (done < 20 || remaining <= 0 || elapsedMs < 3000) return '';
+  const perMs = done / elapsedMs;
+  if (perMs <= 0) return '';
+  const leftMs = remaining / perMs;
+  if (leftMs < 45_000) return 'under a minute left';
+  const mins = Math.round(leftMs / 60_000);
+  if (mins < 60) return `~${mins} min left`;
+  const hours = Math.floor(mins / 60);
+  return `~${hours}h ${mins % 60}m left`;
+}
+
+/** Milliseconds since `active` last went true, ticking once a second; 0 while
+ *  inactive. Drives the elapsed/ETA readouts — the progress counts alone
+ *  can't tell you whether a run is moving or wedged. */
+function useElapsed(active: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed(Date.now() - startedAt), 1000);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return elapsed;
 }
 
 function HistoryStatusChip({ status }: { status: CronRun['status'] }) {
@@ -103,12 +191,19 @@ const JOB_LABELS: Record<string, string> = {
 };
 
 // detail jsonb shape differs by job: exportDatabase writes {tables, rows}
-// (streamDatabaseDump), exportStorage/restoreStorage write {written} (the
-// browser-driven folder loop reports its own count).
+// (streamDatabaseDump), exportStorage/restoreStorage write {written, failed}
+// and export additionally {skipped} — the browser-driven folder loops report
+// their own counts, where skipped means "already on disk at the right size",
+// i.e. a resumed run.
 function fmtDiskDetail(detail: Record<string, unknown> | null): string {
   if (!detail) return '—';
-  const d = detail as { tables?: number; rows?: number; written?: number };
-  if (typeof d.written === 'number') return `${d.written.toLocaleString()} files`;
+  const d = detail as { tables?: number; rows?: number; written?: number; skipped?: number; failed?: number };
+  if (typeof d.written === 'number') {
+    const parts = [`${d.written.toLocaleString()} files`];
+    if (d.skipped) parts.push(`${d.skipped.toLocaleString()} skipped`);
+    if (d.failed) parts.push(`${d.failed.toLocaleString()} failed`);
+    return parts.join(', ');
+  }
   if (typeof d.rows === 'number') return `${d.tables ?? 0} tables, ${d.rows.toLocaleString()} rows`;
   return '—';
 }
@@ -121,7 +216,7 @@ function summarizeManagedBackup(b: unknown): string {
   const r = b as Record<string, unknown>;
   const when = r.inserted_at ?? r.created_at ?? r.started_at ?? r.date;
   const status = r.status ?? (r.isPhysicalBackup ? 'physical' : undefined);
-  if (when || status) return [when, status].filter(Boolean).join(' · ');
+  if (when || status) return [typeof when === 'string' ? fmtTime(when) : when, status].filter(Boolean).join(' · ');
   return JSON.stringify(b);
 }
 
@@ -130,6 +225,14 @@ export default function StorageBackupPanel() {
   const [history, setHistory] = useState<CronRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  // Files copied so far by the multi-batch run in progress — drives the "Back
+  // up now" progress readout, which a plain status refresh can't give on its
+  // own (that shows the standing totals, not this run's contribution).
+  const [runCopied, setRunCopied] = useState(0);
+  // A ref, not state, for the same reason as bulkCancelledRef below: the run
+  // loop is an already-executing async function and would never see a later
+  // setState.
+  const runCancelledRef = useRef(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -153,6 +256,16 @@ export default function StorageBackupPanel() {
   const [exportingDisk, setExportingDisk] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportCurrentFile, setExportCurrentFile] = useState('');
+  // Shared by the export and restore loops — only one of the two can run at a
+  // time (each button is disabled while either is going), so one flag covers
+  // both. A ref for the same reason as the others here: the loop reading it is
+  // already executing and would never see a setState.
+  const diskCancelledRef = useRef(false);
+  // Mirrors the refs purely so the Stop buttons can grey out the instant
+  // they're pressed. The refs stay the loops' source of truth — a ref change
+  // doesn't re-render, so without this a Stop button stays live-looking until
+  // the next progress tick.
+  const [stopRequested, setStopRequested] = useState(false);
   const [restoringDisk, setRestoringDisk] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState(0);
   const [restoreCurrentFile, setRestoreCurrentFile] = useState('');
@@ -196,6 +309,42 @@ export default function StorageBackupPanel() {
 
   const isAbort = (e: unknown) => e instanceof Error && e.name === 'AbortError';
 
+  // Exports one object to disk, or reports that it didn't need exporting.
+  // The size check is what makes a to-disk export resumable: unlike the
+  // Supabase mirror, which has public.storage_backup_object as a ledger, this
+  // side's only record of what it already copied is the folder itself. Without
+  // the check, an export that died (or was stopped) at file 9,000 of 12,800
+  // re-downloaded all 12,800 bytes-first on the next attempt. Matching size is
+  // the strongest signal available cheaply — reading every file back to
+  // compare contents would cost the same bandwidth the skip is there to save.
+  const exportOneToDisk = useCallback(
+    async (
+      root: any,
+      bucket: BackupBucket,
+      obj: { name: string; size: number | null },
+      dirCache: Map<string, Promise<any>>
+    ): Promise<'written' | 'skipped'> => {
+      const parts = obj.name.split('/');
+      const fileName = parts[parts.length - 1];
+      const dir = await dirForCached(root, [bucket, ...parts.slice(0, -1)], dirCache);
+      if (obj.size != null) {
+        try {
+          const existing = await (await dir.getFileHandle(fileName)).getFile();
+          if (existing.size === obj.size) return 'skipped';
+        } catch {
+          // Not on disk yet (or unreadable) — fall through and fetch it.
+        }
+      }
+      const bytes = await fetchLiveStorageObjectBytes(bucket, obj.name);
+      const fileHandle = await dir.getFileHandle(fileName, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(bytes);
+      await writable.close();
+      return 'written';
+    },
+    []
+  );
+
   const exportStorageToDisk = useCallback(async () => {
     if (!('showDirectoryPicker' in window)) {
       setError("This browser can't save a folder of files — use Chrome or Edge.");
@@ -206,43 +355,79 @@ export default function StorageBackupPanel() {
     setExportCurrentFile('');
     setError(null);
     setMessage(null);
+    diskCancelledRef.current = false;
+    setStopRequested(false);
     const startedAt = Date.now();
+    const dirCache = new Map<string, Promise<any>>();
     let written = 0;
+    let skipped = 0;
+    let failed = 0;
+    let lastFailure: string | null = null;
+    let cancelled = false;
     try {
       const root = await (window as any).showDirectoryPicker();
-      for (const bucket of EXPORT_BUCKETS) {
+      // Labelled so the stop flag and the failure limit can break out of the
+      // whole sweep, not just the bucket being walked.
+      sweep: for (const bucket of EXPORT_BUCKETS) {
         let cursor: string | null = null;
         do {
           const page = await listLiveStorageObjects(bucket, cursor);
-          for (const obj of page.objects) {
-            setExportCurrentFile(`${bucket}/${obj.name}`);
-            const bytes = await fetchLiveStorageObjectBytes(bucket, obj.name);
-            const parts = obj.name.split('/');
-            const dir = await dirFor(root, [bucket, ...parts.slice(0, -1)]);
-            const fileHandle = await dir.getFileHandle(parts[parts.length - 1], { create: true });
-            const writable = await fileHandle.createWritable();
-            await writable.write(bytes);
-            await writable.close();
-            written++;
-            setExportProgress(written);
+          for (let i = 0; i < page.objects.length; i += DISK_CONCURRENCY) {
+            if (diskCancelledRef.current) { cancelled = true; break sweep; }
+            const chunk = page.objects.slice(i, i + DISK_CONCURRENCY);
+            setExportCurrentFile(`${bucket}/${chunk[0].name}`);
+            // A single file failing (one transient 500, one unreadable object)
+            // is counted and stepped over rather than abandoning the run —
+            // same decision the server-side mirror makes per object. Hundreds
+            // of them is systemic, and DISK_FAILURE_LIMIT below stops.
+            const results = await Promise.all(
+              chunk.map(async (obj) => {
+                try {
+                  return await exportOneToDisk(root, bucket, obj, dirCache);
+                } catch (e) {
+                  lastFailure = `${bucket}/${obj.name}: ${e instanceof Error ? e.message : String(e)}`;
+                  console.error('[backup] export failed for', `${bucket}/${obj.name}`, e);
+                  return 'failed' as const;
+                }
+              })
+            );
+            for (const r of results) {
+              if (r === 'written') written++;
+              else if (r === 'skipped') skipped++;
+              else failed++;
+            }
+            setExportProgress(written + skipped);
+            if (failed >= DISK_FAILURE_LIMIT) {
+              throw new Error(
+                `Export stopped after ${failed} files failed — last error: ${lastFailure ?? 'unknown'}`
+              );
+            }
           }
           cursor = page.cursor;
         } while (cursor);
       }
-      await logBackupRun('exportStorage', 'ok', { written }, Date.now() - startedAt);
-      setMessage(`Exported ${written.toLocaleString()} files to the chosen folder.`);
+      const detail = { written, skipped, failed };
+      await logBackupRun('exportStorage', failed > 0 ? 'error' : 'ok', detail, Date.now() - startedAt,
+        failed > 0 ? `${failed} files failed — last: ${lastFailure}` : null);
+      const skippedNote = skipped > 0 ? `, ${skipped.toLocaleString()} already present and skipped` : '';
+      const failedNote = failed > 0 ? `, ${failed.toLocaleString()} failed` : '';
+      setMessage(
+        cancelled
+          ? `Export stopped — ${written.toLocaleString()} files written${skippedNote}${failedNote}. Running it again on the same folder resumes where this left off.`
+          : `Exported ${written.toLocaleString()} files to the chosen folder${skippedNote}${failedNote}.`
+      );
       setDiskHistory(await getBackupHistory());
     } catch (e) {
       if (!isAbort(e)) {
         const msg = e instanceof Error ? e.message : 'Export failed';
         setError(msg);
-        await logBackupRun('exportStorage', 'error', { written }, Date.now() - startedAt, msg).catch(() => {});
+        await logBackupRun('exportStorage', 'error', { written, skipped, failed }, Date.now() - startedAt, msg).catch(() => {});
         setDiskHistory(await getBackupHistory().catch(() => diskHistory));
       }
     } finally {
       setExportingDisk(false);
     }
-  }, [diskHistory]);
+  }, [diskHistory, exportOneToDisk]);
 
   const restoreStorageFromDisk = useCallback(async () => {
     setConfirmRestoreDisk(false);
@@ -255,33 +440,66 @@ export default function StorageBackupPanel() {
     setRestoreCurrentFile('');
     setError(null);
     setMessage(null);
+    diskCancelledRef.current = false;
+    setStopRequested(false);
     const startedAt = Date.now();
     let written = 0;
+    let failed = 0;
+    let lastFailure: string | null = null;
+    let cancelled = false;
     try {
       const root = await (window as any).showDirectoryPicker();
-      for (const bucket of EXPORT_BUCKETS) {
+      // Deliberately NO size-match skip here, unlike the export above. This
+      // direction is authoritative — the point is to make live storage match
+      // the folder — and a file that is the same size but different content is
+      // exactly what someone restoring after a corruption is trying to
+      // overwrite. Re-uploading something already identical is a harmless
+      // no-op; skipping something subtly different is a silent failed restore.
+      sweep: for (const bucket of EXPORT_BUCKETS) {
         let bucketDir;
         try {
           bucketDir = await root.getDirectoryHandle(bucket);
         } catch {
           continue; // chosen folder has no subfolder for this bucket — nothing to restore
         }
-        for await (const [path, fileHandle] of walkFiles(bucketDir)) {
-          setRestoreCurrentFile(`${bucket}/${path}`);
-          const file = await fileHandle.getFile();
-          await restoreLiveStorageObjectBytes(bucket, path, await file.arrayBuffer());
-          written++;
+        for await (const chunk of inChunks(walkFiles(bucketDir), DISK_CONCURRENCY)) {
+          if (diskCancelledRef.current) { cancelled = true; break sweep; }
+          setRestoreCurrentFile(`${bucket}/${chunk[0][0]}`);
+          const results = await Promise.all(
+            chunk.map(async ([path, fileHandle]) => {
+              try {
+                const file = await fileHandle.getFile();
+                await restoreLiveStorageObjectBytes(bucket, path, await file.arrayBuffer());
+                return true;
+              } catch (e) {
+                lastFailure = `${bucket}/${path}: ${e instanceof Error ? e.message : String(e)}`;
+                console.error('[backup] restore failed for', `${bucket}/${path}`, e);
+                return false;
+              }
+            })
+          );
+          written += results.filter(Boolean).length;
+          failed += results.length - results.filter(Boolean).length;
           setRestoreProgress(written);
+          if (failed >= DISK_FAILURE_LIMIT) {
+            throw new Error(`Restore stopped after ${failed} files failed — last error: ${lastFailure ?? 'unknown'}`);
+          }
         }
       }
-      await logBackupRun('restoreStorage', 'ok', { written }, Date.now() - startedAt);
-      setMessage(`Restored ${written.toLocaleString()} files from the chosen folder.`);
+      await logBackupRun('restoreStorage', failed > 0 ? 'error' : 'ok', { written, failed }, Date.now() - startedAt,
+        failed > 0 ? `${failed} files failed — last: ${lastFailure}` : null);
+      const failedNote = failed > 0 ? `, ${failed.toLocaleString()} failed` : '';
+      setMessage(
+        cancelled
+          ? `Restore stopped — ${written.toLocaleString()} files restored${failedNote}. Files not reached yet are untouched in live storage.`
+          : `Restored ${written.toLocaleString()} files from the chosen folder${failedNote}.`
+      );
       setDiskHistory(await getBackupHistory());
     } catch (e) {
       if (!isAbort(e)) {
         const msg = e instanceof Error ? e.message : 'Restore failed';
         setError(msg);
-        await logBackupRun('restoreStorage', 'error', { written }, Date.now() - startedAt, msg).catch(() => {});
+        await logBackupRun('restoreStorage', 'error', { written, failed }, Date.now() - startedAt, msg).catch(() => {});
         setDiskHistory(await getBackupHistory().catch(() => diskHistory));
       }
     } finally {
@@ -291,16 +509,79 @@ export default function StorageBackupPanel() {
 
   useEffect(() => { load(); }, [load]);
 
+  // "Back up now" is one click that runs to completion, but it can't be one
+  // request: Cloudflare caps a Worker invocation at 1000 subrequests and every
+  // object costs one Supabase copy call, so a single call clears ~900-1000
+  // objects at most however long its budget is (see storageBackup.ts's
+  // MAX_TICK_MILLIS, sized to land just under that cap). A full ~12.8k-object
+  // sweep is therefore ~14 calls, driven from here in a loop rather than left
+  // to a tick a day — measured end to end at ~15.6 objects/sec, so ~14 minutes
+  // for everything.
+  //
+  // The loop stops when a batch copies nothing. That's the condition that
+  // matters rather than "pending === 0": objects that fail every attempt
+  // (unreadable source bytes, say) stay pending forever, and looping on
+  // pending would spin on them until the tab closed. A batch that copied 0 but
+  // failed > 0 has hit exactly that floor — report it and stop.
+  //
+  // Needs the tab open, like the bucket restore below. Closing it mid-run
+  // loses nothing: every object's ledger row is written as it's copied, so the
+  // next click (or the nightly tick) resumes from where this stopped.
   const runNow = useCallback(async () => {
     setRunning(true);
     setError(null);
     setMessage(null);
+    runCancelledRef.current = false;
+    setStopRequested(false);
+    setRunCopied(0);
+    let copiedTotal = 0;
+    let failedTotal = 0;
+    let batches = 0;
+    const startedAt = Date.now();
+    // Within a single batch the server marks each object backed-up as it goes
+    // (not in one final transaction), so polling the cheap status query while a
+    // batch is in flight makes the per-bucket bars creep up in near-real-time
+    // instead of jumping once per batch. Separate lightweight GET — no effect
+    // on the run's own speed.
+    const poll = window.setInterval(() => {
+      getStorageBackupStatus().then(setState).catch(() => {});
+    }, 1500);
     try {
-      setState(await runStorageBackupNow());
-      setMessage('Backup batch complete — pending counts above are now up to date.');
+      for (;;) {
+        const next = await runStorageBackupNow();
+        setState(next);
+        batches++;
+        // undefined detail = the job threw; runJob swallows job errors, so the
+        // reason is in the history table rather than this response. Stop
+        // either way — retrying a throwing job in a tight loop is pointless.
+        const copied = next.detail?.copied ?? 0;
+        failedTotal += next.detail?.failed ?? 0;
+        copiedTotal += copied;
+        setRunCopied(copiedTotal);
+        if (copied === 0 || runCancelledRef.current) break;
+      }
+      const mins = (Date.now() - startedAt) / 60000;
+      const took = mins >= 1 ? ` in ${mins.toFixed(1)} min` : '';
+      if (runCancelledRef.current) {
+        setMessage(
+          `Stopped after ${copiedTotal.toLocaleString()} files${took}. Everything copied so far stays backed up — running again picks up where this left off.`
+        );
+      } else if (copiedTotal === 0 && failedTotal === 0) {
+        setMessage('Already up to date — every file is already backed up, nothing to copy.');
+      } else if (failedTotal > 0) {
+        setMessage(
+          `Copied ${copiedTotal.toLocaleString()} files${took}. ${failedTotal.toLocaleString()} could not be copied and are still pending — see the run history for the reason.`
+        );
+      } else {
+        setMessage(
+          `Backup complete — ${copiedTotal.toLocaleString()} files copied${took} over ${batches} ${batches === 1 ? 'batch' : 'batches'}.`
+        );
+      }
+      setHistory(await getStorageBackupHistory());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Backup run failed');
     } finally {
+      window.clearInterval(poll);
       setRunning(false);
     }
   }, []);
@@ -370,6 +651,15 @@ export default function StorageBackupPanel() {
   // count the Cloud tab shows) as the denominator for the export's progress
   // bar — no separate count-everything-first pass needed.
   const exportTotal = state ? state.buckets.reduce((n, b) => n + b.total, 0) : 0;
+  const totalPending = state ? state.buckets.reduce((n, b) => n + b.pending, 0) : 0;
+  const runElapsed = useElapsed(running);
+  const diskElapsed = useElapsed(exportingDisk || restoringDisk);
+  // The run's own denominator: what it has already copied plus what's still
+  // outstanding. Derived rather than captured at the start because `state`
+  // refreshes mid-run (the 1.5s poll), and a run can legitimately grow its own
+  // workload — a document uploaded while the sweep is in flight becomes
+  // pending too, and gets picked up by a later batch.
+  const runTarget = runCopied + totalPending;
 
   return (
     <Box data-testid="storage-backup-panel">
@@ -383,83 +673,94 @@ export default function StorageBackupPanel() {
 
       {tab === 0 && (
         <>
-          <Card variant="outlined">
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 1 }}>Database backup history</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Daily Postgres backups the cloud provider keeps on its own — read-only here, nothing copied.
-              </Typography>
-              {!managed ? (
-                <Typography variant="body2" color="text.secondary">Loading…</Typography>
-              ) : !managed.configured ? (
-                <Alert severity="info">
-                  Not set up yet — create a personal access token at supabase.com/dashboard/account/tokens
-                  and set it as the <code>SUPABASE_ACCESS_TOKEN</code> secret to see them here.
-                </Alert>
-              ) : managed.error ? (
-                <Alert severity="error">{managed.error}</Alert>
-              ) : !managed.backups || managed.backups.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No managed backups reported yet.</Typography>
-              ) : (
-                <Stack spacing={0.5}>
-                  {managed.pitrEnabled && (
-                    <Typography variant="caption" color="text.secondary">Point-in-time recovery is enabled.</Typography>
-                  )}
-                  {managed.backups.map((b, i) => (
-                    <Typography key={i} variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12 }}>
-                      {summarizeManagedBackup(b)}
-                    </Typography>
-                  ))}
-                </Stack>
-              )}
-            </CardContent>
-          </Card>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">
+            <Card variant="outlined" sx={{ flex: 1, minWidth: 0, width: '100%' }}>
+              <CardContent sx={{ height: '100%' }}>
+                <Typography variant="h6" sx={{ mb: 1 }}>Database backup history</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Daily Postgres backups the cloud provider keeps on its own — read-only here, nothing copied.
+                </Typography>
+                {!managed ? (
+                  <Typography variant="body2" color="text.secondary">Loading…</Typography>
+                ) : !managed.configured ? (
+                  <Alert severity="info">
+                    Not set up yet — create a personal access token at supabase.com/dashboard/account/tokens
+                    and set it as the <code>SUPABASE_ACCESS_TOKEN</code> secret to see them here.
+                  </Alert>
+                ) : managed.error ? (
+                  <Alert severity="error">{managed.error}</Alert>
+                ) : !managed.backups || managed.backups.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">No managed backups reported yet.</Typography>
+                ) : (
+                  <Stack spacing={0.5}>
+                    {managed.pitrEnabled && (
+                      <Typography variant="caption" color="text.secondary">Point-in-time recovery is enabled.</Typography>
+                    )}
+                    {managed.backups.map((b, i) => (
+                      <Typography key={i} variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12 }}>
+                        {summarizeManagedBackup(b)}
+                      </Typography>
+                    ))}
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
 
-          <Card variant="outlined" sx={{ mt: 2 }}>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 1 }}>Document backup history</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Last 7 days of runs (scheduled and manual). Older rows are pruned automatically.
-              </Typography>
-              {history.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No runs in the last 7 days.</Typography>
-              ) : (
-                <TableContainer sx={{ overflowX: 'auto' }}>
-                  <Table size="small" data-testid="storage-backup-history-table">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Started</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell align="right">Duration</TableCell>
-                        <TableCell>Copied</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {history.map((run) => (
-                        <TableRow key={run.cron_run_log_id}>
-                          <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtTime(run.started_at)}</TableCell>
-                          <TableCell>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <HistoryStatusChip status={run.status} />
-                              {run.status === 'error' && run.error && (
-                                <Typography variant="caption" color="error.main" noWrap sx={{ maxWidth: 400 }}>
-                                  {run.error}
-                                </Typography>
-                              )}
-                            </Stack>
-                          </TableCell>
-                          <TableCell align="right">{fmtDuration(run.duration_ms)}</TableCell>
-                          <TableCell>
-                            <Typography variant="caption" color="text.secondary">{fmtDetail(run.detail)}</Typography>
-                          </TableCell>
+            <Card variant="outlined" sx={{ flex: 1, minWidth: 0, width: '100%' }}>
+              <CardContent sx={{ height: '100%' }}>
+                <Typography variant="h6" sx={{ mb: 1 }}>Document backup history</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Last 7 days of runs (scheduled and manual). Older rows are pruned automatically.
+                </Typography>
+                {history.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">No runs in the last 7 days.</Typography>
+                ) : (
+                  <TableContainer sx={{ overflowX: 'auto' }}>
+                    <Table size="small" data-testid="storage-backup-history-table">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Started</TableCell>
+                          <TableCell>Finished</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell align="right">Duration</TableCell>
+                          <TableCell>Copied</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </CardContent>
-          </Card>
+                      </TableHead>
+                      <TableBody>
+                        {history.map((run) => (
+                          <TableRow key={run.cron_run_log_id}>
+                            <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtTime(run.started_at)}</TableCell>
+                            {/* cron_run_log has always recorded this; the table
+                                just never showed it, so a finished run read as
+                                open-ended. Null only while a run is actually in
+                                flight (or was killed before runJob's finish
+                                write — healStaleRunningRows cleans those up). */}
+                            <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                              {run.finished_at ? fmtTime(run.finished_at) : <em>still running</em>}
+                            </TableCell>
+                            <TableCell>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <HistoryStatusChip status={run.status} />
+                                {run.status === 'error' && run.error && (
+                                  <Typography variant="caption" color="error.main" noWrap sx={{ maxWidth: 400 }}>
+                                    {run.error}
+                                  </Typography>
+                                )}
+                              </Stack>
+                            </TableCell>
+                            <TableCell align="right">{fmtDuration(run.duration_ms)}</TableCell>
+                            <TableCell>
+                              <Typography variant="caption" color="text.secondary">{fmtDetail(run.detail)}</Typography>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+          </Stack>
 
           <Card variant="outlined" sx={{ mt: 2 }}>
             <CardContent>
@@ -471,12 +772,6 @@ export default function StorageBackupPanel() {
                       <Chip size="small" label="Stopped" color="warning" data-testid="storage-backup-paused-chip" />
                     )}
                   </Stack>
-                  <Typography variant="body2" color="text.secondary">
-                    Mirrors file bytes into a second bucket. The cloud provider's own backups cover the database only.
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Runs on the server on a schedule (nightly, ~2am Pacific) — this page does not need to be open.
-                  </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>
                   <Button
@@ -490,15 +785,30 @@ export default function StorageBackupPanel() {
                   >
                     {togglingPause ? 'Saving…' : paused ? 'Resume backup' : 'Stop backup'}
                   </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<CloudSyncIcon />}
-                    onClick={runNow}
-                    disabled={running || loading || paused}
-                  >
-                    {running ? 'Backing up…' : 'Back up now'}
-                  </Button>
+                  {running ? (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      color="warning"
+                      startIcon={<StopIcon />}
+                      onClick={() => { runCancelledRef.current = true; setStopRequested(true); }}
+                      disabled={stopRequested}
+                      data-testid="storage-backup-stop-run"
+                    >
+                      Stop after this batch
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<CloudSyncIcon />}
+                      onClick={runNow}
+                      disabled={loading || paused}
+                      data-testid="storage-backup-run-now"
+                    >
+                      Back up now
+                    </Button>
+                  )}
                 </Stack>
               </Stack>
 
@@ -509,7 +819,32 @@ export default function StorageBackupPanel() {
                 </Alert>
               )}
 
-              {loading && <LinearProgress sx={{ mb: 2 }} />}
+              {loading && !running && <LinearProgress sx={{ mb: 2 }} />}
+
+              {/* Overall progress for the multi-batch run — the per-bucket bars
+                  below still show each bucket, but a run spanning all three
+                  needs one number to watch. Determinate against this run's own
+                  workload (what was pending when it started = copied so far +
+                  what's left), so the bar fills to 100% as the run finishes
+                  rather than tracking the all-time total. */}
+              {running && (
+                <Box sx={{ mb: 2 }} data-testid="storage-backup-running-progress">
+                  <LinearProgress
+                    variant={runTarget > 0 ? 'determinate' : 'indeterminate'}
+                    value={runTarget > 0 ? Math.min(100, Math.round((runCopied / runTarget) * 100)) : undefined}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    {runCopied === 0
+                      ? `Starting… · ${fmtDuration(runElapsed)} elapsed`
+                      : [
+                          `${runCopied.toLocaleString()} of ${runTarget.toLocaleString()} files copied`,
+                          totalPending > 0 ? `${totalPending.toLocaleString()} to go` : null,
+                          `${fmtDuration(runElapsed)} elapsed`,
+                          etaText(runCopied, runTarget, runElapsed) || null,
+                        ].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+              )}
 
               {state && (
                 <Stack spacing={2}>
@@ -525,17 +860,18 @@ export default function StorageBackupPanel() {
                           </Typography>
                         </Stack>
                         <LinearProgress variant="determinate" value={pct} sx={{ my: 0.5 }} />
-                        <Button
-                          size="small"
-                          startIcon={<RestoreIcon />}
-                          onClick={() => setBulkRestoreBucket(s.bucket)}
-                          disabled={bulkRestoring || s.backedUp === 0}
-                        >
-                          Restore entire bucket from backup
-                        </Button>
                       </Box>
                     );
                   })}
+                  <Button
+                    size="small"
+                    sx={{ alignSelf: 'flex-start' }}
+                    startIcon={<RestoreIcon />}
+                    onClick={() => setBulkRestoreBucket(state.buckets.find((s) => s.backedUp > 0)?.bucket ?? null)}
+                    disabled={bulkRestoring || !state.buckets.some((s) => s.backedUp > 0)}
+                  >
+                    Restore entire bucket from backup
+                  </Button>
                 </Stack>
               )}
             </CardContent>
@@ -596,6 +932,12 @@ export default function StorageBackupPanel() {
                 external hard drive. Separate from the automatic mirror on the Cloud tab, which keeps
                 running either way.
               </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Unlike the Cloud tab, every byte really is downloaded here, so a full export of all
+                buckets moves ~16 GB and takes a while — keep this page open. Stopping it is safe:
+                picking the same folder again skips whatever is already there at the right size and
+                carries on from where it stopped.
+              </Typography>
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <Button
@@ -623,6 +965,18 @@ export default function StorageBackupPanel() {
                 >
                   {restoringDisk ? `Restoring… ${restoreProgress.toLocaleString()} files` : 'Restore storage from folder'}
                 </Button>
+                {(exportingDisk || restoringDisk) && (
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    startIcon={<StopIcon />}
+                    onClick={() => { diskCancelledRef.current = true; setStopRequested(true); }}
+                    disabled={stopRequested}
+                    data-testid="backup-disk-stop"
+                  >
+                    Stop
+                  </Button>
+                )}
               </Stack>
 
               {dbDownloading && (
@@ -640,11 +994,20 @@ export default function StorageBackupPanel() {
               )}
 
               {exportingDisk && (
-                <Box sx={{ mt: 2 }}>
+                <Box sx={{ mt: 2 }} data-testid="backup-export-progress">
                   <LinearProgress
                     variant={exportTotal > 0 ? 'determinate' : 'indeterminate'}
                     value={exportTotal > 0 ? Math.min(100, Math.round((exportProgress / exportTotal) * 100)) : undefined}
                   />
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {[
+                      exportTotal > 0
+                        ? `${exportProgress.toLocaleString()} of ${exportTotal.toLocaleString()} files`
+                        : `${exportProgress.toLocaleString()} files`,
+                      `${fmtDuration(diskElapsed)} elapsed`,
+                      etaText(exportProgress, exportTotal, diskElapsed) || null,
+                    ].filter(Boolean).join(' · ')}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                     {exportCurrentFile || 'Starting…'}
                   </Typography>
@@ -652,8 +1015,13 @@ export default function StorageBackupPanel() {
               )}
 
               {restoringDisk && (
-                <Box sx={{ mt: 2 }}>
+                <Box sx={{ mt: 2 }} data-testid="backup-restore-progress">
+                  {/* Indeterminate on purpose: the folder is walked lazily, so
+                      there's no file count to divide by until it's finished. */}
                   <LinearProgress />
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {`${restoreProgress.toLocaleString()} files restored · ${fmtDuration(diskElapsed)} elapsed`}
+                  </Typography>
                   <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
                     {restoreCurrentFile || 'Starting…'}
                   </Typography>
@@ -677,6 +1045,7 @@ export default function StorageBackupPanel() {
                       <TableRow>
                         <TableCell>Job</TableCell>
                         <TableCell>Started</TableCell>
+                        <TableCell>Finished</TableCell>
                         <TableCell>Status</TableCell>
                         <TableCell align="right">Duration</TableCell>
                         <TableCell>Detail</TableCell>
@@ -687,6 +1056,9 @@ export default function StorageBackupPanel() {
                         <TableRow key={run.cron_run_log_id}>
                           <TableCell>{JOB_LABELS[run.job_name] ?? run.job_name}</TableCell>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtTime(run.started_at)}</TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            {run.finished_at ? fmtTime(run.finished_at) : <em>still running</em>}
+                          </TableCell>
                           <TableCell>
                             <Stack direction="row" spacing={1} alignItems="center">
                               <HistoryStatusChip status={run.status} />
@@ -715,8 +1087,25 @@ export default function StorageBackupPanel() {
       <Dialog open={!!bulkRestoreBucket} onClose={() => !bulkRestoring && setBulkRestoreBucket(null)}>
         <DialogTitle>Restore entire bucket?</DialogTitle>
         <DialogContent>
+          <TextField
+            select
+            size="small"
+            label="Bucket"
+            fullWidth
+            sx={{ mt: 1, mb: 2 }}
+            value={bulkRestoreBucket ?? ''}
+            onChange={(e) => setBulkRestoreBucket(e.target.value as BackupBucket)}
+            disabled={bulkRestoring}
+            SelectProps={{ native: true }}
+          >
+            {state?.buckets.map((s) => (
+              <option key={s.bucket} value={s.bucket} disabled={s.backedUp === 0}>
+                {BUCKET_LABELS[s.bucket] ?? s.bucket}
+              </option>
+            ))}
+          </TextField>
           <DialogContentText>
-            This overwrites every object currently in <strong>{bulkRestoreBucket}</strong> with its
+            This overwrites every object currently in <strong>{BUCKET_LABELS[bulkRestoreBucket as BackupBucket] ?? bulkRestoreBucket}</strong> with its
             backed-up copy. Anything uploaded after that copy was taken will be lost. This
             cannot be undone.
           </DialogContentText>
