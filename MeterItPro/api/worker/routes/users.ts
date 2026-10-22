@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import { sign } from 'hono/jwt';
 import { Env, execQuery } from '../db';
 import { canImpersonate } from '@meterit/framework-backend/api/base/auth';
+import { IMPERSONATE_ALLOWED_EMAILS } from '../permissions';
 
 import { authenticateToken, requirePermission, clearUserCache, AuthVariables } from '../middleware';
 import { findAll, findById, create, update, remove, checkDeleteRestrictions, whereFromQuery, likeFieldsFromSchema, fieldMapFromSchema } from '../crud';
@@ -418,15 +419,15 @@ app.delete('/:id', requirePermission('user:delete'), async (c) => {
   }
 });
 
-// Dev-only "log in as this user" — mints a real JWT for the target (no
-// password needed, straight sign() like the superadmin tenant-impersonation
-// route in adminRoutes.ts). Unscoped by tenant deliberately: this is gated by
-// canImpersonate's single-email check, not the normal tenant-role model, and
-// the whole point is being able to test any user's account. Never reachable
-// in prod since ENABLE_IMPERSONATION only ever lives in .dev.vars.
+// "Log in as this user" — mints a real JWT for the target (no password needed,
+// straight sign() like the superadmin tenant-impersonation route in
+// adminRoutes.ts). Unscoped by tenant deliberately: gated by the hardcoded
+// IMPERSONATE_ALLOWED_EMAILS list in permissions.ts rather than the normal
+// tenant-role model, and the whole point is being able to test any user's
+// account. Every call is written to auth_logs below.
 app.post('/:id/impersonate', requirePermission('user:read'), async (c) => {
   const caller = c.get('user');
-  if (!canImpersonate(c.env, caller?.email)) {
+  if (!canImpersonate(IMPERSONATE_ALLOWED_EMAILS, caller?.email)) {
     return c.json({ success: false, message: 'Not available' }, 403);
   }
   const targetId = parseInt(c.req.param('id'), 10);

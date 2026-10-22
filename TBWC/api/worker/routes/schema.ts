@@ -26,7 +26,7 @@ import { quoteSchema } from './quoteSchema';
 import { customersSchema } from './customersSchema';
 import { invoicesSchema } from './invoicesSchema';
 import { paymentsSchema } from './paymentsSchema';
-import { CHILD_SCHEMAS } from '../permissions';
+import { CHILD_SCHEMAS, IMPERSONATE_ALLOWED_EMAILS } from '../permissions';
 import { supportTicketSchema } from '@meterit/framework-backend/api/base/supportTicketSchema';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -161,9 +161,12 @@ app.get('/:entity', async (c) => {
     injectFieldOptions(json, 'qb_sales_rep_id', values, labels);
     const roles = await roleOptions(c.env);
     injectFieldOptions(json, 'role_id', roles.values, roles.labels);
-    // The Impersonate section exists only for the one dev-allowed caller; for
-    // everyone else (and always in prod) it isn't served at all.
-    if (!canImpersonate(c.env, c.get('user')?.email)) removeFormSection(json, 'Impersonate', 'impersonate_actions');
+    // The Impersonate section is served only to the accounts on
+    // permissions.ts's IMPERSONATE_ALLOWED_EMAILS list (prod included); for
+    // every other caller, admin or not, it isn't served at all.
+    if (!canImpersonate(IMPERSONATE_ALLOWED_EMAILS, c.get('user')?.email)) {
+      removeFormSection(json, 'Impersonate', 'impersonate_actions');
+    }
   }
 
   if (entity === 'order' || entity === 'quote') {

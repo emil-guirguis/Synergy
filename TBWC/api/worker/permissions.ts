@@ -126,3 +126,19 @@ export const OWNER_COLUMN = {
   order: 'sales_rep_list_id',
   quote: 'sales_rep_list_id',
 } as const;
+
+/**
+ * The only accounts allowed to use "log in as this user" (routes/users.ts
+ * /:id/impersonate + the Impersonate section of the user schema).
+ *
+ * NOT a permission and not a role: impersonation mints a real Supabase session
+ * for the target through the service-role admin API, which is strictly more
+ * power than any role grants. Keeping it as a hardcoded email list means no
+ * role edit, permission grant, or DB row can ever widen it — only a code change
+ * that shows up in review. Unlike the rest of this file it applies in
+ * production too, so add an address here only on purpose.
+ */
+export const IMPERSONATE_ALLOWED_EMAILS: readonly string[] = [
+  'emilguirguis@yahoo.com', // Emil Guirguis
+  'jen@tbwcinc.com',        // Jenifer Crenshaw
+];

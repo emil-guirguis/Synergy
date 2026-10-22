@@ -37,9 +37,10 @@ vi.mock('../crud', async (importOriginal) => {
 
 const mockCreateAuthUser = vi.fn();
 const mockDeleteAuthUser = vi.fn();
+const mockMintSession = vi.fn();
 
 vi.mock('../supabaseAdmin', () => ({
-  mintSessionForEmail: vi.fn(),
+  mintSessionForEmail: (...a: any[]) => mockMintSession(...a),
   createAuthUser: (...a: any[]) => mockCreateAuthUser(...a),
   deleteAuthUser: (...a: any[]) => mockDeleteAuthUser(...a),
 }));
@@ -57,6 +58,7 @@ beforeEach(() => {
   currentUser = { id: 'admin' };
   currentGrants = ['user:read', 'user:write'];
   mockCreateAuthUser.mockResolvedValue({ id: 'auth-new' });
+  mockMintSession.mockResolvedValue({ access_token: 'tok', refresh_token: 'rtok', expires_in: 3600 });
 });
 
 describe('permission gate', () => {
@@ -190,5 +192,70 @@ describe('DELETE /users/:id', () => {
     mockRemove.mockResolvedValue(null);
     const res = await req('/9', { method: 'DELETE' });
     expect(res.status).toBe(404);
+  });
+});
+
+// "Log in as this user" is gated by permissions.ts's IMPERSONATE_ALLOWED_EMAILS
+// (Emil + Jenifer), NOT by the admin role — every caller here already holds
+// user:read, which is what makes the list the only thing standing in the way.
+describe('POST /users/:id/impersonate', () => {
+  const target = { id: 'target-1', email: 'rep@tbwcinc.com', first_name: 'Rep' };
+
+  it('mints a session for Emil', async () => {
+    currentUser = { id: 'admin', email: 'emilguirguis@yahoo.com' };
+    mockFindById.mockResolvedValue(target);
+    const res = await req('/target-1/impersonate', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(mockMintSession).toHaveBeenCalledWith(ENV, 'rep@tbwcinc.com');
+    expect(await res.json()).toEqual({
+      success: true,
+      data: {
+        token: 'tok',
+        refreshToken: 'rtok',
+        expiresIn: 3600,
+        user: { id: 'target-1', email: 'rep@tbwcinc.com', name: 'Rep' },
+      },
+    });
+  });
+
+  it('mints a session for Jenifer', async () => {
+    currentUser = { id: 'jen', email: 'jen@tbwcinc.com' };
+    mockFindById.mockResolvedValue(target);
+    const res = await req('/target-1/impersonate', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(mockMintSession).toHaveBeenCalledWith(ENV, 'rep@tbwcinc.com');
+  });
+
+  it('403s an admin who is not on the list, without touching the admin API', async () => {
+    currentUser = { id: 'other-admin', email: 'someone.else@tbwcinc.com' };
+    mockFindById.mockResolvedValue(target);
+    const res = await req('/target-1/impersonate', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(mockMintSession).not.toHaveBeenCalled();
+    expect(mockFindById).not.toHaveBeenCalled();
+  });
+
+  it('403s a caller with no email at all', async () => {
+    currentUser = { id: 'no-email' };
+    const res = await req('/target-1/impersonate', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(mockMintSession).not.toHaveBeenCalled();
+  });
+
+  it('404s when the target is gone, before minting anything', async () => {
+    currentUser = { id: 'jen', email: 'jen@tbwcinc.com' };
+    mockFindById.mockResolvedValue(null);
+    const res = await req('/missing/impersonate', { method: 'POST' });
+    expect(res.status).toBe(404);
+    expect(mockMintSession).not.toHaveBeenCalled();
+  });
+
+  it('502s when the admin API refuses to mint', async () => {
+    currentUser = { id: 'jen', email: 'jen@tbwcinc.com' };
+    mockFindById.mockResolvedValue(target);
+    mockMintSession.mockRejectedValue(new Error('GoTrue said no'));
+    const res = await req('/target-1/impersonate', { method: 'POST' });
+    expect(res.status).toBe(502);
+    expect((await res.json() as any).message).toBe('GoTrue said no');
   });
 });

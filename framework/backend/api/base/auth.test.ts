@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { checkRateLimit, createEntityCache, extractBearerToken, requireCheck } from './auth';
+import { canImpersonate, checkRateLimit, createEntityCache, extractBearerToken, requireCheck } from './auth';
 
 describe('checkRateLimit', () => {
   it('allows up to maxRequests within the window, then denies', () => {
@@ -109,5 +109,37 @@ describe('requireCheck', () => {
     await requireCheck((u) => u.is_admin)(c, next);
     expect(next).toHaveBeenCalledTimes(1);
     expect(c.json).not.toHaveBeenCalled();
+  });
+});
+
+describe('canImpersonate', () => {
+  const allowed = ['emilguirguis@yahoo.com', 'jen@tbwcinc.com'];
+
+  it('allows every email on the list', () => {
+    expect(canImpersonate(allowed, 'emilguirguis@yahoo.com')).toBe(true);
+    expect(canImpersonate(allowed, 'jen@tbwcinc.com')).toBe(true);
+  });
+
+  it('matches case- and whitespace-insensitively (Supabase emails vary in case)', () => {
+    expect(canImpersonate(allowed, 'Jen@TBWCinc.com')).toBe(true);
+    expect(canImpersonate(allowed, '  emilguirguis@yahoo.com  ')).toBe(true);
+  });
+
+  it('denies anyone not on the list, admin or not', () => {
+    expect(canImpersonate(allowed, 'someone.else@tbwcinc.com')).toBe(false);
+  });
+
+  it('denies a missing/empty caller email rather than defaulting open', () => {
+    expect(canImpersonate(allowed, undefined)).toBe(false);
+    expect(canImpersonate(allowed, null)).toBe(false);
+    expect(canImpersonate(allowed, '')).toBe(false);
+  });
+
+  it('denies everyone when the list is empty (the per-app opt-out)', () => {
+    expect(canImpersonate([], 'emilguirguis@yahoo.com')).toBe(false);
+  });
+
+  it('never substring-matches a longer address', () => {
+    expect(canImpersonate(allowed, 'jen@tbwcinc.com.attacker.test')).toBe(false);
   });
 });

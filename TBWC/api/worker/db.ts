@@ -45,11 +45,6 @@ export interface Env {
   // `wrangler secret put ANTHROPIC_API_KEY` in prod; local dev uses .dev.vars.
   // Unset => the route returns 503 instead of calling out.
   ANTHROPIC_API_KEY?: string;
-  // Dev-only "log in as this user" gate (see routes/users.ts + framework's
-  // canImpersonate). Set in .dev.vars only — never `wrangler secret put` these,
-  // or the impersonation route opens up in production too.
-  ENABLE_IMPERSONATION?: string;
-  IMPERSONATE_ALLOWED_EMAIL?: string;
   // Microsoft Graph app-only (client credentials) auth for real Excel Online
   // editing — see worker/msGraph.ts. All four set via `wrangler secret put` in
   // prod; unset => the office-edit route 503s instead of calling out.

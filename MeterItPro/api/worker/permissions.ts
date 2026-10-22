@@ -50,3 +50,14 @@ export const PERMISSIONS = [
 ] as const;
 
 export type MipPermission = (typeof PERMISSIONS)[number];
+
+/**
+ * The only accounts allowed to use "log in as this user" (routes/users.ts
+ * /:id/impersonate). Not a permission and not a role — impersonation mints a
+ * session for any user in any tenant, which is more power than any role grants,
+ * so the list lives in code where widening it is a reviewable diff. Mirrors
+ * TBWC/api/worker/permissions.ts IMPERSONATE_ALLOWED_EMAILS.
+ */
+export const IMPERSONATE_ALLOWED_EMAILS: readonly string[] = [
+  'emilguirguis@yahoo.com', // Emil Guirguis
+];

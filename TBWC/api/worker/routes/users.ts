@@ -8,6 +8,7 @@ import { AuthVariables, authenticateToken, requirePermission } from '../middlewa
 import { findAll, findById, create, update, remove, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { usersSchema } from './usersSchema';
 import { canImpersonate } from '@meterit/framework-backend/api/base/auth';
+import { IMPERSONATE_ALLOWED_EMAILS } from '../permissions';
 import { mintSessionForEmail, createAuthUser, deleteAuthUser } from '../supabaseAdmin';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -111,14 +112,16 @@ app.delete('/:id', requirePermission('user:write'), async (c) => {
   return c.json({ success: true, data: row });
 });
 
-// Dev-only "log in as this user" — mints a real Supabase session for the
-// target via the admin API (see supabaseAdmin.ts). Gated by canImpersonate's
-// single-email check, independent of the admin role check requirePermission
-// already did; never reachable in prod since ENABLE_IMPERSONATION only ever
-// lives in .dev.vars.
+// "Log in as this user" — mints a real Supabase session for the target via the
+// admin API (see supabaseAdmin.ts). Gated by the hardcoded
+// IMPERSONATE_ALLOWED_EMAILS list in permissions.ts, independent of the admin
+// role check requirePermission already did: an admin role alone is NOT enough.
+// Unlike before, this is live in production for those accounts, so every
+// successful mint is logged below (TBWC has no audit table; `wrangler tail` /
+// the Worker log is the trail).
 app.post('/:id/impersonate', requirePermission('user:read'), async (c) => {
   const caller = c.get('user');
-  if (!canImpersonate(c.env, caller?.email)) {
+  if (!canImpersonate(IMPERSONATE_ALLOWED_EMAILS, caller?.email)) {
     return c.json({ success: false, message: 'Not available' }, 403);
   }
   const target = await findById(c.env, TABLE, PK, c.req.param('id'));
@@ -134,6 +137,12 @@ app.post('/:id/impersonate', requirePermission('user:read'), async (c) => {
       502
     );
   }
+
+  console.warn(
+    `[impersonate] ${caller?.email} -> ${target.email} (${target.id}) ip=${
+      c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown'
+    }`
+  );
 
   return c.json({
     success: true,

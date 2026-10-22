@@ -3,8 +3,8 @@
  * Users module (routes/users.ts): minting a session for impersonation, and
  * creating/deleting the auth.users row behind an admin-created profile.
  *
- * mintSessionForEmail: dev-only impersonation route (`/:id/impersonate`,
- * gated by the framework's canImpersonate single-email check) — never
+ * mintSessionForEmail: the impersonation route (`/:id/impersonate`,
+ * gated by canImpersonate against permissions.ts's email allowlist) — never
  * exposed otherwise. GoTrue has no direct "create a session for this user
  * id" endpoint, so this uses the documented two-step trick: generate a
  * magiclink server-side (nothing is emailed — we only want the token it

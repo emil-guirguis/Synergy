@@ -41,7 +41,9 @@ export const UserForm: React.FC<UserFormProps> = ({ user, onCancel, loading = fa
             <ImpersonateButton
               currentUserEmail={currentUser?.email}
               // Server-gated: /api/schema/user only serves this section to the
-              // .dev.vars IMPERSONATE_ALLOWED_EMAIL caller.
+              // callers on the api's IMPERSONATE_ALLOWED_EMAILS list (Emil,
+              // Jenifer), and the impersonate route re-checks it. null also
+              // tells the button it may render in a production build.
               allowedEmail={null}
               targetUserId={user.id}
               currentUserId={currentUser?.id}

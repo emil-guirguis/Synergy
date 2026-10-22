@@ -144,24 +144,21 @@ export function requireCheck(predicate: (user: any) => boolean, message = 'Insuf
   };
 }
 
-// ===== Dev-only user impersonation gate =====
-export interface ImpersonationEnv {
-  ENABLE_IMPERSONATION?: string;
-  IMPERSONATE_ALLOWED_EMAIL?: string;
-}
+// ===== User impersonation gate =====
 
 /**
- * "Log in as this user" gate for local testing — not a role-based admin
- * feature. Both env vars are meant to live only in `.dev.vars`; never
- * `wrangler secret put` them to a deployed Worker, or this opens up in prod
- * too. Each app's impersonate route calls this after resolving the caller's
- * email (role/permission checks, if any, happen separately in that route).
+ * "Log in as this user" gate. Deliberately NOT role- or permission-based:
+ * impersonation mints a real session for the target through the service-role
+ * admin API, so the set of callers allowed to do it is a short explicit list
+ * each app owns in code (TBWC: worker/permissions.ts IMPERSONATE_ALLOWED_EMAILS,
+ * MeterItPro: worker/permissions.ts). Code, not a role_permission row and not a
+ * deploy-time env var, so widening it is always a reviewable diff.
+ *
+ * Each app's impersonate route calls this after resolving the caller's email;
+ * the route's own requirePermission check happens separately.
  */
-export function canImpersonate(env: ImpersonationEnv, callerEmail?: string | null): boolean {
-  return (
-    env.ENABLE_IMPERSONATION === 'true' &&
-    !!env.IMPERSONATE_ALLOWED_EMAIL &&
-    !!callerEmail &&
-    callerEmail.toLowerCase() === env.IMPERSONATE_ALLOWED_EMAIL.toLowerCase()
-  );
+export function canImpersonate(allowedEmails: readonly string[], callerEmail?: string | null): boolean {
+  if (!callerEmail) return false;
+  const caller = callerEmail.trim().toLowerCase();
+  return allowedEmails.some((allowed) => allowed.trim().toLowerCase() === caller);
 }

@@ -11,6 +11,7 @@ vi.mock('../db', () => {
 
 vi.mock('hono/jwt', () => ({
   verify: vi.fn(),
+  sign: vi.fn(),
 }));
 
 vi.mock('../crud', async (importOriginal) => {
@@ -38,7 +39,7 @@ vi.mock('../errorHandler', () => ({
   logError: vi.fn(),
 }));
 
-import { verify } from 'hono/jwt';
+import { verify, sign } from 'hono/jwt';
 import { query } from '../db';
 import { clearUserCache, clearPermissionCache } from '../middleware';
 import { findAll, findById, create, update, remove } from '../crud';
@@ -48,6 +49,7 @@ import type { Env } from '../db';
 import { authQuery, queueAuth } from '../testAuth';
 
 const mockVerify = vi.mocked(verify);
+const mockSign = vi.mocked(sign);
 const mockQuery = vi.mocked(query);
 const mockFindAll = vi.mocked(findAll);
 const mockFindById = vi.mocked(findById);
@@ -480,5 +482,53 @@ describe('Users Routes', () => {
 
       expect(res.status).toBe(404);
     });
+  });
+});
+
+// "Log in as this user" is gated by permissions.ts's IMPERSONATE_ALLOWED_EMAILS,
+// which for MeterItPro is Emil only. Jenifer is on TBWC's list and must NOT
+// carry over here — every caller below is a full admin, so the list is the only
+// thing deciding.
+describe('POST /:id/impersonate', () => {
+  const TARGET = { users_id: 7, email: 'rep@meterit.test', tenant_id: 2, name: 'Rep' };
+
+  const callAs = async (email: string) => {
+    const caller = { ...ADMIN_USER, email };
+    mockVerify.mockResolvedValue({ userId: caller.users_id, tenant_id: caller.tenant_id });
+    queueAuth(mockQuery, caller);
+    mockQuery
+      .mockResolvedValueOnce({ rows: [TARGET] })   // target lookup
+      .mockResolvedValueOnce({ rows: [] });        // auth_logs insert
+    return usersApp.request('/7/impersonate', {
+      method: 'POST',
+      headers: { authorization: 'Bearer valid-token' },
+    }, TEST_ENV);
+  };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    clearUserCache();
+    clearPermissionCache();
+    mockSign.mockResolvedValue('minted-jwt');
+  });
+
+  it('mints a token for Emil', async () => {
+    const res = await callAs('emilguirguis@yahoo.com');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.token).toBe('minted-jwt');
+    expect(body.data.user).toEqual({ users_id: 7, email: 'rep@meterit.test', name: 'Rep' });
+  });
+
+  it('403s Jenifer — she is TBWC-only, impersonation here is not hers', async () => {
+    const res = await callAs('jen@tbwcinc.com');
+    expect(res.status).toBe(403);
+    expect(mockSign).not.toHaveBeenCalled();
+  });
+
+  it('403s any other admin', async () => {
+    const res = await callAs('admin@test.com');
+    expect(res.status).toBe(403);
+    expect(mockSign).not.toHaveBeenCalled();
   });
 });
