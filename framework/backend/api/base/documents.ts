@@ -88,7 +88,11 @@ export interface DocumentsOptions {
 }
 
 const DEFAULT_TABLE = 'document';
-export const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
+/** Keep in step with DocumentsGrid.tsx's own copy (the browser rejects an
+ *  oversized file before uploading it, so the two are both needed) and with
+ *  the storage buckets' own file_size_limit, which is the only check a
+ *  non-browser caller can't skip. */
+export const DEFAULT_MAX_FILE_SIZE = 22 * 1024 * 1024;
 const SAFE_IDENT = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 // Mirrors the varchar(n) widths in db/document.sql — checked here so an
@@ -202,8 +206,27 @@ export async function createDocument(
   if (input.docType != null && !isDocType(input.docType)) {
     throw new DocumentValidationError(`doc_type must be one of: ${DOC_TYPES.join(', ')}`);
   }
+  // The bytes are already in storage by the time this runs — the browser
+  // uploads to Supabase first and only then creates the row — so this can't
+  // prevent an oversized object existing. It is here to stop it being
+  // recorded as a document, and to say why.
+  //
+  // `fileSize` is whatever the caller claimed, and a caller that simply omits
+  // it used to skip the check entirely. Fall back to the object's real size
+  // from storage.objects, which no caller can misreport.
   const maxSize = options?.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
-  if (input.fileSize != null && input.fileSize > maxSize) {
+  let effectiveSize = input.fileSize ?? null;
+  if (effectiveSize == null) {
+    const { rows } = await execQuery(
+      env,
+      `SELECT (metadata->>'size')::bigint AS size FROM storage.objects
+        WHERE bucket_id = $1 AND name = $2`,
+      [input.storageBucket, input.storagePath],
+      'documents.actualSize'
+    );
+    effectiveSize = rows[0]?.size != null ? Number(rows[0].size) : null;
+  }
+  if (effectiveSize != null && effectiveSize > maxSize) {
     throw new DocumentValidationError(`File exceeds the ${Math.round(maxSize / 1024 / 1024)}MB limit`);
   }
   assertLengths(input as Record<string, any>);

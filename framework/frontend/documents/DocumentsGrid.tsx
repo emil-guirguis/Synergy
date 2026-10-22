@@ -125,7 +125,11 @@ export interface DocumentsGridProps {
   title?: string;
 }
 
-const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
+/** Checked before the file is uploaded, so an oversized one is refused with a
+ *  readable message instead of failing partway. Must stay in step with
+ *  framework/backend/api/base/documents.ts's DEFAULT_MAX_FILE_SIZE and with
+ *  the buckets' own file_size_limit. */
+const DEFAULT_MAX_FILE_SIZE = 22 * 1024 * 1024;
 // Matches description varchar(2000) in framework/backend/db/document.sql —
 // cap it in the input rather than let the API bounce a too-long save.
 const MAX_DESCRIPTION = 2000;

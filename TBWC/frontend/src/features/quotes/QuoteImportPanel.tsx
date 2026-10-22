@@ -424,7 +424,7 @@ async function verifyStoredSize(storagePath: string, expectedSize: number): Prom
 // first fails fast with a clear reason instead of wasting the upload and surfacing a vague
 // error — and, critically, still shows up as a real logged failure rather than being
 // silently excluded from the plan the way the old 'too-large' status used to.
-const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
+const MAX_UPLOAD_SIZE = 22 * 1024 * 1024;
 
 interface UploadOutcome {
   ok: boolean;
