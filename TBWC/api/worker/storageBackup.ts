@@ -90,15 +90,7 @@ async function copyToBackupBucket(
   env: Env,
   sourceBucket: string,
   path: string,
-  expectedSize: string | null,
-  // Overwrite a destination that already exists, for the full re-copy "Back up
-  // now" runs. Verified against this project's Storage API: a plain copy onto
-  // an existing key answers 409 KeyAlreadyExists, and the same call with
-  // 'x-upsert: true' answers 200 and replaces it. An earlier cut deleted the
-  // destination first instead — that briefly left the file with no backup at
-  // all, and when the delete itself failed the copy never ran, so the mirror
-  // ended up with holes. One upsert call has no such window.
-  upsert = false
+  expectedSize: string | null
 ): Promise<void> {
   const { url, key } = requireSupabaseEnv(env);
   const destinationKey = `${sourceBucket}/${path}`;
@@ -108,7 +100,6 @@ async function copyToBackupBucket(
       Authorization: `Bearer ${key}`,
       apikey: key,
       'Content-Type': 'application/json',
-      ...(upsert ? { 'x-upsert': 'true' } : {}),
     },
     body: JSON.stringify({
       bucketId: sourceBucket,
@@ -238,6 +229,7 @@ async function backupBucket(
   let copied = 0;
   let failed = 0;
   let firstChunk = true;
+  let budgetSpent = false;
   // Re-pages BATCH_SIZE at a time instead of fetching once: once the smaller
   // buckets (rep-docs, item-images) are caught up, every tick's pending set
   // is just whichever bucket still has a backlog (record-docs today) — a
@@ -271,13 +263,26 @@ async function backupBucket(
             await markBackedUp(env, bucket, obj.name, obj.size);
             return true;
           } catch (e) {
-            console.error(`[storageBackup] copy failed, leaving for next tick: ${bucket}/${obj.name}:`, e instanceof Error ? e.message : e);
+            const msg = e instanceof Error ? e.message : String(e);
+            // Running out of Cloudflare subrequests means this invocation is
+            // spent, not that the object is bad. Counting it as a failure was
+            // actively harmful: the object stayed unmarked, the loop below
+            // re-queried the very same pending rows, failed them again, and
+            // burned the whole 60s tick — the `copied: 0, failed: 3125` runs.
+            if (msg.includes('Too many subrequests')) {
+              budgetSpent = true;
+              return null;
+            }
+            console.error(`[storageBackup] copy failed, leaving for next tick: ${bucket}/${obj.name}:`, msg);
             return false;
           }
         })
       );
-      copied += results.filter(Boolean).length;
-      failed += results.length - results.filter(Boolean).length;
+      copied += results.filter((r) => r === true).length;
+      failed += results.filter((r) => r === false).length;
+      // Everything copied so far is already marked, so stopping here simply
+      // makes this a short tick; the next one resumes from the ledger.
+      if (budgetSpent) return { copied, failed, cancelled: true };
     }
     // A short page means this bucket's actually exhausted, not just paused
     // between pages — no point re-querying it again this tick.
@@ -324,119 +329,6 @@ export async function backupStorageToSupabase(env: Env): Promise<StorageBackupRu
   }
   console.log(`[storageBackup] ${results.join(' | ')}`);
   return { copied: totalCopied, failed: totalFailed, stopped: false };
-}
-
-export type FullBackupBatchResult = {
-  copied: number;
-  failed: number;
-  /** Every live object across all three buckets — the progress denominator. */
-  total: number;
-  /** `<bucket>/<path>` of the last object handled; pass back to continue.
-   *  null means the sweep is finished. */
-  cursor: string | null;
-  /** First failure of the batch, verbatim. A bare "250 failed" in the run log
-   *  says nothing about whether the cause was the copy, the ledger write or
-   *  the connection, which is exactly what you need when a sweep starts
-   *  failing wholesale. Absent when nothing failed. */
-  lastError?: string;
-};
-
-/** One bounded page of a FULL re-copy: every object in every bucket, whether
- *  or not it's already mirrored. Driven in a loop by the Settings panel's
- *  "Back up now" (same shape as restoreBucketBatch) — the nightly job keeps
- *  using backupStorageToSupabase, which only copies what's missing.
- *
- *  Keyset-paged on (bucket, name) rather than offset so objects added
- *  mid-sweep can't shift the window. Bounded by BATCH_SIZE and the same
- *  wall-clock budget as a scheduled tick, because the per-invocation
- *  subrequest cap applies here too — one upsert copy per object. */
-export async function fullBackupBatch(env: Env, cursor?: string | null): Promise<FullBackupBatchResult> {
-  const slash = cursor ? cursor.indexOf('/') : -1;
-  const curBucket = slash >= 0 ? cursor!.slice(0, slash) : '';
-  const curPath = slash >= 0 ? cursor!.slice(slash + 1) : '';
-  const { rows: totalRows } = await execQuery(
-    env,
-    `SELECT count(*)::int AS total FROM storage.objects
-      WHERE bucket_id = ANY($1) AND is_delete_marker = false AND archived_at IS NULL`,
-    [BACKUP_BUCKETS as unknown as string[]],
-    'storageBackup.full.total'
-  );
-  const total = totalRows[0]?.total ?? 0;
-
-  // Deliberately larger than one invocation can finish. The real ceiling is
-  // Cloudflare's per-invocation subrequest budget, which this Worker exhausts
-  // after roughly 50 objects (each costs an upsert copy plus a Hyperdrive
-  // ledger write) - far below the 1000 the incremental path was sized
-  // against. Rather than hard-code a guess that breaks whenever the budget or
-  // the per-object cost changes, the loop below copies until Cloudflare says
-  // stop and reports where it got to.
-  const pageSize = BATCH_SIZE;
-  const { rows } = await execQuery(
-    env,
-    `SELECT bucket_id, name, (metadata->>'size')::bigint AS size
-       FROM storage.objects
-      WHERE bucket_id = ANY($1) AND is_delete_marker = false AND archived_at IS NULL
-        AND (bucket_id, name) > ($2, $3)
-      ORDER BY bucket_id, name
-      LIMIT $4`,
-    [BACKUP_BUCKETS as unknown as string[], curBucket, curPath, pageSize],
-    'storageBackup.full.page'
-  );
-  if (rows.length === 0) return { copied: 0, failed: 0, total, cursor: null };
-
-  const deadline = Date.now() + MAX_TICK_MILLIS;
-  let copied = 0;
-  let failed = 0;
-  let lastError: string | undefined;
-  // The end of the last chunk in which EVERY object succeeded. The cursor can
-  // only safely advance to there: within a chunk the copies finish out of
-  // order, so taking the last attempted object would silently skip any earlier
-  // one that failed.
-  let lastClean: { bucket_id: string; name: string } | null = null;
-  let budgetSpent = false;
-
-  for (let i = 0; i < rows.length; i += CONCURRENCY) {
-    if (i > 0 && Date.now() >= deadline) break;
-    const chunk = rows.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(
-      chunk.map(async (row: any) => {
-        try {
-          await copyToBackupBucket(env, row.bucket_id, row.name, row.size, true);
-          await markBackedUp(env, row.bucket_id, row.name, row.size);
-          return true;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          // Running out of subrequests isn't a failure of this object - it
-          // means the invocation is done and the rest of the page belongs to
-          // the next call. Counting those as "failed" reported 250 bogus
-          // failures a batch and hid whatever the real failures were.
-          if (msg.includes('Too many subrequests')) {
-            budgetSpent = true;
-            return null;
-          }
-          if (!lastError) lastError = `${row.bucket_id}/${row.name}: ${msg}`;
-          console.error(`[storageBackup] full re-copy failed: ${row.bucket_id}/${row.name}:`, msg);
-          return false;
-        }
-      })
-    );
-    copied += results.filter((r) => r === true).length;
-    failed += results.filter((r) => r === false).length;
-    if (results.every((r) => r === true)) lastClean = chunk[chunk.length - 1];
-    if (budgetSpent) break;
-  }
-
-  // Only report "done" when the whole page was walked without running out of
-  // budget AND the page was short enough to be the last one.
-  const finished = !budgetSpent && rows.length < pageSize && lastClean === rows[rows.length - 1];
-  const last = lastClean;
-  return {
-    copied,
-    failed,
-    total,
-    cursor: finished || !last ? null : `${last.bucket_id}/${last.name}`,
-    ...(lastError ? { lastError } : {}),
-  };
 }
 
 export interface BackupPauseState {

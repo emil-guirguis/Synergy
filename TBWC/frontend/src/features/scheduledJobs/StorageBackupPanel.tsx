@@ -35,7 +35,7 @@ import FolderIcon from '@mui/icons-material/Folder';
 import UploadIcon from '@mui/icons-material/Upload';
 import { formatDateTime } from '@meterit/framework-frontend/utils';
 import {
-  getStorageBackupStatus, getStorageBackupHistory, runFullStorageBackup,
+  getStorageBackupStatus, getStorageBackupHistory, runStorageBackupNow,
   restoreStorageObject, restoreStorageBucketBatch, setStorageBackupPaused,
   downloadDatabaseBackup, getManagedBackups, listLiveStorageObjects,
   fetchLiveStorageObjectBytes, restoreLiveStorageObjectBytes, logBackupRun,
@@ -613,18 +613,14 @@ export default function StorageBackupPanel() {
       getStorageBackupStatus().then(setState).catch(() => {});
     }, 1500);
     try {
-      let cursor: string | null = null;
       for (;;) {
-        // A full backup is hundreds of requests over ten-odd minutes, so a
-        // single transient network blip is close to expected - and without a
-        // retry it ended the whole run and threw away the cursor. Retry the
-        // same batch a few times before giving up; batches are idempotent
-        // (an upsert copy plus an upsert ledger write), so repeating one is
-        // free.
-        let next: Awaited<ReturnType<typeof runFullStorageBackup>> | null = null;
+        // Retried because a tick can legitimately fail on a transient network
+        // error, and losing the whole run to one blip is worse than repeating
+        // a batch - batches are idempotent.
+        let next: StorageBackupState | null = null;
         for (let attempt = 1; ; attempt++) {
           try {
-            next = await runFullStorageBackup(cursor);
+            next = await runStorageBackupNow();
             break;
           } catch (e) {
             if (attempt >= 4 || runCancelledRef.current) throw e;
@@ -634,20 +630,26 @@ export default function StorageBackupPanel() {
         if (!next) break;
         setState(next);
         batches++;
-        // null `full` = the job threw; runJob swallows job errors, so the
-        // reason is in the history table rather than this response. Stop
-        // either way — retrying a throwing job in a tight loop is pointless.
-        if (!next.full) break;
-        copiedTotal += next.full.copied;
-        failedTotal += next.full.failed;
+        // undefined detail = the job threw; runJob swallows job errors, so the
+        // reason is in the history table rather than this response.
+        const copied = next.detail?.copied ?? 0;
+        failedTotal += next.detail?.failed ?? 0;
+        copiedTotal += copied;
         setRunCopied(copiedTotal);
         setRunBatches(batches);
-        setRunTotal(next.full.total);
-        cursor = next.full.cursor;
-        if (cursor === null || runCancelledRef.current) break;
+        // A tick that copied nothing means the backlog is clear. A tick that
+        // stopped early (its subrequest budget or time budget ran out) still
+        // has work left, so keep going.
+        if ((copied === 0 && !next.detail?.stopped) || runCancelledRef.current) break;
       }
       setLastRun({
-        outcome: runCancelledRef.current ? 'stopped' : failedTotal > 0 ? 'failed' : 'complete',
+        outcome: runCancelledRef.current
+          ? 'stopped'
+          : failedTotal > 0
+            ? 'failed'
+            : copiedTotal > 0
+              ? 'complete'
+              : 'uptodate',
         copied: copiedTotal,
         failed: failedTotal,
         batches,
@@ -660,6 +662,8 @@ export default function StorageBackupPanel() {
         setMessage(
           `Stopped after ${copiedTotal.toLocaleString()} files${took}. Everything copied so far stays backed up — running again picks up where this left off.`
         );
+      } else if (copiedTotal === 0 && failedTotal === 0) {
+        setMessage('Already up to date — every file is already backed up.');
       } else if (failedTotal > 0) {
         setMessage(
           `Copied ${copiedTotal.toLocaleString()} files${took}. ${failedTotal.toLocaleString()} could not be copied and are still pending — see the run history for the reason.`
@@ -880,9 +884,8 @@ export default function StorageBackupPanel() {
                     Runs on the server on a schedule (nightly, ~2am Pacific) — this page does not need to be open.
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                    "Back up now" re-copies every file, not just new ones — keep this page open while it
-                    runs (around 15 minutes for all {exportTotal.toLocaleString()}). Stopping it is safe:
-                    everything already copied stays backed up.
+                    "Back up now" copies anything the schedule hasn't picked up yet. It is the same work
+                    the nightly run does, just immediately — everything already copied stays backed up.
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>

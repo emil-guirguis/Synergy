@@ -218,41 +218,15 @@ export async function getStorageBackupHistory(): Promise<CronRun[]> {
 /** Runs ONE backup batch right now instead of waiting for the next scheduled
  *  tick, and returns the refreshed status plus that batch's own `detail`.
  *
- *  One call can't clear a large backlog: Cloudflare caps a Worker invocation
- *  at 1000 subrequests and every object costs one Supabase copy call, so
- *  ~900-1000 objects is the hard ceiling per call no matter the time budget.
- *  To back up everything in one action, call this repeatedly while
- *  `detail.copied > 0` — that loop is what StorageBackupPanel's "Back up now"
- *  does. Rejects with 409 while the backup is stopped. */
+ *  One call can't clear a large backlog: a Worker invocation runs out of
+ *  Cloudflare subrequests after a few dozen objects, and the batch stops
+ *  cleanly there with `detail.stopped` set. Call it again while it reports
+ *  copying something, or while it stopped early - that loop is what
+ *  StorageBackupPanel's "Back up now" does. Rejects with 409 while the backup
+ *  is stopped. */
 export async function runStorageBackupNow(): Promise<StorageBackupState> {
   const data = await parse(
     await fetch(`${API_BASE_URL}/settings/storage-backup/run`, { method: 'POST', headers: authHeaders() })
-  );
-  return data.data;
-}
-
-export interface FullBackupBatch {
-  copied: number;
-  failed: number;
-  /** Every live object across all buckets — the progress denominator. */
-  total: number;
-  /** Pass back as `cursor` to continue; null means finished. */
-  cursor: string | null;
-}
-
-/** One page of a FULL backup — re-copies every file, already mirrored or not.
- *  Call repeatedly with the returned cursor until it's null; that loop is what
- *  the panel's "Back up now" runs, so a manual backup always backs everything
- *  up rather than reporting that nothing changed. */
-export async function runFullStorageBackup(
-  cursor: string | null
-): Promise<StorageBackupState & { full: FullBackupBatch | null }> {
-  const data = await parse(
-    await fetch(`${API_BASE_URL}/settings/storage-backup/run`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ full: true, cursor }),
-    })
   );
   return data.data;
 }

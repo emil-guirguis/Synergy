@@ -15,7 +15,7 @@ vi.mock('./db', () => ({
 }));
 
 import { jobsForTier, isJobPaused, TIER_CRON, tierForCron, runJob } from './cronMonitor';
-import { backupStorageToSupabase, fullBackupBatch } from './storageBackup';
+import { backupStorageToSupabase } from './storageBackup';
 
 // copyToBackupBucket/restoreObjectFromBackup call the global fetch() directly
 // (a Supabase Storage object/copy REST call — no file bytes, same project on
@@ -230,132 +230,26 @@ describe('the per-batch detail the one-click loop terminates on', () => {
 });
 
 /**
- * "Back up now" is a FULL re-copy, not the incremental sweep the nightly job
- * runs: pressing it when the mirror is already complete must still copy every
- * file, because a manual backup that reports "nothing to do" is indistinguishable
- * from a broken button. fullBackupBatch is the page the panel loops over.
+ * The scheduled sweep has to survive running out of Cloudflare subrequests,
+ * which it will on any real backlog. Getting this wrong was not cosmetic: the
+ * objects stayed unmarked, the re-paging loop fetched the very same pending
+ * rows again, failed them again, and burned the whole 60s tick copying
+ * nothing - the `copied: 0, failed: 3125` runs in cron_run_log.
  */
-describe('fullBackupBatch re-copies everything', () => {
+describe('the scheduled sweep and the subrequest budget', () => {
   const okCopy = (size: number) => ({
     ok: true,
     text: () => Promise.resolve(JSON.stringify({ metadata: { size } })),
   });
 
-  it('copies objects that are ALREADY in the ledger', async () => {
-    // The incremental path anti-joins the ledger and would return nothing here.
-    respondByTag({
-      'storageBackup.full.total': () => ({ rows: [{ total: 2 }] }),
-      'storageBackup.full.page': () => ({
-        rows: [
-          { bucket_id: 'record-docs', name: 'already-mirrored.pdf', size: '5' },
-          { bucket_id: 'rep-docs', name: 'also-mirrored.pdf', size: '6' },
-        ],
-      }),
-      'storageBackup.markBackedUp': () => ({ rows: [] }),
-    });
-    mockFetch.mockImplementation((_u: string, init: any) =>
-      Promise.resolve(init?.method === 'DELETE' ? { ok: true, text: () => Promise.resolve('') } : okCopy(JSON.parse(init.body).sourceKey === 'already-mirrored.pdf' ? 5 : 6))
-    );
-
-    const res = await fullBackupBatch(ENV, null);
-    expect(res.copied).toBe(2);
-    expect(res.failed).toBe(0);
-    expect(res.total).toBe(2);
-    // Short page => the sweep is done, so no cursor to continue from.
-    expect(res.cursor).toBeNull();
-  });
-
-  it('upserts rather than deleting first, so the mirror is never briefly empty', async () => {
-    // The first cut deleted the destination then copied. When the delete
-    // failed the copy never ran, and the mirrored file was simply gone - that
-    // punched real holes in the mirror. One copy carrying 'x-upsert: true'
-    // replaces the object in place, with no window where it does not exist.
-    respondByTag({
-      'storageBackup.full.total': () => ({ rows: [{ total: 1 }] }),
-      'storageBackup.full.page': () => ({ rows: [{ bucket_id: 'record-docs', name: 'a.pdf', size: '3' }] }),
-      'storageBackup.markBackedUp': () => ({ rows: [] }),
-    });
-    mockFetch.mockImplementation(() => Promise.resolve(okCopy(3)));
-
-    const res = await fullBackupBatch(ENV, null);
-    expect(res.copied).toBe(1);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [, init] = mockFetch.mock.calls[0];
-    expect(init.method).toBe('POST');
-    expect(init.headers['x-upsert']).toBe('true');
-    expect(mockFetch.mock.calls.some((c) => c[1]?.method === 'DELETE')).toBe(false);
-  });
-
-  it('does NOT upsert on the incremental path, so a 409 still means something', async () => {
+  it('stops the tick cleanly instead of counting the limit as failed files', async () => {
+    const pending = Array.from({ length: 300 }, (_, i) => ({ name: `doc-${i}.pdf`, size: '1' }));
+    let pages = 0;
     respondByTag({
       'cron.scheduledJob.tier': () => ({ rows: [{ cron_tier: 'nightly' }] }),
-      'storageBackup.pending': (params) => ({
-        rows: params[0] === 'record-docs' ? [{ name: 'a.pdf', size: '3' }] : [],
-      }),
+      'storageBackup.pending': () => { pages++; return { rows: pending }; },
       'storageBackup.markBackedUp': () => ({ rows: [] }),
     });
-    mockFetch.mockImplementation(() => Promise.resolve(okCopy(3)));
-
-    await backupStorageToSupabase(ENV);
-    expect(mockFetch.mock.calls[0][1].headers['x-upsert']).toBeUndefined();
-  });
-
-  it('splits the cursor on the FIRST slash, so paths containing slashes survive', async () => {
-    // bucket ids never contain "/", object paths usually do (order/123/x.pdf).
-    let seen: any[] = [];
-    respondByTag({
-      'storageBackup.full.total': () => ({ rows: [{ total: 0 }] }),
-      'storageBackup.full.page': (params) => { seen = params; return { rows: [] }; },
-    });
-    await fullBackupBatch(ENV, 'record-docs/order/123/packing slip.pdf');
-    expect(seen[1]).toBe('record-docs');
-    expect(seen[2]).toBe('order/123/packing slip.pdf');
-  });
-
-  it('hands back a cursor when the page is full, so the panel keeps going', async () => {
-    // A full page means there is probably more after it.
-    // A full page is BATCH_SIZE (300) now that each object is one upsert copy
-    // rather than a delete plus a copy.
-    const rows = Array.from({ length: 300 }, (_, i) => ({
-      bucket_id: 'record-docs', name: `doc-${String(i).padStart(3, '0')}.pdf`, size: '1',
-    }));
-    respondByTag({
-      'storageBackup.full.total': () => ({ rows: [{ total: 1000 }] }),
-      'storageBackup.full.page': () => ({ rows }),
-      'storageBackup.markBackedUp': () => ({ rows: [] }),
-    });
-    mockFetch.mockImplementation((_u: string, init: any) =>
-      Promise.resolve(init?.method === 'DELETE' ? { ok: true, text: () => Promise.resolve('') } : okCopy(1))
-    );
-
-    const res = await fullBackupBatch(ENV, null);
-    expect(res.cursor).toBe('record-docs/doc-299.pdf');
-    expect(res.total).toBe(1000);
-  });
-});
-
-/**
- * Running out of Cloudflare subrequests mid-page is not a per-file failure —
- * it means the invocation is spent and the rest of the page belongs to the
- * next call. Treating it as failure reported 250 bogus failures per batch and
- * buried the real errors.
- */
-describe('fullBackupBatch handles the subrequest budget', () => {
-  const okCopy = (size: number) => ({
-    ok: true,
-    text: () => Promise.resolve(JSON.stringify({ metadata: { size } })),
-  });
-
-  it('stops cleanly and does not count exhausted budget as failed files', async () => {
-    const rows = Array.from({ length: 300 }, (_, i) => ({
-      bucket_id: 'record-docs', name: `doc-${String(i).padStart(3, '0')}.pdf`, size: '1',
-    }));
-    respondByTag({
-      'storageBackup.full.total': () => ({ rows: [{ total: 300 }] }),
-      'storageBackup.full.page': () => ({ rows }),
-      'storageBackup.markBackedUp': () => ({ rows: [] }),
-    });
-    // Succeed for the first 50 objects, then behave like Cloudflare does.
     let served = 0;
     mockFetch.mockImplementation(() => {
       served++;
@@ -363,39 +257,29 @@ describe('fullBackupBatch handles the subrequest budget', () => {
       return Promise.resolve(okCopy(1));
     });
 
-    const res = await fullBackupBatch(ENV, null);
+    const res = await backupStorageToSupabase(ENV);
+
     expect(res.copied).toBe(50);
-    // The key assertion: budget exhaustion is not reported as failed files.
+    // The whole point: exhausting the budget is not 250 failed files.
     expect(res.failed).toBe(0);
-    expect(res.lastError).toBeUndefined();
-    // ...and the sweep is not finished, so the panel keeps going.
-    expect(res.cursor).toBe('record-docs/doc-049.pdf');
+    // Reported as an unfinished run, so the next tick resumes.
+    expect(res.stopped).toBe(true);
+    // And crucially it did NOT re-page the same rows to fail them again.
+    expect(pages).toBe(1);
   });
 
-  it('advances the cursor only to the last fully successful chunk', async () => {
-    // Copies finish out of order within a chunk, so a cursor taken from the
-    // last ATTEMPTED object would skip an earlier one that failed.
-    const rows = Array.from({ length: 50 }, (_, i) => ({
-      bucket_id: 'record-docs', name: `doc-${String(i).padStart(3, '0')}.pdf`, size: '1',
-    }));
+  it('still reports genuine per-file failures', async () => {
     respondByTag({
-      'storageBackup.full.total': () => ({ rows: [{ total: 50 }] }),
-      'storageBackup.full.page': () => ({ rows }),
+      'cron.scheduledJob.tier': () => ({ rows: [{ cron_tier: 'nightly' }] }),
+      'storageBackup.pending': (params) => ({
+        rows: params[0] === 'record-docs' ? [{ name: 'broken.pdf', size: '9' }] : [],
+      }),
       'storageBackup.markBackedUp': () => ({ rows: [] }),
     });
-    mockFetch.mockImplementation((_u: string, init: any) => {
-      // doc-030 lives in the SECOND chunk and fails for a real reason.
-      if (JSON.parse(init.body).sourceKey === 'doc-030.pdf') {
-        return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('boom') });
-      }
-      return Promise.resolve(okCopy(1));
-    });
+    mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom') });
 
-    const res = await fullBackupBatch(ENV, null);
+    const res = await backupStorageToSupabase(ENV);
+    expect(res.copied).toBe(0);
     expect(res.failed).toBe(1);
-    expect(res.lastError).toContain('doc-030.pdf');
-    // Chunk 1 (doc-000..024) was clean; chunk 2 was not, so the cursor stays
-    // at the end of chunk 1 and doc-030 gets another go next time.
-    expect(res.cursor).toBe('record-docs/doc-024.pdf');
   });
 });
