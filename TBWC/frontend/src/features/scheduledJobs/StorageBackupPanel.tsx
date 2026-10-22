@@ -237,6 +237,18 @@ function lastRunHeadline(r: LastRun): string {
   return 'Last run finished';
 }
 
+/** How often the backup actually runs, in words — "waiting for the next run"
+ *  means nothing without it, and it's the number that decides whether the
+ *  backup keeps up with new uploads at all. Mirrors cronMonitor.ts's
+ *  TIER_CRON. */
+const TIER_LABELS: Record<string, string> = {
+  frequent: 'every 15 minutes',
+  hourly: 'every hour',
+  daily: 'once a day',
+  nightly: 'once every 2 days',
+  off: 'never — the backup is stopped',
+};
+
 const JOB_LABELS: Record<string, string> = {
   exportDatabase: 'Database download',
   exportStorage: 'Storage export',
@@ -764,6 +776,13 @@ export default function StorageBackupPanel() {
   // A full backup's denominator is every object; until the first batch reports
   // it, fall back to the bucket totals already on screen.
   const runDenominator = runTotal || exportTotal;
+  // The headline question the page has to answer on load: how much of storage
+  // is actually backed up right now. The per-bucket bars below break it down,
+  // but the mirror is only as good as its weakest bucket and nobody should
+  // have to add three numbers up to find that out.
+  const totalBackedUp = state ? state.buckets.reduce((n, b) => n + b.backedUp, 0) : 0;
+  const totalPending = state ? state.buckets.reduce((n, b) => n + b.pending, 0) : 0;
+  const overallPct = exportTotal === 0 ? 100 : Math.round((totalBackedUp / exportTotal) * 100);
   const diskElapsed = useElapsed(exportingDisk || restoringDisk);
 
   return (
@@ -935,6 +954,42 @@ export default function StorageBackupPanel() {
               )}
 
               {loading && !running && <LinearProgress sx={{ mb: 2 }} />}
+
+              {/* Where the backup stands overall, answered without clicking
+                  anything. The copying happens on a schedule while nobody is
+                  watching, so this - not the live run readout below - is what
+                  anyone opening the page actually needs. */}
+              {state && !loading && (
+                <Box sx={{ mb: 2 }} data-testid="storage-backup-overall">
+                  <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 0.5 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                      {totalPending === 0
+                        ? `All ${exportTotal.toLocaleString()} files backed up`
+                        : `${totalBackedUp.toLocaleString()} of ${exportTotal.toLocaleString()} files backed up`}
+                    </Typography>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{ fontWeight: 600 }}
+                      color={totalPending === 0 ? 'success.main' : 'warning.main'}
+                    >
+                      {overallPct}%
+                    </Typography>
+                  </Stack>
+                  <LinearProgress
+                    variant="determinate"
+                    value={overallPct}
+                    color={totalPending === 0 ? 'success' : 'warning'}
+                    sx={{ height: 8, borderRadius: 1 }}
+                  />
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    {paused
+                      ? 'Backup is stopped — nothing new will be copied until it is resumed.'
+                      : totalPending === 0
+                        ? `Every file in storage has a backup copy. Runs ${TIER_LABELS[state.tier ?? ''] ?? 'on a schedule'} to pick up new files.`
+                        : `${totalPending.toLocaleString()} ${totalPending === 1 ? 'file is' : 'files are'} waiting to be copied. The backup runs ${TIER_LABELS[state.tier ?? ''] ?? 'on a schedule'} and picks up where it left off each time.`}
+                  </Typography>
+                </Box>
+              )}
 
               {/* The answer to "did that do anything?", kept next to the
                   button. While running it proves the run is alive even when no
