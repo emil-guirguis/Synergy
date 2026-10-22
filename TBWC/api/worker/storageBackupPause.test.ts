@@ -333,3 +333,69 @@ describe('fullBackupBatch re-copies everything', () => {
     expect(res.total).toBe(1000);
   });
 });
+
+/**
+ * Running out of Cloudflare subrequests mid-page is not a per-file failure —
+ * it means the invocation is spent and the rest of the page belongs to the
+ * next call. Treating it as failure reported 250 bogus failures per batch and
+ * buried the real errors.
+ */
+describe('fullBackupBatch handles the subrequest budget', () => {
+  const okCopy = (size: number) => ({
+    ok: true,
+    text: () => Promise.resolve(JSON.stringify({ metadata: { size } })),
+  });
+
+  it('stops cleanly and does not count exhausted budget as failed files', async () => {
+    const rows = Array.from({ length: 300 }, (_, i) => ({
+      bucket_id: 'record-docs', name: `doc-${String(i).padStart(3, '0')}.pdf`, size: '1',
+    }));
+    respondByTag({
+      'storageBackup.full.total': () => ({ rows: [{ total: 300 }] }),
+      'storageBackup.full.page': () => ({ rows }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    // Succeed for the first 50 objects, then behave like Cloudflare does.
+    let served = 0;
+    mockFetch.mockImplementation(() => {
+      served++;
+      if (served > 50) return Promise.reject(new Error('Too many subrequests by single Worker invocation.'));
+      return Promise.resolve(okCopy(1));
+    });
+
+    const res = await fullBackupBatch(ENV, null);
+    expect(res.copied).toBe(50);
+    // The key assertion: budget exhaustion is not reported as failed files.
+    expect(res.failed).toBe(0);
+    expect(res.lastError).toBeUndefined();
+    // ...and the sweep is not finished, so the panel keeps going.
+    expect(res.cursor).toBe('record-docs/doc-049.pdf');
+  });
+
+  it('advances the cursor only to the last fully successful chunk', async () => {
+    // Copies finish out of order within a chunk, so a cursor taken from the
+    // last ATTEMPTED object would skip an earlier one that failed.
+    const rows = Array.from({ length: 50 }, (_, i) => ({
+      bucket_id: 'record-docs', name: `doc-${String(i).padStart(3, '0')}.pdf`, size: '1',
+    }));
+    respondByTag({
+      'storageBackup.full.total': () => ({ rows: [{ total: 50 }] }),
+      'storageBackup.full.page': () => ({ rows }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    mockFetch.mockImplementation((_u: string, init: any) => {
+      // doc-030 lives in the SECOND chunk and fails for a real reason.
+      if (JSON.parse(init.body).sourceKey === 'doc-030.pdf') {
+        return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('boom') });
+      }
+      return Promise.resolve(okCopy(1));
+    });
+
+    const res = await fullBackupBatch(ENV, null);
+    expect(res.failed).toBe(1);
+    expect(res.lastError).toContain('doc-030.pdf');
+    // Chunk 1 (doc-000..024) was clean; chunk 2 was not, so the cursor stays
+    // at the end of chunk 1 and doc-030 gets another go next time.
+    expect(res.cursor).toBe('record-docs/doc-024.pdf');
+  });
+});

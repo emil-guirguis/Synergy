@@ -334,6 +334,11 @@ export type FullBackupBatchResult = {
   /** `<bucket>/<path>` of the last object handled; pass back to continue.
    *  null means the sweep is finished. */
   cursor: string | null;
+  /** First failure of the batch, verbatim. A bare "250 failed" in the run log
+   *  says nothing about whether the cause was the copy, the ledger write or
+   *  the connection, which is exactly what you need when a sweep starts
+   *  failing wholesale. Absent when nothing failed. */
+  lastError?: string;
 };
 
 /** One bounded page of a FULL re-copy: every object in every bucket, whether
@@ -358,7 +363,13 @@ export async function fullBackupBatch(env: Env, cursor?: string | null): Promise
   );
   const total = totalRows[0]?.total ?? 0;
 
-  // One upsert copy per object, same as the incremental path, so a full page.
+  // Deliberately larger than one invocation can finish. The real ceiling is
+  // Cloudflare's per-invocation subrequest budget, which this Worker exhausts
+  // after roughly 50 objects (each costs an upsert copy plus a Hyperdrive
+  // ledger write) - far below the 1000 the incremental path was sized
+  // against. Rather than hard-code a guess that breaks whenever the budget or
+  // the per-object cost changes, the loop below copies until Cloudflare says
+  // stop and reports where it got to.
   const pageSize = BATCH_SIZE;
   const { rows } = await execQuery(
     env,
@@ -376,7 +387,13 @@ export async function fullBackupBatch(env: Env, cursor?: string | null): Promise
   const deadline = Date.now() + MAX_TICK_MILLIS;
   let copied = 0;
   let failed = 0;
-  let last: { bucket_id: string; name: string } | null = null;
+  let lastError: string | undefined;
+  // The end of the last chunk in which EVERY object succeeded. The cursor can
+  // only safely advance to there: within a chunk the copies finish out of
+  // order, so taking the last attempted object would silently skip any earlier
+  // one that failed.
+  let lastClean: { bucket_id: string; name: string } | null = null;
+  let budgetSpent = false;
 
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     if (i > 0 && Date.now() >= deadline) break;
@@ -388,24 +405,37 @@ export async function fullBackupBatch(env: Env, cursor?: string | null): Promise
           await markBackedUp(env, row.bucket_id, row.name, row.size);
           return true;
         } catch (e) {
-          console.error(`[storageBackup] full re-copy failed: ${row.bucket_id}/${row.name}:`, e instanceof Error ? e.message : e);
+          const msg = e instanceof Error ? e.message : String(e);
+          // Running out of subrequests isn't a failure of this object - it
+          // means the invocation is done and the rest of the page belongs to
+          // the next call. Counting those as "failed" reported 250 bogus
+          // failures a batch and hid whatever the real failures were.
+          if (msg.includes('Too many subrequests')) {
+            budgetSpent = true;
+            return null;
+          }
+          if (!lastError) lastError = `${row.bucket_id}/${row.name}: ${msg}`;
+          console.error(`[storageBackup] full re-copy failed: ${row.bucket_id}/${row.name}:`, msg);
           return false;
         }
       })
     );
-    copied += results.filter(Boolean).length;
-    failed += results.length - results.filter(Boolean).length;
-    last = chunk[chunk.length - 1];
+    copied += results.filter((r) => r === true).length;
+    failed += results.filter((r) => r === false).length;
+    if (results.every((r) => r === true)) lastClean = chunk[chunk.length - 1];
+    if (budgetSpent) break;
   }
 
-  // Only report "done" when the final page was short AND fully processed;
-  // otherwise hand back where to resume.
-  const finished = rows.length < pageSize && last === rows[rows.length - 1];
+  // Only report "done" when the whole page was walked without running out of
+  // budget AND the page was short enough to be the last one.
+  const finished = !budgetSpent && rows.length < pageSize && lastClean === rows[rows.length - 1];
+  const last = lastClean;
   return {
     copied,
     failed,
     total,
     cursor: finished || !last ? null : `${last.bucket_id}/${last.name}`,
+    ...(lastError ? { lastError } : {}),
   };
 }
 
