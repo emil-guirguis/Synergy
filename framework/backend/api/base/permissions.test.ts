@@ -5,6 +5,8 @@ import {
   createRequirePermission,
   scopeClause,
   redactRow,
+  allowedOptions,
+  optionAllowed,
   stripNonEditable,
   fullAccess,
   type Grant,
@@ -189,6 +191,49 @@ describe('redactRow', () => {
     );
     const row = { order_id: 1, lines: [{ item: 'W-100', rate: 50, amount: 100 }] };
     expect(redactRow(set, 'order:read', row)).toEqual({ order_id: 1, lines: [{ item: 'W-100', amount: 100 }] });
+  });
+});
+
+describe('allowedOptions', () => {
+  const TYPES = ['packing_slip', 'invoice', 'design', 'other'] as const;
+
+  // Open by default — a grant that says nothing about the options allows them
+  // all, so a new option added to the enum isn't hidden from every role.
+  it('allows every value when the grant names none', () => {
+    const set = resolvePermissions([grant('order:read')], null, CATALOG);
+    expect(allowedOptions(set, 'order:read', 'doc_type', TYPES)).toEqual([...TYPES]);
+  });
+
+  it('drops the values the grant denies, by hidden_fields or field_access', () => {
+    const set = resolvePermissions(
+      [grant('order:read', 'all', ['doc_type:design'], { 'doc_type:other': { view: false } })],
+      null,
+      CATALOG
+    );
+    expect(allowedOptions(set, 'order:read', 'doc_type', TYPES)).toEqual(['packing_slip', 'invoice']);
+  });
+
+  // Keys for another field must not bleed into this one, and a plain hidden
+  // column (no colon) isn't an option rule.
+  it('ignores rules for other fields and plain hidden columns', () => {
+    const set = resolvePermissions(
+      [grant('order:read', 'all', ['sold_for', 'status:closed', 'doc_type:invoice'])],
+      null,
+      CATALOG
+    );
+    expect(allowedOptions(set, 'order:read', 'doc_type', TYPES)).toEqual(['packing_slip', 'design', 'other']);
+  });
+
+  it('allows nothing without the permission at all', () => {
+    const set = resolvePermissions([], null, CATALOG);
+    expect(allowedOptions(set, 'order:read', 'doc_type', TYPES)).toEqual([]);
+    expect(optionAllowed(set, 'order:read', 'doc_type', 'invoice')).toBe(false);
+  });
+
+  it('optionAllowed answers for one value', () => {
+    const set = resolvePermissions([grant('order:read', 'all', ['doc_type:design'])], null, CATALOG);
+    expect(optionAllowed(set, 'order:read', 'doc_type', 'invoice')).toBe(true);
+    expect(optionAllowed(set, 'order:read', 'doc_type', 'design')).toBe(false);
   });
 });
 

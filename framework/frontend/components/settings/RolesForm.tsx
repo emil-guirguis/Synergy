@@ -370,6 +370,122 @@ const RolesForm: React.FC<RolesFormProps> = ({
     );
   };
 
+  /** One option of a `perOptionAccess` select (schema-declared, e.g. a
+   *  document's Type): a View checkbox deciding whether this role sees rows
+   *  carrying that value at all. Addressed `<field>:<value>` in field_access,
+   *  the same shape as `tab:<Name>` and `column[].field`, and enforced by the
+   *  route via allowedOptions() — unticking "Design" on Order > Documents
+   *  means the API never returns (or accepts) a design file on an order for
+   *  this role, not just that the grid hides it. No Edit bit: an option isn't
+   *  a field you type into. */
+  const renderOptionRow = (fieldKey: string, label: string, readPerm: string, depth: number) => {
+    const readGrant = draft.get(readPerm);
+    const viewChecked = readGrant?.field_access[fieldKey]?.view !== false;
+    return (
+      <Box
+        key={fieldKey}
+        data-testid={`role-option-${fieldKey}`}
+        sx={{ display: 'flex', alignItems: 'center', py: 0.125, pl: 6 + depth * 3 }}
+      >
+        <Typography variant="body2" sx={{ flex: 1, color: 'text.secondary' }}>{label}</Typography>
+        <Box sx={{ width: FIELD_CHECKBOX_COL, display: 'flex', justifyContent: 'center' }}>
+          <Tooltip title="Rows with this value are visible to this role">
+            <Checkbox
+              size="small" checked={viewChecked} disabled={loading}
+              onChange={(e) => patchFieldAccess(readPerm, fieldKey, 'view', e.target.checked)}
+            />
+          </Tooltip>
+        </Box>
+        <Box sx={{ width: FIELD_CHECKBOX_COL }} />
+      </Box>
+    );
+  };
+
+  /** The option units a `perOptionAccess` field contributes, as field_access keys. */
+  const optionUnitsOf = (name: string, def: any): string[] => {
+    if (!def?.perOptionAccess) return [];
+    const values = (def.enumValues as string[] | undefined) ?? [];
+    return values.map((v) => `${name}:${v}`);
+  };
+
+  /** Every `perOptionAccess` field on a module's schema, with its option keys. */
+  const optionFieldsOf = (module: string) => {
+    const schema = fieldSchemas[module];
+    if (!schema) return [] as { name: string; label: string; units: string[] }[];
+    return Object.entries(schema.formFields)
+      .filter(([, def]) => (def as any).perOptionAccess)
+      .map(([name, def]) => ({
+        name,
+        // Its own node in the tree, so the schema names it (documentGridSchema
+        // calls it "Types"); the field's own label is the fallback.
+        label: (def as any).optionsLabel || (def as any).label || titleCase(name),
+        units: optionUnitsOf(name, def),
+      }));
+  };
+
+  /** Granted vs total across every option of every such field on a module. */
+  const optionCounts = (module: string, readPerm: string | undefined) => {
+    const readGrant = readPerm ? draft.get(readPerm) : undefined;
+    const units = readPerm ? optionFieldsOf(module).flatMap((f) => f.units) : [];
+    const granted = readGrant
+      ? units.filter((u) => readGrant.field_access[u]?.view !== false).length
+      : 0;
+    return { granted, total: units.length };
+  };
+
+  /**
+   * One section per `perOptionAccess` field — a sibling of Columns/Form, not
+   * rows nested inside it. The separate node earns its place: Columns decides
+   * which FIELDS of a row this role sees, this decides which ROWS it sees at
+   * all (on Order > Documents, Columns can hide the Size column; Types hides
+   * every design file).
+   */
+  const renderOptionsSections = (module: string, readPerm: string, depth: number) =>
+    optionFieldsOf(module).map(({ name, label, units }) => {
+      const key = `options:${module}:${name}`;
+      const isOpen = !!open[key];
+      const readGrant = draft.get(readPerm);
+      const enumLabels = ((fieldSchemas[module]?.formFields[name] as any)?.enumLabels ?? {}) as Record<string, string>;
+      const counts = optionCounts(module, readPerm);
+      return (
+        <Box key={key} sx={{ mb: 0.5 }}>
+          <Box
+            onClick={() => {
+              toggleNode(key);
+              ensureFieldSchema(module);
+            }}
+            sx={{
+              display: 'flex', alignItems: 'center', gap: 1,
+              py: 0.5, pl: 3 + depth * 3, cursor: 'pointer', borderRadius: 1,
+              '&:hover': { bgcolor: 'action.hover' },
+            }}
+          >
+            {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+            <TuneIcon fontSize="small" color="action" />
+            <Typography variant="body2" color="text.secondary">{label}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {counts.granted}/{counts.total}
+            </Typography>
+          </Box>
+          <Collapse in={isOpen} unmountOnExit>
+            {!readGrant ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', pl: 6 + depth * 3, py: 0.5 }}>
+                Grant View first.
+              </Typography>
+            ) : (
+              <>
+                {renderFieldsHeaderRow(depth, { editColumn: false })}
+                {units.map((unit) => {
+                  const value = unit.slice(name.length + 1);
+                  return renderOptionRow(unit, enumLabels[value] ?? value, readPerm, depth);
+                })}
+              </>
+            )}
+          </Collapse>
+        </Box>
+      );
+    });
+
   /** List: the module's own read/write/delete grants (moved here from
    *  directly under the module — they govern what the list screen can do),
    *  plus every column the schema marks showOn: ['list']. */
@@ -426,6 +542,9 @@ const RolesForm: React.FC<RolesFormProps> = ({
     const key = `form:${module}`;
     const isOpen = !!open[key];
     const schema = fieldSchemas[module];
+    // "Form"/"Columns" is right for a record schema; a schema whose fields
+    // aren't form fields at all says so itself (the dashboard's are cards).
+    const title = schema?.fieldSectionLabel || sectionTitle;
     const readGrant = draft.get(readPerm);
     const { granted: fieldsGranted, total: fieldsTotal } = fieldCounts(module, readPerm, writePerm);
 
@@ -434,6 +553,8 @@ const RolesForm: React.FC<RolesFormProps> = ({
         const def = schema?.formFields[name];
         if (!def) return null;
         const label = def.label || titleCase(name);
+        // A perOptionAccess field is an ordinary column here — its options get
+        // their own section beside this one (renderOptionsSections).
         const gridColumns = (def as any).gridColumns as { key: string; label: string }[] | undefined;
         if (gridColumns?.length) {
           return (
@@ -465,7 +586,7 @@ const RolesForm: React.FC<RolesFormProps> = ({
         >
           {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
           <TuneIcon fontSize="small" color="action" />
-          <Typography variant="body2" color="text.secondary">{sectionTitle}</Typography>
+          <Typography variant="body2" color="text.secondary">{title}</Typography>
           {fieldsTotal > 0 && (
             <Typography variant="caption" color="text.secondary">
               {fieldsGranted}/{fieldsTotal}
@@ -564,10 +685,14 @@ const RolesForm: React.FC<RolesFormProps> = ({
   const moduleCounts = (permissions: string[]): { granted: number; total: number } => {
     const readPerm = permissions.find((p) => actionOf(p) === 'read');
     const writePerm = permissions.find((p) => actionOf(p) === 'write');
-    const fields = readPerm ? fieldCounts(moduleOf(readPerm), readPerm, writePerm) : { granted: 0, total: 0 };
+    const own_module = permissions[0] ? moduleOf(permissions[0]) : '';
+    const fields = readPerm ? fieldCounts(own_module, readPerm, writePerm) : { granted: 0, total: 0 };
+    // Options are units of their own (Order > Documents > Types > Design),
+    // counted alongside the fields rather than inside them.
+    const options = readPerm ? optionCounts(own_module, readPerm) : { granted: 0, total: 0 };
     const own = {
-      granted: permissions.filter((p) => draft.has(p)).length + fields.granted,
-      total: permissions.length + fields.total,
+      granted: permissions.filter((p) => draft.has(p)).length + fields.granted + options.granted,
+      total: permissions.length + fields.total + options.total,
     };
     const module = permissions[0] ? moduleOf(permissions[0]) : '';
     return (childrenByParent.get(module) ?? []).reduce((acc, [, childPerms]) => {
@@ -608,11 +733,13 @@ const RolesForm: React.FC<RolesFormProps> = ({
             <>
               {permissions.map((permission) => renderPermissionRow(permission, depth, CHILD_ACTION_LABELS))}
               {readPerm && renderFormSection(module, readPerm, writePerm, depth, 'Columns')}
+              {readPerm && renderOptionsSections(module, readPerm, depth)}
             </>
           ) : (
             <>
               {renderListSection(module, permissions, readPerm, depth)}
               {readPerm && renderFormSection(module, readPerm, writePerm, depth)}
+              {readPerm && renderOptionsSections(module, readPerm, depth)}
             </>
           )}
           {children.map(([child, childPerms, childLabel]) =>

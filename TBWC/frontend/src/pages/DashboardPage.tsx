@@ -9,12 +9,21 @@ import RevenueBacklogCard from '../features/orders/RevenueBacklogCard';
 import ReceivablesCard from '../features/invoices/ReceivablesCard';
 
 /**
- * The landing page. Every card is shown on its own terms: the grant (and
- * scope) its data actually needs, read off the caller's role — not a role
- * name, and no longer users.is_admin / users.type, which this page used to
- * switch on. A card whose data the viewer can't load is the card that isn't
- * drawn, so a custom role in Settings > Roles composes a dashboard of its own
- * without a code change here.
+ * The landing page. Every card is shown on its own terms, and a card has to
+ * pass two tests to be drawn:
+ *
+ *  1. the grant (and scope) its data actually needs, read off the caller's
+ *     role — not a role name, and no longer users.is_admin / users.type, which
+ *     this page used to switch on; and
+ *  2. the role's own checkbox for that card: Settings > Roles > Dashboard >
+ *     Cards (dashboardSchema.ts in the API, stored as `card:<id>` view bits on
+ *     dashboard:read, same addressing as any other field rule).
+ *
+ * Both, deliberately. The checkbox is a view preference — nothing here is a
+ * security boundary, since each card fetches a module the caller already holds
+ * a grant for — so ticking "Receivables" on for an own-scoped role must not
+ * suddenly show them company AR. The grant below is what decides that; the
+ * checkbox only takes a card away.
  *
  * Why scope and not just the permission: a company-wide figure computed from
  * an own-scoped list is a wrong number, not a smaller one — a rep's /orders is
@@ -22,8 +31,11 @@ import ReceivablesCard from '../features/invoices/ReceivablesCard';
  * would quietly read as the company's. Those cards need 'all'.
  */
 export default function DashboardPage() {
-  const { user, scopeOf } = useAuth();
+  const { user, scopeOf, isFieldVisible } = useAuth();
   const firstName = user?.first_name?.trim() || 'there';
+  // Unticked in Settings > Roles > Dashboard > Cards. Open by default: a role
+  // that has never been edited there shows every card its grants allow.
+  const cardOn = (id: string) => isFieldVisible('dashboard:read', `card:${id}`);
 
   const orderScope = scopeOf('order:read');
   // Company-wide order figures (YTD total, backlog, not-shipped/open alerts).
@@ -38,6 +50,16 @@ export default function DashboardPage() {
   // whole company and call it yours), so this is the own-scoped view's card.
   const ownStats = orderScope === 'own' || scopeOf('quote:read') === 'own';
 
+  const show = {
+    repInquiries: canSeeInquiries && cardOn('repInquiries'),
+    userDataGaps: canSeeUserGaps && cardOn('userDataGaps'),
+    repStats: ownStats && cardOn('repStats'),
+    yearlyOrderTotal: companyOrders && cardOn('yearlyOrderTotal'),
+    revenueBacklog: companyOrders && cardOn('revenueBacklog'),
+    receivables: companyReceivables && cardOn('receivables'),
+    orderAlerts: companyOrders && cardOn('orderAlerts'),
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" fontWeight={700} gutterBottom>
@@ -45,17 +67,19 @@ export default function DashboardPage() {
       </Typography>
 
       <Stack spacing={3}>
-        {canSeeInquiries && <RepInquiriesCard />}
-        {canSeeUserGaps && <UserDataGapsCard />}
-        {ownStats && <RepStatsCards />}
-        {(companyOrders || companyReceivables) && (
+        {show.repInquiries && <RepInquiriesCard />}
+        {show.userDataGaps && <UserDataGapsCard />}
+        {show.repStats && <RepStatsCards />}
+        {/* One row of figures — skipped entirely when none of the three is on,
+            so the empty flex row doesn't add spacing of its own. */}
+        {(show.yearlyOrderTotal || show.revenueBacklog || show.receivables) && (
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {companyOrders && <YearlyOrderTotalCard />}
-            {companyOrders && <RevenueBacklogCard />}
-            {companyReceivables && <ReceivablesCard />}
+            {show.yearlyOrderTotal && <YearlyOrderTotalCard />}
+            {show.revenueBacklog && <RevenueBacklogCard />}
+            {show.receivables && <ReceivablesCard />}
           </Box>
         )}
-        {companyOrders && <OrderAlertsCards />}
+        {show.orderAlerts && <OrderAlertsCards />}
       </Stack>
     </Box>
   );

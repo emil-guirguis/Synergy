@@ -278,6 +278,44 @@ export function redactRow<T extends Record<string, any>>(set: PermissionSet, per
   return out as T;
 }
 
+/**
+ * The values of a `perOptionAccess` select this caller may use — the row-level
+ * counterpart to redactRow(), for an enum that decides WHICH ROWS a role sees
+ * rather than which columns (a document's type being the case it was built
+ * for: a rep may see the packing slip on their order, not the internal design
+ * files attached to the same record).
+ *
+ * Stored like every other field rule, as `<field>:<value>` in the grant's
+ * field_access / hidden_fields — the same addressing shape as `tab:<Name>`, so
+ * Settings > Roles renders it with the machinery it already has and no new
+ * column is needed.
+ *
+ * Open by default: a grant that says nothing about a value allows it, so
+ * adding a new option to the enum doesn't silently hide it from every existing
+ * role. Holding no grant at all is the one closed case — nothing to filter
+ * for, so nothing is allowed.
+ */
+export function allowedOptions(
+  set: PermissionSet,
+  permission: string,
+  field: string,
+  allValues: readonly string[]
+): string[] {
+  if (!set.has(permission)) return [];
+  const denied = new Set(
+    set.hiddenFields(permission)
+      .filter((f) => f.startsWith(`${field}:`))
+      .map((f) => f.slice(field.length + 1))
+  );
+  return denied.size ? allValues.filter((v) => !denied.has(v)) : [...allValues];
+}
+
+/** Shorthand for "may this caller use this one option?" — see allowedOptions(). */
+export function optionAllowed(set: PermissionSet, permission: string, field: string, value: string): boolean {
+  if (!set.has(permission)) return false;
+  return !set.hiddenFields(permission).includes(`${field}:${value}`);
+}
+
 export function redactRows<T extends Record<string, any>>(set: PermissionSet, permission: string, rows: T[]): T[] {
   const hidden = set.hiddenFields(permission);
   if (!hidden.length) return rows;

@@ -1,13 +1,13 @@
 import React from 'react';
 import { SupportTicketManagementPage as SharedSupportTicketManagementPage } from '@meterit/framework-frontend/support';
-import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import { DocumentsGrid, allowedDocTypes } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useAuth } from '../../hooks/useAuth';
 import { useSupportTicketsEnhanced, supportTicketService } from './supportTicketsStore';
 
 export const SupportTicketsPage: React.FC = () => {
-  const { checkPermission } = useAuth();
+  const { checkPermission, isFieldVisible } = useAuth();
   return (
     <SharedSupportTicketManagementPage
       useStore={useSupportTicketsEnhanced}
@@ -24,6 +24,7 @@ export const SupportTicketsPage: React.FC = () => {
           // documents.ts also lets a ticket's own filer attach to it without
           // the grid grant, which this page can't tell from the ticket id.
           schemaName="supportGridDocument"
+          visibleDocTypes={allowedDocTypes(isFieldVisible, 'supportGridDocument:read')}
         />
       )}
     />

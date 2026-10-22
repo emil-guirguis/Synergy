@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Controllable auth + a minimal PermissionSet stand-in (just .has(), which is
-// all this route reads off it) — real resolution is framework-tested
-// elsewhere (permissions.ts). No is_admin anywhere: documents.ts reads real
-// grants only — each module's Documents grid permission (<module>GridDocument:*,
-// migration 100), which covers admin and employee identically.
+// Controllable auth + a minimal PermissionSet stand-in (.has(), .scopeOf() and
+// .hiddenFields(), which is all this route reads off it) — real resolution is
+// framework-tested elsewhere (permissions.ts). No is_admin anywhere:
+// documents.ts reads real grants only — each module's Documents grid permission
+// (<module>GridDocument:*, migration 100), which covers admin and employee
+// identically. hiddenFields is where the per-role document TYPE rules live,
+// as `doc_type:<value>` entries on the grid's read grant (Settings > Roles >
+// Order > Documents > Type).
 const ALL_GRID = ['order', 'quote', 'invoice', 'inventory', 'support'].flatMap((k) =>
   ['read', 'create', 'write', 'delete'].map((a) => `${k}GridDocument:${a}`)
 );
@@ -13,13 +16,26 @@ let currentGrants: string[] = [];
 let fakeGrants: string[] = [...ALL_GRID];
 // Per-permission scope override — unset means 'all' for anything in fakeGrants.
 let fakeScopes: Record<string, 'own' | 'all'> = {};
+// Per-permission hidden fields — `doc_type:<value>` entries narrow the types.
+let fakeHidden: Record<string, string[]> = {};
 
 function fakePermSet() {
   return {
     has: (p: string) => fakeGrants.includes(p),
     scopeOf: (p: string) => (fakeGrants.includes(p) ? fakeScopes[p] ?? 'all' : null),
+    hiddenFields: (p: string) => fakeHidden[p] ?? [],
   };
 }
+
+/** The types the seeded rep/customer roles keep (migration 115) — everything
+ *  else is denied on their orderGridDocument:read grant. */
+const REP_ORDER_DOC_TYPES = ['packing_slip', 'invoice', 'proof_of_delivery', 'load_schedule'];
+const denyAllBut = (keep: string[]) =>
+  ['cutsheet', 'invoice', 'order', 'packing_slip', 'proof_of_delivery', 'shipping', 'email', 'design',
+   'load_schedule', 'quote', 'rma', 'shipping_images', 'change_order', 'waiver', 'panelboard_schedules',
+   'build_of_materials', 'credit_memo', 'other']
+    .filter((t) => !keep.includes(t))
+    .map((t) => `doc_type:${t}`);
 
 vi.mock('../middleware', () => ({
   authenticateToken: (c: any, next: any) => {
@@ -123,6 +139,7 @@ beforeEach(() => {
   currentGrants = [];
   fakeGrants = [...ALL_GRID];
   fakeScopes = {};
+  fakeHidden = {};
   mockRemoveObjects.mockResolvedValue(undefined);
 });
 
@@ -277,18 +294,20 @@ describe('quote document ownership scoping (own scope)', () => {
 });
 
 // A rep's order Documents tab: no orderGridDocument write grants (the role
-// seed), type-filtered to REP_VISIBLE_ORDER_DOC_TYPES, and writable only via
-// the "managing rep" bypass (managed_sales_rep_list_ids non-empty — see
-// resolveWriteAccess in documents.ts).
+// seed), writable only via the "managing rep" bypass
+// (managed_sales_rep_list_ids non-empty — see resolveWriteAccess in
+// documents.ts), and limited to the customer-facing types by its own grant
+// rather than by a list in the route (migration 115 seeds exactly these).
 describe('rep order documents', () => {
   const rep = { id: 'rep1', managed_sales_rep_list_ids: [] as string[] };
   const managingRep = { id: 'rep2', managed_sales_rep_list_ids: ['REP-2'] };
 
   beforeEach(() => {
     fakeGrants = ['orderGridDocument:read']; // rep role: read, never write
+    fakeHidden = { 'orderGridDocument:read': denyAllBut(REP_ORDER_DOC_TYPES) };
   });
 
-  it('GET hides non-rep-visible doc types from a plain rep', async () => {
+  it('GET hides the types this role is not granted', async () => {
     currentUser = rep;
     mockListDocuments.mockResolvedValue([
       { document_id: 1, entity_type: 'order', doc_type: 'invoice' },
@@ -327,7 +346,7 @@ describe('rep order documents', () => {
     );
   });
 
-  it('POST still rejects a doc_type outside the rep-visible set for a managing rep', async () => {
+  it("POST still rejects a doc_type outside the role's granted set for a managing rep", async () => {
     currentUser = managingRep;
     mockExecQuery.mockResolvedValue({ rows: [{ x: 1 }] });
     const res = await req(
@@ -370,6 +389,75 @@ describe('per-module Documents grid grants (migration 100)', () => {
     const del = await req('/1', { method: 'DELETE' });
     expect(del.status).toBe(403);
     expect(mockDeleteDocument).not.toHaveBeenCalled();
+  });
+});
+
+// The per-type rules themselves (Settings > Roles > <Module> > Documents >
+// Type -> `doc_type:<value>` on the grid's read grant). Not order-specific and
+// not tied to holding the write grant: any module, any role, including a
+// custom one made after this code shipped.
+describe('per-role document types', () => {
+  it('applies to a module other than order', async () => {
+    fakeGrants = ['quoteGridDocument:read'];
+    fakeHidden = { 'quoteGridDocument:read': ['doc_type:design'] };
+    mockListDocuments.mockResolvedValue([
+      { document_id: 1, entity_type: 'quote', doc_type: 'quote' },
+      { document_id: 2, entity_type: 'quote', doc_type: 'design' },
+    ]);
+    const res = await req('/?entity_type=quote&entity_id=1');
+    expect(((await res.json()) as any).data).toEqual([
+      { document_id: 1, entity_type: 'quote', doc_type: 'quote' },
+    ]);
+  });
+
+  // Open by default: adding a type to DOC_TYPES must not silently vanish from
+  // every existing role, so only an explicit deny narrows anything.
+  it('leaves a grant that names no types completely unfiltered', async () => {
+    fakeGrants = ['orderGridDocument:read'];
+    fakeHidden = {};
+    mockListDocuments.mockResolvedValue([
+      { document_id: 1, entity_type: 'order', doc_type: 'change_order' },
+      { document_id: 2, entity_type: 'order', doc_type: 'design' },
+    ]);
+    const res = await req('/?entity_type=order&entity_id=1');
+    expect(((await res.json()) as any).data).toHaveLength(2);
+  });
+
+  it('rejects a POST of a denied type, and takes the allowed one', async () => {
+    fakeGrants = ['inventoryGridDocument:read', 'inventoryGridDocument:create'];
+    fakeHidden = { 'inventoryGridDocument:read': ['doc_type:design', 'doc_type:other'] };
+    const denied = await req('/', json('POST', {
+      entityType: 'inventory', entityId: '3', storageBucket: 'record-docs', fileName: 'a.pdf', docType: 'design',
+    }));
+    expect(denied.status).toBe(400);
+    expect(mockCreateDocument).not.toHaveBeenCalled();
+
+    mockCreateDocument.mockResolvedValue({ document_id: 1, entity_type: 'inventory', doc_type: 'cutsheet' });
+    const ok = await req('/', json('POST', {
+      entityType: 'inventory', entityId: '3', storageBucket: 'record-docs', fileName: 'a.pdf', docType: 'cutsheet',
+    }));
+    expect(ok.status).toBe(201);
+  });
+
+  // createDocument defaults an absent type to 'other', so a role without
+  // 'other' must be told to pick rather than silently storing one.
+  it('rejects a POST with no type when the role is not granted the default', async () => {
+    fakeGrants = ['inventoryGridDocument:read', 'inventoryGridDocument:create'];
+    fakeHidden = { 'inventoryGridDocument:read': ['doc_type:other'] };
+    const res = await req('/', json('POST', {
+      entityType: 'inventory', entityId: '3', storageBucket: 'record-docs', fileName: 'a.pdf',
+    }));
+    expect(res.status).toBe(400);
+    expect(mockCreateDocument).not.toHaveBeenCalled();
+  });
+
+  it('rejects re-typing an existing document into a denied type', async () => {
+    fakeGrants = ['orderGridDocument:read', 'orderGridDocument:write'];
+    fakeHidden = { 'orderGridDocument:read': ['doc_type:design'] };
+    mockGetDocument.mockResolvedValue({ document_id: 1, entity_type: 'order', entity_id: '42' });
+    const res = await req('/1', json('PUT', { docType: 'design' }));
+    expect(res.status).toBe(400);
+    expect(mockUpdateDocument).not.toHaveBeenCalled();
   });
 });
 
@@ -425,18 +513,20 @@ describe('POST /:id/email — send a document as an attachment', () => {
     expect(mockEmailStoredFile).not.toHaveBeenCalled();
   });
 
-  it('hides an internal order doc type from a caller without orderGridDocument:write', async () => {
-    // Mirrors the list route's REP_VISIBLE_ORDER_DOC_TYPES filter: a rep who
-    // cannot see a change order must not be able to email one either.
+  it('hides a doc type this role is not granted', async () => {
+    // Same rule as the list route: a role that cannot see a change order must
+    // not be able to email one either.
     fakeGrants = ['orderGridDocument:read'];
+    fakeHidden = { 'orderGridDocument:read': denyAllBut(REP_ORDER_DOC_TYPES) };
     mockGetDocument.mockResolvedValue({ ...DOC, doc_type: 'change_order' });
     const res = await req('/7/email', json('POST', { to: 'c@example.com' }));
     expect(res.status).toBe(404);
     expect(mockEmailStoredFile).not.toHaveBeenCalled();
   });
 
-  it('lets a rep email a rep-visible order doc type', async () => {
+  it('lets a rep email a type the role does hold', async () => {
     fakeGrants = ['orderGridDocument:read'];
+    fakeHidden = { 'orderGridDocument:read': denyAllBut(REP_ORDER_DOC_TYPES) };
     mockGetDocument.mockResolvedValue(DOC);
     const res = await req('/7/email', json('POST', { to: 'c@example.com' }));
     expect(res.status).toBe(200);
@@ -490,8 +580,9 @@ describe('/storage/* — bytes brokered by the Worker, authorized in code', () =
     expect(mockSignObjectUrl).not.toHaveBeenCalled();
   });
 
-  it('404s an internal order doc type for a caller without orderGridDocument:write', async () => {
+  it('404s a doc type this role is not granted', async () => {
     fakeGrants = ['orderGridDocument:read'];
+    fakeHidden = { 'orderGridDocument:read': denyAllBut(REP_ORDER_DOC_TYPES) };
     docRowAtPath({ document_id: 1, entity_type: 'order', entity_id: '52035', doc_type: 'email' });
     const res = await req('/storage/view-url', json('POST', { path: ORDER_PATH }));
     expect(res.status).toBe(404);

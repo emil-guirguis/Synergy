@@ -149,3 +149,24 @@ export function formatFileSize(bytes: number | null | undefined): string {
   }
   return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`;
 }
+
+/**
+ * The document types a role may see for one module, read off its own grant —
+ * the browser-side mirror of allowedOptions() in the backend's permissions.ts,
+ * which is what actually enforces it (this only decides what the grid offers
+ * and shows). Driven by `doc_type:<value>` view bits on the module's Documents
+ * read grant, which Settings > Roles > <Module> > Documents > Type edits.
+ *
+ * Returns undefined when nothing is turned off — DocumentsGrid's visibleDocTypes
+ * takes that to mean "no filtering", so the common case costs nothing.
+ *
+ * Pass the isFieldVisible from the app's own auth context, e.g.
+ *   allowedDocTypes(isFieldVisible, 'orderGridDocument:read')
+ */
+export function allowedDocTypes(
+  isFieldVisible: (permission: string, field: string) => boolean,
+  readPermission: string
+): DocType[] | undefined {
+  const allowed = DOC_TYPES.filter((t) => isFieldVisible(readPermission, `doc_type:${t}`));
+  return allowed.length === DOC_TYPES.length ? undefined : [...allowed];
+}

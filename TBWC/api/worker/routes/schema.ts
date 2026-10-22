@@ -26,6 +26,7 @@ import { quoteSchema } from './quoteSchema';
 import { customersSchema } from './customersSchema';
 import { invoicesSchema } from './invoicesSchema';
 import { paymentsSchema } from './paymentsSchema';
+import { dashboardSchema } from './dashboardSchema';
 import { CHILD_SCHEMAS, IMPERSONATE_ALLOWED_EMAILS } from '../permissions';
 import { supportTicketSchema } from '@meterit/framework-backend/api/base/supportTicketSchema';
 
@@ -41,6 +42,9 @@ const schemas: Record<string, any> = {
   invoice: invoicesSchema,
   payment: paymentsSchema,
   support_ticket: supportTicketSchema,
+  // Not an entity — the dashboard's cards, so Settings > Roles can tick them
+  // per role (see dashboardSchema.ts).
+  dashboard: dashboardSchema,
   ...CHILD_SCHEMAS,
 };
 

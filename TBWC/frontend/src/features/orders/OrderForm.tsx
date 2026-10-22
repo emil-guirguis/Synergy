@@ -9,8 +9,7 @@ import { OrderLinesGrid } from './OrderLinesGrid';
 import OrderInvoicesPanel from './OrderInvoicesPanel';
 import OrderSerialNumbers from './OrderSerialNumbers';
 import { parseAllTracking, renderTrackingText } from './trackingLink';
-import { DocumentsGrid } from '@meterit/framework-frontend/documents';
-import type { DocType } from '@meterit/framework-frontend/documents';
+import { DocumentsGrid, allowedDocTypes } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { tbwcReferenceSearch } from '../../shared/referenceSearch';
@@ -29,8 +28,9 @@ const PLACEHOLDER_LABELS: Record<string, string> = {
   consignment: 'Consignment',
 };
 
-// Reps may see these on an order's Documents tab. Admins see every type.
-const REP_VISIBLE_DOC_TYPES: DocType[] = ['packing_slip', 'invoice', 'proof_of_delivery', 'load_schedule'];
+// Which document types a role sees is the role's own setting now (Settings >
+// Roles > Order > Documents > Type, read here via allowedDocTypes and enforced
+// by the API) — this file used to hardcode the four customer-facing ones.
 const REP_MAX_FILE_SIZE = 20 * 1024 * 1024;
 const repOversizeMessage = (file: File) =>
   `"${file.name}" is over the 20MB upload limit. Please contact info@tbwcinc.com for help sending this file.`;
@@ -130,8 +130,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   // pre-joined view of that relation (see middleware.ts).
   // Per action: orderGridDocument:create/write/delete (Settings > Roles >
   // Order > Documents), plus the managing-rep carve-out documents.ts applies
-  // server-side. "Restricted" (rep-visible types, smaller size cap) = no
-  // write grant — the same test the API uses.
+  // server-side. "Restricted" = no write grant, which now means only the
+  // smaller upload cap — which TYPES they see is the role's own setting
+  // (visibleDocTypes below), not a side effect of lacking write.
   const isManagingRep = (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
   const orderDocGrant = (action: 'create' | 'write' | 'delete') => scopeOf(`orderGridDocument:${action}`) !== null;
   const restrictedOrderDocs = !orderDocGrant('write');
@@ -397,7 +398,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
                   canCreate={orderDocGrant('create') || isManagingRep}
                   canEdit={orderDocGrant('write') || isManagingRep}
                   canDelete={orderDocGrant('delete') || isManagingRep}
-                  visibleDocTypes={restrictedOrderDocs ? REP_VISIBLE_DOC_TYPES : undefined}
+                  visibleDocTypes={allowedDocTypes(isFieldVisible, 'orderGridDocument:read')}
                   maxFileSize={restrictedOrderDocs ? REP_MAX_FILE_SIZE : undefined}
                   oversizeMessage={restrictedOrderDocs ? repOversizeMessage : undefined}
                 />

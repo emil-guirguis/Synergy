@@ -33,10 +33,17 @@ export function documentGridSchema(parentEntity: string, label = 'Documents') {
         name: 'description', order: 1, type: FieldTypes.TEXTAREA, default: '', label: 'Description',
         dbField: 'description', maxLength: 2000, maxWidth: '380px', showOn: ['list', 'form'],
       }),
+      // perOptionAccess: which TYPES a role may see is itself per-role, so
+      // Settings > Roles renders a checkbox per type under this field (Order >
+      // Documents > Type) and the documents route filters rows by the allowed
+      // set — see allowedOptions() in permissions.ts. That is what keeps a rep
+      // to the customer-facing types (packing slip, invoice, …) on a record
+      // whose internal files live in the same table, without hardcoding the
+      // list in the route.
       doc_type: field({
         name: 'doc_type', order: 2, type: FieldTypes.SELECT, default: 'other', label: 'Type', dbField: 'doc_type',
         enumValues: [...DOC_TYPES], enumLabels: Object.fromEntries(DOC_TYPES.map((t) => [t, titleCase(t)])),
-        showOn: ['list', 'form'],
+        perOptionAccess: true, optionsLabel: 'Types', showOn: ['list', 'form'],
       }),
       file_name: field({ name: 'file_name', order: 3, type: FieldTypes.STRING, default: null, readOnly: true, label: 'File', dbField: 'file_name', showOn: ['list', 'form'] }),
       file_size: field({ name: 'file_size', order: 4, type: FieldTypes.NUMBER, default: null, readOnly: true, label: 'Size', dbField: 'file_size', showOn: ['list', 'form'] }),

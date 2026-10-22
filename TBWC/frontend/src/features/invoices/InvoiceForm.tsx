@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, CircularProgress } from '@mui/material';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
 import { OrderLinesGrid } from '../orders/OrderLinesGrid';
-import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import { DocumentsGrid, allowedDocTypes } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useInvoices } from './invoiceStore';
@@ -72,6 +72,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onCancel }) =
               classifyDocType={classifyDocTypeForFile}
               // Reps get invoices view-only, attachments included.
               schemaName="invoiceGridDocument"
+              visibleDocTypes={allowedDocTypes(isFieldVisible, 'invoiceGridDocument:read')}
               canCreate={scopeOf('invoiceGridDocument:create') !== null}
               canEdit={scopeOf('invoiceGridDocument:write') !== null}
               canDelete={scopeOf('invoiceGridDocument:delete') !== null}

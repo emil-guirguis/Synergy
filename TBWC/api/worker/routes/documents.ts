@@ -32,7 +32,10 @@ import {
   listDocuments,
   updateDocument,
   DocumentValidationError,
+  DOC_TYPES,
+  DEFAULT_DOC_TYPE,
 } from '@meterit/framework-backend/api/base/documents';
+import { allowedOptions } from '@meterit/framework-backend/api/base/permissions';
 import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
 import { emailStoredFile, FileEmailError } from '../fileEmail';
 import { removeObjects, signObjectUrl, signUploadUrl, statObject, StorageAdminError } from '../storageAdmin';
@@ -53,10 +56,27 @@ function isEntityType(v: unknown): v is (typeof ENTITY_TYPES)[number] {
   return typeof v === 'string' && (ENTITY_TYPES as readonly string[]).includes(v);
 }
 
-// A rep's order Documents tab shows only these. Enforced here, not just
-// hidden in the UI, since the UI alone can't stop a direct API call. Mirrors
-// REP_VISIBLE_DOC_TYPES in TBWC/frontend/src/features/orders/OrderForm.tsx.
-const REP_VISIBLE_ORDER_DOC_TYPES = ['packing_slip', 'invoice', 'proof_of_delivery', 'load_schedule'] as const;
+/**
+ * The document types this caller's role deals in for one module — the role's
+ * own setting, from Settings > Roles > <Module> > Documents > Type (stored as
+ * `doc_type:<value>` view bits on the grid's read grant; see allowedOptions()
+ * and documentGridSchema.ts's perOptionAccess). This used to be one hardcoded
+ * list of four customer-facing types applied to orders only, which meant a new
+ * role could not be given a different set without editing this file.
+ *
+ * Enforced here, not just filtered in the UI, since the UI alone can't stop a
+ * direct API call. Read off the READ grant even on the write paths: the
+ * question "which types does this role deal in" has one answer per module, and
+ * a write path can be reached by the managing-rep carve-out below, which holds
+ * no write grant of its own. A caller with a write grant but no read grant at
+ * all (a configuration that can't browse the grid anyway) is not narrowed.
+ */
+function allowedDocTypes(permissions: any, entityType: string): readonly string[] {
+  const readPerm = gridPerm(entityType, 'read');
+  if (!permissions.has(readPerm)) return DOC_TYPES;
+  return allowedOptions(permissions, readPerm, 'doc_type', DOC_TYPES);
+}
+
 // Mirrors REP_MAX_FILE_SIZE in OrderForm.tsx — the client already blocks a
 // bigger pick, this is the server-side backstop against a direct API call.
 const REP_ORDER_MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -115,11 +135,12 @@ async function ensurePermissions(c: any) {
  * which stay gated by document:write.
  *
  * restrictedOrderDocs says whether THIS caller's order-document access is the
- * limited kind (REP_VISIBLE_ORDER_DOC_TYPES/REP_ORDER_MAX_FILE_SIZE below) —
- * true exactly when they got in via the managing-rep carve-out rather than an
- * actual document:write grant. Driven by the grant itself, not is_admin: an
- * employee holds document:write 'all' (migration 040) same as admin, so
- * either one is unrestricted; is_admin would wrongly restrict the employee.
+ * limited kind — true exactly when they got in via the managing-rep carve-out
+ * rather than an actual grant. It governs the upload SIZE cap
+ * (REP_ORDER_MAX_FILE_SIZE below) only; which document TYPES a caller may file
+ * is the role's own setting now (see allowedDocTypes). Driven by the grant
+ * itself, not is_admin: an employee holds the write grant same as admin, so
+ * either one is unrestricted.
  */
 /** True when `entityId` is an order whose sales_rep_list_id is one of the
  *  reps THIS caller manages (public.user_manager) — not just "manages some
@@ -189,13 +210,7 @@ async function canReadDocument(c: any, row: { entity_type: string; entity_id: st
   const permissions = await ensurePermissions(c);
   if (!permissions.has(gridPerm(row.entity_type, 'read'))) return false;
   if (row.entity_type === 'quote' && !(await quoteOwnedByCaller(c, row.entity_id, 'read'))) return false;
-  if (
-    row.entity_type === 'order' &&
-    !permissions.has(gridPerm('order', 'write')) &&
-    !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(row.doc_type)
-  ) {
-    return false;
-  }
+  if (!allowedDocTypes(permissions, row.entity_type).includes(row.doc_type)) return false;
   return true;
 }
 
@@ -312,12 +327,12 @@ app.get('/', async (c) => {
 
   try {
     let rows = await listDocuments(execQuery, c.env, entityType, entityId);
-    // Same restriction as the write side below, keyed off the same grant:
-    // only someone without orderGridDocument:write (plain rep, or a managing
-    // rep who only got order-doc access via that carve-out) has the internal
-    // doc types filtered out of reads.
-    if (entityType === 'order' && !permissions.has(gridPerm('order', 'write'))) {
-      rows = rows.filter((r) => (REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(r.doc_type));
+    // The role's own type set for this module (see allowedDocTypes). Skipped
+    // entirely when nothing is turned off, which is every role that has not
+    // been narrowed.
+    const types = allowedDocTypes(permissions, entityType);
+    if (types.length !== DOC_TYPES.length) {
+      rows = rows.filter((r) => types.includes(r.doc_type));
     }
     return c.json({ success: true, data: rows });
   } catch (e) {
@@ -333,8 +348,13 @@ app.post('/', async (c) => {
   }
   const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, body.entityType, body.entityId, 'create');
   if (!allowed) return forbidden(c);
-  if (restrictedOrderDocs && !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)) {
-    return c.json({ success: false, message: `doc_type must be one of: ${REP_VISIBLE_ORDER_DOC_TYPES.join(', ')}` }, 400);
+  // The type that will actually be stored: createDocument falls back to
+  // DEFAULT_DOC_TYPE when the body names none, so that is what gets checked —
+  // a role not granted the default has to pick a type it does hold.
+  const createTypes = allowedDocTypes(await ensurePermissions(c), body.entityType);
+  const createType = body.docType ?? DEFAULT_DOC_TYPE;
+  if (!createTypes.includes(createType)) {
+    return c.json({ success: false, message: `doc_type must be one of: ${createTypes.join(', ')}` }, 400);
   }
 
   try {
@@ -408,12 +428,11 @@ app.put('/:id', async (c) => {
     const existing = await getDocument(execQuery, c.env, c.req.param('id'));
     const { allowed, restrictedOrderDocs } = await resolveWriteAccess(c, existing?.entity_type ?? '', existing?.entity_id, 'write');
     if (!allowed) return forbidden(c);
-    if (
-      body.docType !== undefined &&
-      restrictedOrderDocs &&
-      !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(body.docType)
-    ) {
-      return c.json({ success: false, message: `doc_type must be one of: ${REP_VISIBLE_ORDER_DOC_TYPES.join(', ')}` }, 400);
+    if (body.docType !== undefined) {
+      const types = allowedDocTypes(await ensurePermissions(c), existing?.entity_type ?? '');
+      if (!types.includes(body.docType)) {
+        return c.json({ success: false, message: `doc_type must be one of: ${types.join(', ')}` }, 400);
+      }
     }
     const row = await updateDocument(execQuery, c.env, c.req.param('id'), {
       description: body.description,

@@ -56,6 +56,14 @@ const FieldTypes = {
  * @param {string} [definition.dbField] - Database column name (if different)
  * @param {Array<string|number>} [definition.enumValues] - Enum values for select fields
  * @param {Object<string|number, string>} [definition.enumLabels] - Display label per enum value
+ * @param {boolean} [definition.perOptionAccess] - This select's OPTIONS are themselves access-controlled per role:
+ *   Settings > Roles renders a checkbox per enumValue, stored in the grant's field_access as
+ *   `<field>:<value>` (same addressing shape as `tab:<Name>`), and the route filters rows/writes by the
+ *   allowed set (see allowedOptions() in permissions.ts). For an enum that decides WHICH ROWS a role may see
+ *   — e.g. a document's type — not for one that is merely a column on a row. The options get a node of their
+ *   own in the roles tree, beside the field list rather than inside it.
+ * @param {string} [definition.optionsLabel] - What the roles tree calls that node (e.g. 'Types'). Defaults to
+ *   the field's own label.
  * @param {number} [definition.step] - Numeric input increment; 1 = whole numbers only
  * @param {number} [definition.minLength] - Minimum length for strings
  * @param {number} [definition.maxLength] - Maximum length for strings
@@ -162,6 +170,8 @@ function field(definition) {
     referenceSearch: definition.referenceSearch || null,
     lineItemPicker: definition.lineItemPicker || null,
     gridColumns: definition.gridColumns || null,
+    perOptionAccess: definition.perOptionAccess || false,
+    optionsLabel: definition.optionsLabel || null,
   };
 }
 
@@ -300,6 +310,9 @@ function tab(config) {
  * @param {string} [definition.idFieldName] - Primary key column (e.g. 'quote_id').
  * @param {Array<Object>} [definition.deleteRestrictions] - Block deleting a row while child rows reference it.
  * @param {string} [definition.titleField] - Name of the field whose value identifies a specific record (e.g. 'ref_number'). Drives the auto-generated "Edit {title} {value}" form header in EntityManagementPage.
+ * @param {string} [definition.fieldSectionLabel] - What Settings > Roles calls this schema's field list. Defaults to
+ *   "Form" ("Columns" for a child grid); set it when the schema isn't a record form at all — e.g. a dashboard whose
+ *   fields are its cards, listed as "Cards".
  * @param {Object} [definition.parent] - Marks this as a child-row schema edited as a grid inside its parent's form
  *   (e.g. quote_line under quote). Drives the child-row CRUD helpers (childRows.ts), the child's own
  *   permissions (childSchemaPermissions, also childRows.ts) and its node under the parent in the roles tree.
@@ -384,6 +397,10 @@ function defineSchema(definition) {
     deleteRestrictions: definition.deleteRestrictions || [],
     idFieldName: definition.idFieldName || null,
     titleField: definition.titleField || null,
+    // What Settings > Roles calls this schema's field list. Defaults to "Form"
+    // (or "Columns" for a child grid) — set it when the schema isn't a record
+    // form at all, e.g. the dashboard, whose "fields" are its cards.
+    fieldSectionLabel: definition.fieldSectionLabel || null,
     parent: definition.parent
       ? {
           entity: definition.parent.entity,
@@ -394,7 +411,7 @@ function defineSchema(definition) {
           actions: definition.parent.actions || ['read', 'create', 'write', 'delete'],
         }
       : null,
-    version: '1.7.2', // referenceSearch: fillFields/valueColumn/searchFields (item/description cross-fill)
+    version: '1.8.0', // perOptionAccess (per-role enum options) + fieldSectionLabel
     generatedAt: new Date().toISOString(),
   };
 

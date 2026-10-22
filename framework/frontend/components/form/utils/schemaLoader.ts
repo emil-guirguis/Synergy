@@ -26,6 +26,11 @@ export interface BackendFieldDefinition {
   dbField: string | null;
   enumValues: string[] | null;
   enumLabels: Record<string, string> | null;
+  /** This select's options are access-controlled per role — Settings > Roles
+   *  renders a checkbox per enumValue (see SchemaDefinition.js's field()). */
+  perOptionAccess?: boolean;
+  /** What Settings > Roles calls that node (e.g. 'Types'); defaults to `label`. */
+  optionsLabel?: string | null;
   minLength: number | null;
   maxLength: number | null;
   min: number | null;
@@ -141,7 +146,7 @@ const LS_PREFIX = 'schema_cache_';
  * with an older version are discarded so backend schema-format changes
  * propagate immediately instead of waiting out the cache TTL.
  */
-const MIN_SCHEMA_VERSION = '1.7.2';
+const MIN_SCHEMA_VERSION = '1.8.0';
 
 function isStaleVersion(schema: BackendSchema): boolean {
   return (schema.version || '0.0.0').localeCompare(MIN_SCHEMA_VERSION, undefined, { numeric: true }) < 0;
@@ -293,6 +298,8 @@ function convertFieldDefinition(backendField: BackendFieldDefinition & { validat
     ...(backendField.pattern && { pattern: backendField.pattern }),
     ...(backendField.enumValues && { enumValues: backendField.enumValues }),
     ...(backendField.enumLabels && { enumLabels: backendField.enumLabels }),
+    ...(backendField.perOptionAccess != null && { perOptionAccess: backendField.perOptionAccess }),
+    ...(backendField.optionsLabel && { optionsLabel: backendField.optionsLabel }),
     // Preserve validation field properties for dropdown rendering
     ...(backendField.validate != null && { validate: backendField.validate }),
     ...(backendField.validationFields && { validationFields: backendField.validationFields }),
@@ -369,6 +376,9 @@ export interface ConvertedSchema {
   titleField?: string | null;
   /** Set on a child-row schema (e.g. quoteGridLine under quote) — see SchemaDefinition.js's `parent`. */
   parent?: SchemaParent | null;
+  /** What Settings > Roles calls this schema's field list, when "Form" is the
+   *  wrong word for it (the dashboard's fields are its cards). */
+  fieldSectionLabel?: string | null;
 }
 
 export interface SchemaParent {
@@ -438,6 +448,7 @@ export function convertSchema(backendSchema: BackendSchema): ConvertedSchema {
     idFieldName,
     titleField: (backendSchema as any).titleField || null,
     parent: (backendSchema as any).parent || null,
+    fieldSectionLabel: (backendSchema as any).fieldSectionLabel || null,
   };
 }
 

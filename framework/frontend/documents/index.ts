@@ -14,6 +14,7 @@ export {
   DOC_TYPES,
   DOC_TYPE_LABELS,
   DEFAULT_DOC_TYPE,
+  allowedDocTypes,
   storagePathFor,
   formatFileSize,
 } from './types';

@@ -2,7 +2,7 @@ import React from 'react';
 import { Alert, Box, CircularProgress } from '@mui/material';
 import { BaseForm, ReferenceSearchField } from '@meterit/framework-frontend/components/form';
 import { ChildRowsGrid } from '@meterit/framework-frontend/components/datagrid/';
-import { DocumentsGrid, type DocumentRecord } from '@meterit/framework-frontend/documents';
+import { DocumentsGrid, allowedDocTypes, type DocumentRecord } from '@meterit/framework-frontend/documents';
 import { useQuotesEnhanced, quoteLinesApi } from './quotesStore';
 import { buildLinePayloads, extractQuotePdf } from './quotePdfParse';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
@@ -41,7 +41,7 @@ interface QuoteFormProps {
  */
 export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading = false }) => {
   const quotes = useQuotesEnhanced();
-  const { scopeOf } = useAuth();
+  const { scopeOf, isFieldVisible } = useAuth();
   // Driven by the actual quote:write grant (migrations 042/040), not
   // user.is_admin — today only admin holds it, but an employee role could be
   // granted it without code changing here. Covers the form itself and the
@@ -215,6 +215,7 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
                 storage={documentsStorage}
                 classifyDocType={classifyDocTypeForFile}
                 schemaName="quoteGridDocument"
+              visibleDocTypes={allowedDocTypes(isFieldVisible, 'quoteGridDocument:read')}
                 canCreate={scopeOf('quoteGridDocument:create') !== null}
                 canEdit={scopeOf('quoteGridDocument:write') !== null}
                 canDelete={scopeOf('quoteGridDocument:delete') !== null}

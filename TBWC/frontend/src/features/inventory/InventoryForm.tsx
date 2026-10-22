@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, ButtonBase, Dialog, MenuItem, TextField, Tooltip } from '@mui/material';
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
 import { BaseForm } from '@meterit/framework-frontend/components/form';
-import { DocumentsGrid } from '@meterit/framework-frontend/documents';
+import { DocumentsGrid, allowedDocTypes } from '@meterit/framework-frontend/documents';
 import { documentsApi, documentsStorage } from '../../services/documentsClient';
 import { classifyDocTypeForFile } from '../../shared/docTypeClassifier';
 import { useInventoryEnhanced } from './inventoryStore';
@@ -202,6 +202,7 @@ export const InventoryForm: React.FC<InventoryFormProps> = ({ item, onCancel, lo
               storage={documentsStorage}
               classifyDocType={classifyDocTypeForFile}
               schemaName="inventoryGridDocument"
+              visibleDocTypes={allowedDocTypes(auth.isFieldVisible, 'inventoryGridDocument:read')}
               canCreate={auth.scopeOf('inventoryGridDocument:create') !== null}
               canEdit={auth.scopeOf('inventoryGridDocument:write') !== null}
               canDelete={auth.scopeOf('inventoryGridDocument:delete') !== null}
