@@ -184,6 +184,54 @@ function fmtDetail(detail: Record<string, unknown> | null): string {
   return `${copied ?? 0} copied${failed ? `, ${failed} failed` : ''}${stopped ? ' (stopped early)' : ''}`;
 }
 
+/** What the last backup run did, shown in the card itself so the answer to
+ *  "did that button do anything?" is always next to the button: whether it
+ *  ran, whether it finished or was stopped, how long it took, and how many
+ *  files it copied. */
+interface LastRun {
+  outcome: 'complete' | 'uptodate' | 'stopped' | 'failed';
+  copied: number;
+  failed: number;
+  /** How many server batches the run took; 1 for a run read back from history. */
+  batches: number;
+  durationMs: number | null;
+  /** ISO timestamp the run ended. */
+  at: string | null;
+}
+
+/** Builds the LastRun line from a cron_run_log row, so the card says what the
+ *  last run did even on a fresh page load — including the nightly ones that
+ *  happened while nobody was looking. */
+function lastRunFromHistory(run: CronRun | undefined): LastRun | null {
+  if (!run) return null;
+  const d = (run.detail ?? {}) as { copied?: number; failed?: number; stopped?: boolean };
+  const copied = d.copied ?? 0;
+  const outcome: LastRun['outcome'] =
+    run.status === 'error' ? 'failed' : d.stopped ? 'stopped' : copied > 0 ? 'complete' : 'uptodate';
+  return {
+    outcome,
+    copied,
+    failed: d.failed ?? 0,
+    batches: 1,
+    durationMs: run.duration_ms,
+    at: run.finished_at ?? run.started_at,
+  };
+}
+
+const LAST_RUN_SEVERITY: Record<LastRun['outcome'], 'success' | 'info' | 'warning' | 'error'> = {
+  complete: 'success',
+  uptodate: 'info',
+  stopped: 'warning',
+  failed: 'error',
+};
+
+function lastRunHeadline(r: LastRun): string {
+  if (r.outcome === 'failed') return 'Last run failed';
+  if (r.outcome === 'stopped') return 'Last run was stopped';
+  if (r.outcome === 'uptodate') return 'Last run: nothing to copy — already up to date';
+  return 'Last run finished';
+}
+
 const JOB_LABELS: Record<string, string> = {
   exportDatabase: 'Database download',
   exportStorage: 'Storage export',
@@ -229,6 +277,13 @@ export default function StorageBackupPanel() {
   // up now" progress readout, which a plain status refresh can't give on its
   // own (that shows the standing totals, not this run's contribution).
   const [runCopied, setRunCopied] = useState(0);
+  const [runBatches, setRunBatches] = useState(0);
+  // Outcome of the last run, kept on screen inside the card rather than only
+  // in the transient banner at the top of the panel. The banner is ~1000px
+  // above the button (past the history table, inside an inner scroll
+  // container), so after scrolling down to press "Back up now" its result was
+  // never in view — the run looked like it did nothing even when it worked.
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
   // A ref, not state, for the same reason as bulkCancelledRef below: the run
   // loop is an already-executing async function and would never see a later
   // setState.
@@ -534,6 +589,8 @@ export default function StorageBackupPanel() {
     runCancelledRef.current = false;
     setStopRequested(false);
     setRunCopied(0);
+    setRunBatches(0);
+    setLastRun(null);
     let copiedTotal = 0;
     let failedTotal = 0;
     let batches = 0;
@@ -558,8 +615,23 @@ export default function StorageBackupPanel() {
         failedTotal += next.detail?.failed ?? 0;
         copiedTotal += copied;
         setRunCopied(copiedTotal);
+        setRunBatches(batches);
         if (copied === 0 || runCancelledRef.current) break;
       }
+      setLastRun({
+        outcome: runCancelledRef.current
+          ? 'stopped'
+          : failedTotal > 0
+            ? 'failed'
+            : copiedTotal > 0
+              ? 'complete'
+              : 'uptodate',
+        copied: copiedTotal,
+        failed: failedTotal,
+        batches,
+        durationMs: Date.now() - startedAt,
+        at: new Date().toISOString(),
+      });
       const mins = (Date.now() - startedAt) / 60000;
       const took = mins >= 1 ? ` in ${mins.toFixed(1)} min` : '';
       if (runCancelledRef.current) {
@@ -653,6 +725,9 @@ export default function StorageBackupPanel() {
   const exportTotal = state ? state.buckets.reduce((n, b) => n + b.total, 0) : 0;
   const totalPending = state ? state.buckets.reduce((n, b) => n + b.pending, 0) : 0;
   const runElapsed = useElapsed(running);
+  // This session's run if there's been one, otherwise whatever the newest
+  // logged run did — so the card is never silent about the last backup.
+  const lastRunShown = lastRun ?? lastRunFromHistory(history[0]);
   const diskElapsed = useElapsed(exportingDisk || restoringDisk);
   // The run's own denominator: what it has already copied plus what's still
   // outstanding. Derived rather than captured at the start because `state`
@@ -831,6 +906,53 @@ export default function StorageBackupPanel() {
               )}
 
               {loading && !running && <LinearProgress sx={{ mb: 2 }} />}
+
+              {/* The answer to "did that do anything?", kept next to the
+                  button. While running it proves the run is alive even when no
+                  file has been copied yet; afterwards it stays put with the
+                  outcome, duration and total, instead of vanishing with the
+                  banner at the top of the panel. Falls back to the newest
+                  cron_run_log row, so a fresh page load still says what the
+                  last run (including an overnight one) did. */}
+              {running ? (
+                <Alert severity="info" icon={false} sx={{ mb: 2 }} data-testid="storage-backup-run-status">
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <strong>{stopRequested ? 'Stopping after this batch…' : 'Running…'}</strong>
+                    <span>{runCopied.toLocaleString()} files copied</span>
+                    <span>·</span>
+                    <span>{runBatches.toLocaleString()} {runBatches === 1 ? 'batch' : 'batches'}</span>
+                    <span>·</span>
+                    <span>{fmtDuration(runElapsed)} elapsed</span>
+                  </Stack>
+                </Alert>
+              ) : lastRunShown ? (
+                <Alert
+                  severity={LAST_RUN_SEVERITY[lastRunShown.outcome]}
+                  icon={false}
+                  sx={{ mb: 2 }}
+                  data-testid="storage-backup-run-status"
+                >
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <strong>{lastRunHeadline(lastRunShown)}</strong>
+                    <span>·</span>
+                    <span>{lastRunShown.copied.toLocaleString()} files copied</span>
+                    {lastRunShown.failed > 0 && (
+                      <>
+                        <span>·</span>
+                        <span>{lastRunShown.failed.toLocaleString()} failed</span>
+                      </>
+                    )}
+                    <span>·</span>
+                    <span>took {fmtDuration(lastRunShown.durationMs)}</span>
+                    {lastRunShown.at && (
+                      <>
+                        <span>·</span>
+                        <span>{fmtTime(lastRunShown.at)}</span>
+                      </>
+                    )}
+                  </Stack>
+                </Alert>
+              ) : null}
 
               {/* Overall progress for the multi-batch run — the per-bucket bars
                   below still show each bucket, but a run spanning all three
