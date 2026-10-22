@@ -19,7 +19,7 @@
 import { Hono } from 'hono';
 import Anthropic from '@anthropic-ai/sdk';
 import { Env, execQuery, withTransaction } from '../db';
-import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { AuthVariables, authenticateToken, isCatalogCurator, requirePermission } from '../middleware';
 import { findAll, findById, update, whereFromQuery, likeFieldsFromSchema, NOT_NULL } from '../crud';
 import { inventorySchema } from './inventorySchema';
 import { runAiChatLoop, type AiChatTool } from '@meterit/framework-backend/api/base/aiChat';
@@ -216,7 +216,21 @@ app.get('/:id', requirePermission('inventory:read'), async (c) => {
  */
 const IMAGE_VERDICTS = ['approved', 'rejected', 'auto', 'pending', 'none'] as const;
 
+/**
+ * Curating the catalog (Type/Notes edits, image review) is narrower than
+ * inventory:write: it is restricted to permissions.ts's CATALOG_CURATOR_EMAILS
+ * — see that list for why it is a code-owned list of people rather than a
+ * grant. 403 rather than 404: the caller may read the item perfectly well,
+ * they just may not curate it.
+ */
+const requireCatalogCurator = (c: any) =>
+  isCatalogCurator(c.get('user')?.email)
+    ? null
+    : c.json({ success: false, message: 'Catalog curation is limited to the catalog owner' }, 403);
+
 app.patch('/:id/image', requirePermission('inventory:write'), async (c) => {
+  const denied = requireCatalogCurator(c);
+  if (denied) return denied;
   const body = await c.req.json().catch(() => ({} as any));
   const status = body?.image_status;
   if (!IMAGE_VERDICTS.includes(status)) {
@@ -466,6 +480,8 @@ const PUT_ALLOWLIST = ['type', 'notes'] as const;
 const ITEM_TYPES = ['kit', 'item'];
 
 app.put('/:id', requirePermission('inventory:write'), async (c) => {
+  const denied = requireCatalogCurator(c);
+  if (denied) return denied;
   const body = await c.req.json().catch(() => ({} as any));
   const data: Record<string, any> = {};
   for (const col of PUT_ALLOWLIST) {

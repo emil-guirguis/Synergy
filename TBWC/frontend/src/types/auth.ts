@@ -1,7 +1,5 @@
 /** Auth + user types for the TBWC portal (tbwc-site public.users). */
 
-export type UserType = 'rep' | 'customer' | 'employee';
-
 export interface User {
   id: string; // uuid, matches auth.users.id
   email: string | null;
@@ -20,10 +18,15 @@ export interface User {
   postal: string | null;
   about: string | null;
   approved: boolean;
-  is_admin: boolean;
-  /** @deprecated superseded by role_id; still returned for legacy rows/fallback. */
-  type: UserType;
+  /** What this user may do comes from here alone (resolved into `permissions`
+   *  below). The old users.is_admin / users.type columns are gone — a boolean
+   *  and a three-value enum could not express a custom role, and code that
+   *  branched on them disagreed with the API's own grant checks. */
   role_id: number | null;
+  /** Not a column — computed per request from the catalog-curator email list in
+   *  the API's permissions.ts. True only for the account that owns inventory
+   *  Type/Notes edits and catalog image review. */
+  is_catalog_curator?: boolean;
   created_at: string;
   /** Convenience display name (first + last), populated client-side. */
   name?: string;

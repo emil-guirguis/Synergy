@@ -142,3 +142,19 @@ export const IMPERSONATE_ALLOWED_EMAILS: readonly string[] = [
   'emilguirguis@yahoo.com', // Emil Guirguis
   'jen@tbwcinc.com',        // Jenifer Crenshaw
 ];
+
+/**
+ * The only accounts allowed to curate the inventory catalog: editing an item's
+ * Type/Notes (the two columns inventory.ts's PUT_ALLOWLIST writes) and
+ * reviewing its catalog image (PATCH /:id/image).
+ *
+ * Not a permission and not a role, deliberately. This is one person's
+ * in-progress data-cleanup workflow — an image sweep and the kit/item
+ * classification behind it — not a job the Employee or Administrator role is
+ * supposed to do. A hardcoded list keeps a role edit from quietly handing it to
+ * everyone; it applies in production, same as IMPERSONATE_ALLOWED_EMAILS above.
+ * inventory:write still gates the routes first (this narrows it, never widens).
+ */
+export const CATALOG_CURATOR_EMAILS: readonly string[] = [
+  'emilguirguis@yahoo.com', // Emil Guirguis
+];

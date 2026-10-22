@@ -6,7 +6,8 @@
 import { Context, Next } from 'hono';
 import { Env, execQuery } from './db';
 import { verifySupabaseToken } from './supabaseVerify';
-import { checkRateLimit, createEntityCache, extractBearerToken, requireCheck } from '@meterit/framework-backend/api/base/auth';
+import { canImpersonate, checkRateLimit, createEntityCache, extractBearerToken } from '@meterit/framework-backend/api/base/auth';
+import { CATALOG_CURATOR_EMAILS } from './permissions';
 import {
   createPermissions,
   createRequirePermission,
@@ -31,6 +32,13 @@ export function invalidateProfile(userId: string): void {
   profileCache.delete(userId);
 }
 
+/** Is this email on permissions.ts's catalog-curator list? (canImpersonate is
+ *  the framework's case/whitespace-insensitive email-list check — same shape of
+ *  rule, nothing to do with impersonation.) */
+export function isCatalogCurator(email?: string | null): boolean {
+  return canImpersonate(CATALOG_CURATOR_EMAILS, email);
+}
+
 export async function loadProfile(env: Env, userId: string): Promise<any | null> {
   return profileCache.get(userId, async () => {
     // LEFT JOIN qb_sales_rep so a rep's own QB rep identity (list_id, used by
@@ -38,21 +46,20 @@ export async function loadProfile(env: Env, userId: string): Promise<any | null>
     // frontend default/lock that filter to "them" without a second lookup.
     const result = await execQuery(
       env,
-      // role_id falls back to the role matching users.type when the column is
-      // unset. Users arrive through more than one path (admin create, Supabase
-      // signup), and a user with no role resolves to no permissions at all —
-      // i.e. locked out of the whole app. Resolving it here keeps that from
-      // depending on every creation path remembering to set it.
+      // role_id falls back to the Sales Rep role when the column is unset.
+      // Users arrive through more than one path (admin create, the portal
+      // sign-up edge function), and a user with no role resolves to no
+      // permissions at all — i.e. locked out of the whole app. The fallback
+      // used to read users.is_admin / users.type; both are gone, and the
+      // narrowest role is the only safe default for a row that never said
+      // what it should be (the dashboard's User data gaps card flags these).
       `SELECT u.id, u.email, u.first_name, u.last_name, u.agency_name, u.url, u.title, u.work_phone, u.ext, u.mobile,
-              u.addr1, u.addr2, u.city, u.state, u.postal, u.about, u.approved, u.is_admin, u.type,
+              u.addr1, u.addr2, u.city, u.state, u.postal, u.about, u.approved,
               u.created_at, u.locked_at, u.last_verified_at,
               u.permission_overrides,
               COALESCE(u.role_id, (
                 SELECT r.role_id FROM public.role r
-                 WHERE r.tenant_id IS NULL
-                   AND r.code = CASE WHEN u.is_admin THEN 'admin'
-                                     WHEN u.type IN ('employee', 'rep', 'customer') THEN u.type
-                                     ELSE 'rep' END
+                 WHERE r.tenant_id IS NULL AND r.code = 'rep'
               )) AS role_id,
               u.qb_sales_rep_id, sr.list_id AS sales_rep_list_id, sr.initial AS sales_rep_initial, sr.name AS sales_rep_name,
               -- Flat "manages" relation (public.user_manager) — the QB rep
@@ -82,7 +89,15 @@ export async function loadProfile(env: Env, userId: string): Promise<any | null>
       [userId],
       'loadProfile'
     );
-    return result.rows.length > 0 ? result.rows[0] : null;
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    // Derived in code, never stored: the inventory catalog's Type/Notes edits
+    // and image review are restricted to the accounts in permissions.ts's
+    // CATALOG_CURATOR_EMAILS (inventory.ts enforces it; the frontend reads this
+    // to not offer controls that would 403). A computed flag, not a column —
+    // the whole point of the list is that no DB row can widen it.
+    row.is_catalog_curator = isCatalogCurator(row.email);
+    return row;
   });
 }
 
@@ -118,9 +133,6 @@ export async function authenticateToken(
   c.set('user', profile);
   await next();
 }
-
-/** Guard that requires the caller to be an admin (is_admin). */
-export const requireAdmin = requireCheck((user) => !!user?.is_admin, 'Admin access required');
 
 /**
  * Every QB sales-rep list_id this caller may see rows for under an "own"

@@ -23,12 +23,13 @@ export const usersSchema = defineSchema({
     tab({
       name: 'Profile',
       order: 1,
-      // Two visual columns: Identity fills the left half (spanning every row);
-      // the right half stacks Agency (full width) over Details.
-      // The trailing 1fr row absorbs Identity's extra height so Details sits
-      // directly under Agency instead of being pushed down.
+      // Two visual columns: Identity fills the left half (spanning every row),
+      // Agency sits in the right half. The trailing 1fr row absorbs Identity's
+      // extra height instead of stretching Agency. (A Details section used to
+      // sit under Agency holding one checkbox, users.is_admin — gone: what a
+      // user may do is the Role select in Identity, nothing else.)
       columns: '2fr 1fr 1fr',
-      rows: 'auto auto 1fr',
+      rows: 'auto 1fr',
       sections: [
         section({
           name: 'Identity',
@@ -57,15 +58,6 @@ export const usersSchema = defineSchema({
             field({ name: 'agency_name', order: 1, type: FieldTypes.STRING, default: '', required: false, label: 'Agency', dbField: 'agency_name', maxLength: 200, placeholder: 'Acme Reps', showOn: ['list', 'form'] }),
             field({ name: 'url', order: 2, type: FieldTypes.URL, default: '', required: false, label: 'Website', dbField: 'url', maxLength: 300, placeholder: 'https://…', showOn: ['form'] }),
           ],
-        }),
-        section({
-          name: 'Details',
-          order: 3,
-          gridColumn: '2 / 4',
-          gridRow: '2',
-          fields: [
-            field({ name: 'is_admin', order: 1, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Admin', dbField: 'is_admin', showOn: ['form'] }),
-         ],
         }),
       ],
     }),

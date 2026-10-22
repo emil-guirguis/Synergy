@@ -8,14 +8,35 @@ import YearlyOrderTotalCard from '../features/orders/YearlyOrderTotalCard';
 import RevenueBacklogCard from '../features/orders/RevenueBacklogCard';
 import ReceivablesCard from '../features/invoices/ReceivablesCard';
 
+/**
+ * The landing page. Every card is shown on its own terms: the grant (and
+ * scope) its data actually needs, read off the caller's role — not a role
+ * name, and no longer users.is_admin / users.type, which this page used to
+ * switch on. A card whose data the viewer can't load is the card that isn't
+ * drawn, so a custom role in Settings > Roles composes a dashboard of its own
+ * without a code change here.
+ *
+ * Why scope and not just the permission: a company-wide figure computed from
+ * an own-scoped list is a wrong number, not a smaller one — a rep's /orders is
+ * filtered to their rows, so "Open sales orders" or company AR built from it
+ * would quietly read as the company's. Those cards need 'all'.
+ */
 export default function DashboardPage() {
-  const { user, isAdmin } = useAuth();
+  const { user, scopeOf } = useAuth();
   const firstName = user?.first_name?.trim() || 'there';
-  // Receivables is company-wide AR — admin + employee only (both have
-  // invoice:read scope 'all'; rep/customer are scoped to 'own' and would leak
-  // other customers' balances through the total). type is deprecated in favor
-  // of role_id but still the only role signal AuthContext exposes today.
-  const isEmployee = user?.type === 'employee';
+
+  const orderScope = scopeOf('order:read');
+  // Company-wide order figures (YTD total, backlog, not-shipped/open alerts).
+  const companyOrders = orderScope === 'all';
+  // Company AR total — same reasoning, on invoices.
+  const companyReceivables = scopeOf('invoice:read') === 'all';
+  // Portal access requests, the same grant the Rep Approvals page is gated on.
+  const canSeeInquiries = scopeOf('repApproval:write') !== null;
+  // Data-hygiene counts over public.users (users missing a role / QB rep).
+  const canSeeUserGaps = scopeOf('user:read') !== null;
+  // "Your" quotes/orders counts. Pointless at 'all' scope (it would count the
+  // whole company and call it yours), so this is the own-scoped view's card.
+  const ownStats = orderScope === 'own' || scopeOf('quote:read') === 'own';
 
   return (
     <Box sx={{ p: 3 }}>
@@ -23,25 +44,19 @@ export default function DashboardPage() {
         Welcome, {firstName}
       </Typography>
 
-      {isAdmin ? (
-        <Stack spacing={3}>
-          <RepInquiriesCard />
-          <UserDataGapsCard />
+      <Stack spacing={3}>
+        {canSeeInquiries && <RepInquiriesCard />}
+        {canSeeUserGaps && <UserDataGapsCard />}
+        {ownStats && <RepStatsCards />}
+        {(companyOrders || companyReceivables) && (
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <YearlyOrderTotalCard />
-            <RevenueBacklogCard />
-            <ReceivablesCard />
+            {companyOrders && <YearlyOrderTotalCard />}
+            {companyOrders && <RevenueBacklogCard />}
+            {companyReceivables && <ReceivablesCard />}
           </Box>
-          <OrderAlertsCards />
-        </Stack>
-      ) : isEmployee ? (
-        <Stack spacing={3}>
-          <RepStatsCards />
-          <ReceivablesCard />
-        </Stack>
-      ) : (
-        <RepStatsCards />
-      )}
+        )}
+        {companyOrders && <OrderAlertsCards />}
+      </Stack>
     </Box>
   );
 }

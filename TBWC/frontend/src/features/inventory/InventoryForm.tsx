@@ -35,7 +35,13 @@ const STATUS_RING: Record<ImageStatus, string> = {
 export const InventoryForm: React.FC<InventoryFormProps> = ({ item, onCancel, loading = false }) => {
   const inventory = useInventoryEnhanced();
   const auth = useAuth();
-  const isAdmin = !!auth.user?.is_admin;
+  // Editing Type/Notes and reviewing the catalog image are the catalog-owner's
+  // workflow, not a role's: the API restricts both to the email list in its
+  // permissions.ts (CATALOG_CURATOR_EMAILS) and reports the result on the
+  // profile, so this shows the controls to exactly who the routes will accept.
+  // Everyone else sees the values, read-only — the same shape the old is_admin
+  // check produced, minus the part where every admin and employee could edit.
+  const isCatalogCurator = !!auth.user?.is_catalog_curator;
 
   // Drives BaseForm's `variant`, which the schema's `visibleFor: ['kit']` gates
   // the Kit Items tab on. Held here rather than read off `item` so the tab
@@ -134,10 +140,11 @@ export const InventoryForm: React.FC<InventoryFormProps> = ({ item, onCancel, lo
       fieldsToClean={['id', 'documents', 'kit_items', 'image_url']}
       renderCustomField={(fieldName, fieldDef, value, _error, isDisabled, onChange) => {
         // `type` and `notes` are the only two writable columns
-        // (inventory.ts's PUT_ALLOWLIST) and the PUT is admin-only. The schema
-        // can't say "readOnly unless admin", so a rep would otherwise get an
-        // editable field and a 403 on save — show them the value, disabled.
-        if (!isAdmin && (fieldName === 'type' || fieldName === 'notes')) {
+        // (inventory.ts's PUT_ALLOWLIST) and that PUT is curator-only. The
+        // schema can't say "readOnly unless curator", so anyone else would
+        // otherwise get an editable field and a 403 on save — show them the
+        // value, disabled.
+        if (!isCatalogCurator && (fieldName === 'type' || fieldName === 'notes')) {
           return (
             <TextField
               fullWidth
@@ -174,7 +181,7 @@ export const InventoryForm: React.FC<InventoryFormProps> = ({ item, onCancel, lo
           );
         }
         if (fieldName === 'image_url') {
-          return <InventoryImagePanel item={item} canReview={isAdmin} />;
+          return <InventoryImagePanel item={item} canReview={isCatalogCurator} />;
         }
         if (fieldName === 'kit_items') {
           return (

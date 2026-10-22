@@ -37,7 +37,6 @@ export interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  isAdmin: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
   /** Self-service display preference override — see authService.updatePreferences. */
@@ -127,11 +126,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(updated);
   }, []);
 
-  // is_admin still exists on the row (legacy — role_id is authoritative,
-  // see middleware.ts's loadProfile), kept here only for UI copy that
-  // genuinely means "the Administrator role" (e.g. an impersonation banner),
-  // not for gating features — those read real grants via scopeOf below.
-  const isAdmin = !!user?.is_admin;
   const scopeOf = useCallback(
     (permission: string) => user?.permissions?.find((g) => g.permission === permission)?.scope ?? null,
     [user]
@@ -159,7 +153,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     isAuthenticated: !!user,
     isLoading,
-    isAdmin,
     login,
     logout,
     updatePreferences,

@@ -11,21 +11,20 @@ vi.mock('./db', () => ({
   execQuery: (...a: any[]) => mockExec(...a),
 }));
 
-import { authenticateToken, requireAdmin, loadProfile } from './middleware';
+import { authenticateToken, loadProfile } from './middleware';
 
 const ENV = {} as any;
 
-/** Small app: auth on everything, admin-guard on /admin, echo the loaded user. */
+/** Small app: auth on everything, echo the loaded user. */
 function makeApp() {
   const app = new Hono<any>();
   app.use('*', authenticateToken);
   app.get('/me', (c) => c.json({ user: c.get('user'), userId: c.get('userId') }));
-  app.get('/admin', requireAdmin, (c) => c.json({ ok: true }));
   return app;
 }
 
 const profile = (over: Record<string, any> = {}) => ({
-  id: 'u1', email: 'a@b.com', approved: true, is_admin: false, ...over,
+  id: 'u1', email: 'a@b.com', approved: true, ...over,
 });
 
 beforeEach(() => {
@@ -91,24 +90,6 @@ describe('authenticateToken', () => {
     const body = await res.json();
     expect(body.userId).toBe('ok-user');
     expect(body.user.id).toBe('ok-user');
-  });
-});
-
-describe('requireAdmin', () => {
-  it('403 for a non-admin profile', async () => {
-    mockVerify.mockResolvedValue({ userId: 'nonadmin-user', email: null });
-    mockExec.mockResolvedValue({ rows: [profile({ id: 'nonadmin-user', is_admin: false })] });
-    const res = await makeApp().request('/admin', { headers: { authorization: 'Bearer t' } }, ENV);
-    expect(res.status).toBe(403);
-    expect((await res.json()).message).toBe('Admin access required');
-  });
-
-  it('allows an admin profile through', async () => {
-    mockVerify.mockResolvedValue({ userId: 'admin-user', email: null });
-    mockExec.mockResolvedValue({ rows: [profile({ id: 'admin-user', is_admin: true })] });
-    const res = await makeApp().request('/admin', { headers: { authorization: 'Bearer t' } }, ENV);
-    expect(res.status).toBe(200);
-    expect((await res.json()).ok).toBe(true);
   });
 });
 
