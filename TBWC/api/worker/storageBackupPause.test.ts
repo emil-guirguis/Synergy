@@ -265,20 +265,39 @@ describe('fullBackupBatch re-copies everything', () => {
     expect(res.cursor).toBeNull();
   });
 
-  it('deletes the destination before copying, since object/copy has no upsert', async () => {
+  it('upserts rather than deleting first, so the mirror is never briefly empty', async () => {
+    // The first cut deleted the destination then copied. When the delete
+    // failed the copy never ran, and the mirrored file was simply gone - that
+    // punched real holes in the mirror. One copy carrying 'x-upsert: true'
+    // replaces the object in place, with no window where it does not exist.
     respondByTag({
       'storageBackup.full.total': () => ({ rows: [{ total: 1 }] }),
       'storageBackup.full.page': () => ({ rows: [{ bucket_id: 'record-docs', name: 'a.pdf', size: '3' }] }),
       'storageBackup.markBackedUp': () => ({ rows: [] }),
     });
-    mockFetch.mockImplementation((_u: string, init: any) =>
-      Promise.resolve(init?.method === 'DELETE' ? { ok: true, text: () => Promise.resolve('') } : okCopy(3))
-    );
+    mockFetch.mockImplementation(() => Promise.resolve(okCopy(3)));
 
-    await fullBackupBatch(ENV, null);
-    const methods = mockFetch.mock.calls.map((c) => c[1]?.method);
-    expect(methods).toEqual(['DELETE', 'POST']);
-    expect(mockFetch.mock.calls[0][0]).toContain('storage-backup/record-docs/a.pdf');
+    const res = await fullBackupBatch(ENV, null);
+    expect(res.copied).toBe(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.method).toBe('POST');
+    expect(init.headers['x-upsert']).toBe('true');
+    expect(mockFetch.mock.calls.some((c) => c[1]?.method === 'DELETE')).toBe(false);
+  });
+
+  it('does NOT upsert on the incremental path, so a 409 still means something', async () => {
+    respondByTag({
+      'cron.scheduledJob.tier': () => ({ rows: [{ cron_tier: 'nightly' }] }),
+      'storageBackup.pending': (params) => ({
+        rows: params[0] === 'record-docs' ? [{ name: 'a.pdf', size: '3' }] : [],
+      }),
+      'storageBackup.markBackedUp': () => ({ rows: [] }),
+    });
+    mockFetch.mockImplementation(() => Promise.resolve(okCopy(3)));
+
+    await backupStorageToSupabase(ENV);
+    expect(mockFetch.mock.calls[0][1].headers['x-upsert']).toBeUndefined();
   });
 
   it('splits the cursor on the FIRST slash, so paths containing slashes survive', async () => {
@@ -295,7 +314,9 @@ describe('fullBackupBatch re-copies everything', () => {
 
   it('hands back a cursor when the page is full, so the panel keeps going', async () => {
     // A full page means there is probably more after it.
-    const rows = Array.from({ length: 150 }, (_, i) => ({
+    // A full page is BATCH_SIZE (300) now that each object is one upsert copy
+    // rather than a delete plus a copy.
+    const rows = Array.from({ length: 300 }, (_, i) => ({
       bucket_id: 'record-docs', name: `doc-${String(i).padStart(3, '0')}.pdf`, size: '1',
     }));
     respondByTag({
@@ -308,7 +329,7 @@ describe('fullBackupBatch re-copies everything', () => {
     );
 
     const res = await fullBackupBatch(ENV, null);
-    expect(res.cursor).toBe('record-docs/doc-149.pdf');
+    expect(res.cursor).toBe('record-docs/doc-299.pdf');
     expect(res.total).toBe(1000);
   });
 });

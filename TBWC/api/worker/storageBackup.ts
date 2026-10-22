@@ -86,7 +86,20 @@ async function destinationLooksReal(env: Env, destinationKey: string, expectedSi
   return total != null && Number(total) === Number(expectedSize);
 }
 
-async function copyToBackupBucket(env: Env, sourceBucket: string, path: string, expectedSize: string | null): Promise<void> {
+async function copyToBackupBucket(
+  env: Env,
+  sourceBucket: string,
+  path: string,
+  expectedSize: string | null,
+  // Overwrite a destination that already exists, for the full re-copy "Back up
+  // now" runs. Verified against this project's Storage API: a plain copy onto
+  // an existing key answers 409 KeyAlreadyExists, and the same call with
+  // 'x-upsert: true' answers 200 and replaces it. An earlier cut deleted the
+  // destination first instead — that briefly left the file with no backup at
+  // all, and when the delete itself failed the copy never ran, so the mirror
+  // ended up with holes. One upsert call has no such window.
+  upsert = false
+): Promise<void> {
   const { url, key } = requireSupabaseEnv(env);
   const destinationKey = `${sourceBucket}/${path}`;
   const res = await fetch(`${url}/storage/v1/object/copy`, {
@@ -95,6 +108,7 @@ async function copyToBackupBucket(env: Env, sourceBucket: string, path: string, 
       Authorization: `Bearer ${key}`,
       apikey: key,
       'Content-Type': 'application/json',
+      ...(upsert ? { 'x-upsert': 'true' } : {}),
     },
     body: JSON.stringify({
       bucketId: sourceBucket,
@@ -312,23 +326,6 @@ export async function backupStorageToSupabase(env: Env): Promise<StorageBackupRu
   return { copied: totalCopied, failed: totalFailed, stopped: false };
 }
 
-/** Deletes the mirrored copy so a fresh one can be copied over it. Supabase's
- *  object/copy has no upsert, so a re-copy of a file that's already mirrored
- *  needs the destination gone first. A 404 here is fine — nothing to remove. */
-async function deleteFromBackupBucket(env: Env, destinationKey: string): Promise<void> {
-  const { url, key } = requireSupabaseEnv(env);
-  const res = await fetch(
-    `${url}/storage/v1/object/${BACKUP_BUCKET}/${destinationKey.split('/').map(encodeURIComponent).join('/')}`,
-    { method: 'DELETE', headers: { Authorization: `Bearer ${key}`, apikey: key } }
-  );
-  if (!res.ok && res.status !== 404 && res.status !== 400) {
-    throw new Error(`Supabase backup delete failed: ${res.status} ${await res.text().catch(() => '')}`);
-  }
-}
-
-// A type alias, not an interface, for the same reason as
-// StorageBackupRunDetail above: runJob takes Record<string, unknown> | void,
-// and a named interface is not structurally assignable to an indexed type.
 export type FullBackupBatchResult = {
   copied: number;
   failed: number;
@@ -347,8 +344,7 @@ export type FullBackupBatchResult = {
  *  Keyset-paged on (bucket, name) rather than offset so objects added
  *  mid-sweep can't shift the window. Bounded by BATCH_SIZE and the same
  *  wall-clock budget as a scheduled tick, because the per-invocation
- *  subrequest cap applies here too — each object costs a delete plus a copy,
- *  so pages are half the size. */
+ *  subrequest cap applies here too — one upsert copy per object. */
 export async function fullBackupBatch(env: Env, cursor?: string | null): Promise<FullBackupBatchResult> {
   const slash = cursor ? cursor.indexOf('/') : -1;
   const curBucket = slash >= 0 ? cursor!.slice(0, slash) : '';
@@ -362,8 +358,8 @@ export async function fullBackupBatch(env: Env, cursor?: string | null): Promise
   );
   const total = totalRows[0]?.total ?? 0;
 
-  // Half BATCH_SIZE: a re-copy is two subrequests per object (delete + copy).
-  const pageSize = Math.floor(BATCH_SIZE / 2);
+  // One upsert copy per object, same as the incremental path, so a full page.
+  const pageSize = BATCH_SIZE;
   const { rows } = await execQuery(
     env,
     `SELECT bucket_id, name, (metadata->>'size')::bigint AS size
@@ -388,9 +384,7 @@ export async function fullBackupBatch(env: Env, cursor?: string | null): Promise
     const results = await Promise.all(
       chunk.map(async (row: any) => {
         try {
-          const destinationKey = `${row.bucket_id}/${row.name}`;
-          await deleteFromBackupBucket(env, destinationKey);
-          await copyToBackupBucket(env, row.bucket_id, row.name, row.size);
+          await copyToBackupBucket(env, row.bucket_id, row.name, row.size, true);
           await markBackedUp(env, row.bucket_id, row.name, row.size);
           return true;
         } catch (e) {
