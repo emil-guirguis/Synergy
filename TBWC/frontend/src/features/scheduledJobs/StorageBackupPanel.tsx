@@ -226,7 +226,9 @@ const LAST_RUN_SEVERITY: Record<LastRun['outcome'], 'success' | 'info' | 'warnin
 };
 
 function lastRunHeadline(r: LastRun): string {
-  if (r.outcome === 'failed') return 'Last run failed';
+  // A run that copied something before dying is worth distinguishing: that
+  // work is kept, and running again resumes rather than starting over.
+  if (r.outcome === 'failed') return r.copied > 0 ? 'Last run stopped on an error' : 'Last run failed';
   if (r.outcome === 'stopped') return 'Last run was stopped';
   // Only a scheduled run can land here: it copies just what's new, so zero
   // copied means nothing was added since the run before it. "Back up now"
@@ -613,7 +615,23 @@ export default function StorageBackupPanel() {
     try {
       let cursor: string | null = null;
       for (;;) {
-        const next = await runFullStorageBackup(cursor);
+        // A full backup is hundreds of requests over ten-odd minutes, so a
+        // single transient network blip is close to expected - and without a
+        // retry it ended the whole run and threw away the cursor. Retry the
+        // same batch a few times before giving up; batches are idempotent
+        // (an upsert copy plus an upsert ledger write), so repeating one is
+        // free.
+        let next: Awaited<ReturnType<typeof runFullStorageBackup>> | null = null;
+        for (let attempt = 1; ; attempt++) {
+          try {
+            next = await runFullStorageBackup(cursor);
+            break;
+          } catch (e) {
+            if (attempt >= 4 || runCancelledRef.current) throw e;
+            await new Promise((r) => setTimeout(r, attempt * 2000));
+          }
+        }
+        if (!next) break;
         setState(next);
         batches++;
         // null `full` = the job threw; runJob swallows job errors, so the
@@ -654,6 +672,16 @@ export default function StorageBackupPanel() {
       setHistory(await getStorageBackupHistory());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Backup run failed');
+      // Without this the card fell back to the newest history row, showing an
+      // older run's numbers as though they were this one's.
+      setLastRun({
+        outcome: 'failed',
+        copied: copiedTotal,
+        failed: failedTotal,
+        batches,
+        durationMs: Date.now() - startedAt,
+        at: new Date().toISOString(),
+      });
     } finally {
       window.clearInterval(poll);
       setRunning(false);
@@ -746,9 +774,9 @@ export default function StorageBackupPanel() {
 
       {tab === 0 && (
         <>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">
-            <Card variant="outlined" sx={{ flex: 1, minWidth: 0, width: '100%' }}>
-              <CardContent sx={{ height: '100%' }}>
+          <Stack direction="column" spacing={2}>
+            <Card variant="outlined" sx={{ minWidth: 0, width: '100%' }}>
+              <CardContent>
                 <Typography variant="h6" sx={{ mb: 1 }}>Database backup history</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   Daily Postgres backups the cloud provider keeps on its own — read-only here, nothing copied.
@@ -779,8 +807,8 @@ export default function StorageBackupPanel() {
               </CardContent>
             </Card>
 
-            <Card variant="outlined" sx={{ flex: 1, minWidth: 0, width: '100%' }}>
-              <CardContent sx={{ height: '100%' }}>
+            <Card variant="outlined" sx={{ minWidth: 0, width: '100%' }}>
+              <CardContent>
                 <Typography variant="h6" sx={{ mb: 1 }}>Document backup history</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   Last 7 days of runs (scheduled and manual). Older rows are pruned automatically.
