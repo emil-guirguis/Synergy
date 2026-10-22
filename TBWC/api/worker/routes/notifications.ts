@@ -7,10 +7,18 @@
  * `{ tenantColumn: null }` and identifies the caller by their Supabase user
  * id (uuid), not a tenant_id. Table public.notification, PK notification_id;
  * see migrations/060-notifications.sql.
+ *
+ * Reading, acknowledging and clearing your OWN feed needs no role grant — any
+ * signed-in user has a bell, and every query below is scoped to c.get('userId').
+ * Gating those on notification:read/write/delete meant every custom role made
+ * in Settings > Roles 403'd its own bell until someone remembered to tick the
+ * boxes (2026-10-22). Grants still gate what reaches OTHER people: sending
+ * (notification:write) and deleting a notification that isn't yours
+ * (notification:delete).
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { AuthVariables, authenticateToken, permissionsFor, requirePermission } from '../middleware';
 import {
   listNotifications,
   countNotifications,
@@ -36,7 +44,7 @@ function fail(c: any, e: unknown) {
   return c.json({ success: false, message: 'Notifications request failed' }, 500);
 }
 
-app.get('/count', requirePermission('notification:read'), async (c) => {
+app.get('/count', async (c) => {
   try {
     const count = await countNotifications(execQuery, c.env, null, c.get('userId'), OPTIONS);
     return c.json({ success: true, data: { count } });
@@ -45,7 +53,7 @@ app.get('/count', requirePermission('notification:read'), async (c) => {
   }
 });
 
-app.get('/', requirePermission('notification:read'), async (c) => {
+app.get('/', async (c) => {
   try {
     const limit = Math.min(parseInt(c.req.query('limit') || '100') || 100, 200);
     const offset = parseInt(c.req.query('offset') || '0') || 0;
@@ -82,7 +90,7 @@ app.post('/', requirePermission('notification:write'), async (c) => {
   }
 });
 
-app.post('/:id/acknowledge', requirePermission('notification:write'), async (c) => {
+app.post('/:id/acknowledge', async (c) => {
   try {
     const id = c.req.param('id');
     if (isNaN(Number(id))) return c.json({ success: false, message: 'Invalid notification ID' }, 400);
@@ -95,10 +103,27 @@ app.post('/:id/acknowledge', requirePermission('notification:write'), async (c) 
   }
 });
 
-app.delete('/:id', requirePermission('notification:delete'), async (c) => {
+app.delete('/:id', async (c) => {
   try {
     const id = c.req.param('id');
     if (isNaN(Number(id))) return c.json({ success: false, message: 'Invalid notification ID' }, 400);
+
+    // deleteNotification has no owner clause when there's no tenant column, so
+    // ownership is checked here: your own goes, anyone else's (or a broadcast,
+    // which would vanish for everyone) needs the grant.
+    const owner = await execQuery(
+      c.env,
+      `SELECT users_id FROM public.notification WHERE notification_id = $1`,
+      [id],
+      'notifications.deleteOwner'
+    );
+    if (!owner.rows.length) return c.json({ success: false, message: 'Notification not found' }, 404);
+    if (owner.rows[0].users_id !== c.get('userId')) {
+      const permissions = await permissionsFor(c.env, c.get('user'));
+      if (!permissions.has('notification:delete')) {
+        return c.json({ success: false, message: 'Insufficient permissions' }, 403);
+      }
+    }
 
     const deleted = await deleteNotification(execQuery, c.env, null, id, OPTIONS);
     if (!deleted) return c.json({ success: false, message: 'Notification not found' }, 404);
@@ -108,7 +133,7 @@ app.delete('/:id', requirePermission('notification:delete'), async (c) => {
   }
 });
 
-app.delete('/', requirePermission('notification:delete'), async (c) => {
+app.delete('/', async (c) => {
   try {
     const deletedCount = await deleteAllNotifications(execQuery, c.env, null, c.get('userId'), OPTIONS);
     return c.json({ success: true, data: { deleted_count: deletedCount } });

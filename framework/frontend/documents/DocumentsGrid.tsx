@@ -496,11 +496,8 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
       return { item };
     },
     remove: async (_parentId, id) => {
-      const row = docsById.current.get(Number(id));
+      // The API deletes the row, then its bytes.
       await api.remove(Number(id));
-      // Metadata first, object second: an orphaned object is sweepable, an
-      // orphaned row is a broken link in the grid.
-      if (row?.storage_path) await storage.remove(row.storage_path).catch(() => undefined);
       docsById.current.delete(Number(id));
       return {};
     },

@@ -85,6 +85,25 @@ vi.mock('../fileEmail', () => ({
   FileEmailError,
 }));
 
+// Service-role Storage calls — stubbed so nothing reaches Supabase.
+const { mockSignObjectUrl, mockSignUploadUrl, mockRemoveObjects, mockStatObject } = vi.hoisted(() => ({
+  mockSignObjectUrl: vi.fn(),
+  mockSignUploadUrl: vi.fn(),
+  mockRemoveObjects: vi.fn(),
+  mockStatObject: vi.fn(),
+}));
+vi.mock('../storageAdmin', () => ({
+  signObjectUrl: (...a: any[]) => mockSignObjectUrl(...a),
+  signUploadUrl: (...a: any[]) => mockSignUploadUrl(...a),
+  removeObjects: (...a: any[]) => mockRemoveObjects(...a),
+  statObject: (...a: any[]) => mockStatObject(...a),
+  StorageAdminError: class StorageAdminError extends Error {
+    constructor(message: string, public status = 500) {
+      super(message);
+    }
+  },
+}));
+
 import documentsApp from './documents';
 
 const ENV = {} as any;
@@ -104,6 +123,7 @@ beforeEach(() => {
   currentGrants = [];
   fakeGrants = [...ALL_GRID];
   fakeScopes = {};
+  mockRemoveObjects.mockResolvedValue(undefined);
 });
 
 describe('GET / — quote gate', () => {
@@ -439,5 +459,107 @@ describe('POST /:id/email — send a document as an attachment', () => {
     const res = await req('/7/email', json('POST', { to: '' }));
     expect(res.status).toBe(400);
     expect((await res.json()) as any).toEqual({ success: false, message: 'Enter at least one email address' });
+  });
+});
+
+describe('/storage/* — bytes brokered by the Worker, authorized in code', () => {
+  const ORDER_PATH = 'order/52035/abc-S131507053_Email_Submission.pdf';
+  /** findDocumentByPath answers with `row`; every other query answers empty. */
+  function docRowAtPath(row: any | null) {
+    mockExecQuery.mockImplementation(async (_env: any, _sql: string, _params: any[], label: string) =>
+      label === 'documents.findDocumentByPath' ? { rows: row ? [row] : [] } : { rows: [] }
+    );
+  }
+
+  it('signs a view URL for a custom-role user with order grid grants but no is_admin/employee type/rep link (2026-10-22 bug)', async () => {
+    currentUser = { id: 'u-custom', type: 'rep', is_admin: false, sales_rep_list_id: null };
+    fakeGrants = ['orderGridDocument:read', 'orderGridDocument:write'];
+    docRowAtPath({ document_id: 13093, entity_type: 'order', entity_id: '52035', doc_type: 'email' });
+    mockSignObjectUrl.mockResolvedValue('https://x.test/signed');
+    const res = await req('/storage/view-url', json('POST', { path: ORDER_PATH, expiresIn: 60 }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).data.url).toBe('https://x.test/signed');
+    expect(mockSignObjectUrl).toHaveBeenCalledWith(ENV, 'record-docs', ORDER_PATH, 60);
+  });
+
+  it('404s (and signs nothing) without the grid read grant', async () => {
+    fakeGrants = ['quoteGridDocument:read'];
+    docRowAtPath({ document_id: 1, entity_type: 'order', entity_id: '52035', doc_type: 'email' });
+    const res = await req('/storage/view-url', json('POST', { path: ORDER_PATH }));
+    expect(res.status).toBe(404);
+    expect(mockSignObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it('404s an internal order doc type for a caller without orderGridDocument:write', async () => {
+    fakeGrants = ['orderGridDocument:read'];
+    docRowAtPath({ document_id: 1, entity_type: 'order', entity_id: '52035', doc_type: 'email' });
+    const res = await req('/storage/view-url', json('POST', { path: ORDER_PATH }));
+    expect(res.status).toBe(404);
+    expect(mockSignObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it('404s a path no document row points at', async () => {
+    docRowAtPath(null);
+    const res = await req('/storage/view-url', json('POST', { path: ORDER_PATH }));
+    expect(res.status).toBe(404);
+    expect(mockSignObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it('caps the view URL lifetime at 7 days', async () => {
+    docRowAtPath({ document_id: 1, entity_type: 'order', entity_id: '52035', doc_type: 'email' });
+    mockSignObjectUrl.mockResolvedValue('u');
+    await req('/storage/view-url', json('POST', { path: ORDER_PATH, expiresIn: 10 ** 9 }));
+    expect(mockSignObjectUrl.mock.calls[0][3]).toBe(60 * 60 * 24 * 7);
+  });
+
+  it.each(['order/../quote/1/x.pdf', 'secrets/1/x.pdf', 'order/52035', '', 42])('400s malformed path %p', async (path) => {
+    const res = await req('/storage/upload-url', json('POST', { path }));
+    expect(res.status).toBe(400);
+    expect(mockSignUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it('signs an upload URL for a caller holding the grid create grant', async () => {
+    fakeGrants = ['orderGridDocument:create'];
+    mockSignUploadUrl.mockResolvedValue('https://x.test/upload');
+    const res = await req('/storage/upload-url', json('POST', { path: ORDER_PATH }));
+    expect(res.status).toBe(200);
+    expect(mockSignUploadUrl).toHaveBeenCalledWith(ENV, 'record-docs', ORDER_PATH);
+  });
+
+  it('403s an upload URL without create/write on that module', async () => {
+    fakeGrants = ['orderGridDocument:read'];
+    mockExecQuery.mockResolvedValue({ rows: [] });
+    const res = await req('/storage/upload-url', json('POST', { path: ORDER_PATH }));
+    expect(res.status).toBe(403);
+    expect(mockSignUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it('removes orphaned bytes (failed-metadata rollback)', async () => {
+    docRowAtPath(null);
+    const res = await req('/storage/remove', json('POST', { path: ORDER_PATH }));
+    expect(res.status).toBe(200);
+    expect(mockRemoveObjects).toHaveBeenCalledWith(ENV, 'record-docs', [ORDER_PATH]);
+  });
+
+  it('409s removing bytes a document row still points at', async () => {
+    docRowAtPath({ document_id: 1, entity_type: 'order', entity_id: '52035', doc_type: 'email' });
+    const res = await req('/storage/remove', json('POST', { path: ORDER_PATH }));
+    expect(res.status).toBe(409);
+    expect(mockRemoveObjects).not.toHaveBeenCalled();
+  });
+
+  it('stat reports what the service-role probe found', async () => {
+    mockStatObject.mockResolvedValue({ status: 'found', size: 4981834 });
+    const res = await req('/storage/stat', json('POST', { path: ORDER_PATH }));
+    expect(((await res.json()) as any).data).toEqual({ status: 'found', size: 4981834 });
+  });
+
+  it('DELETE /:id drops the bytes after the row', async () => {
+    const row = { document_id: 1, entity_type: 'order', entity_id: '52035', doc_type: 'email', storage_bucket: 'record-docs', storage_path: ORDER_PATH };
+    mockGetDocument.mockResolvedValue(row);
+    mockDeleteDocument.mockResolvedValue(row);
+    const res = await req('/1', { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect(mockRemoveObjects).toHaveBeenCalledWith(ENV, 'record-docs', [ORDER_PATH]);
   });
 });

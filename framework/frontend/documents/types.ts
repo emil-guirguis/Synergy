@@ -99,10 +99,13 @@ export interface DocumentsApi {
   email(documentId: number, input: EmailDocumentInput): Promise<string[]>;
 }
 
+/** What really sits in the bucket at a path: `missing` is confirmed absent, `unknown` couldn't tell. */
+export type StoredObjectStat = { status: 'found'; size: number | null } | { status: 'missing' } | { status: 'unknown' };
+
 /**
- * The bytes half. Implemented today by createSupabaseDocumentStorage (browser →
- * Supabase Storage direct); a DB-blob or R2 implementation can be dropped in
- * without the grid noticing.
+ * The bytes half. Implemented today by createWorkerDocumentStorage (the app's
+ * Worker authorizes and signs; bytes go browser ↔ storage direct); a DB-blob or
+ * R2 implementation can be dropped in without the grid noticing.
  */
 export interface DocumentStorage {
   bucket: string;
@@ -120,6 +123,8 @@ export interface DocumentStorage {
    * isn't opened until the mail is read, so the default TTL is dead by then.
    */
   viewUrl(path: string, ttlSeconds?: number): Promise<string>;
+  /** Do the bytes at `path` really exist (post-upload verification)? */
+  stat?(path: string, signal?: AbortSignal): Promise<StoredObjectStat>;
 }
 
 /** Object key for a record's file. Backend re-derives the prefix and rejects mismatches. */

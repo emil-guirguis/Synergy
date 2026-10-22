@@ -1,20 +1,23 @@
 /**
  * Supabase Storage REST client for the Portal documents feature.
  *
- * Mirrors the tbwc-site rep-docs logic (admin.html / portal.html) but with no
- * @supabase/supabase-js dependency — every call is a plain fetch to
- * `${url}/storage/v1/*`, the same style as the framework's supabaseAuth wrapper.
+ * Every call goes through the TBWC Worker (`/api/doc-types/storage/*`), never
+ * to the bucket with the user's own token: the Worker checks resource:read /
+ * resource:write and the employee-only type, then lists/moves/deletes or mints a
+ * signed URL with the service-role key. Bytes still go browser <-> Storage
+ * direct (signed upload/view URLs).
  *
  * Docs live in a private bucket (`rep-docs`) shared with tbwc-site, organized as
  * a 2-level tree: category / subcategory / files. Folders exist implicitly (a
  * prefix with objects under it); Supabase returns them as rows with `id: null`,
  * while files carry an `id` + `metadata.size`.
  *
- * Authorization is the admin's Supabase access token (Bearer). The bucket's RLS
- * policies — defined in the shared Supabase project — gate who may write/read.
+ * Permissions live in code (role grants), not bucket RLS, so a new custom role
+ * works without a database migration.
  */
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/api';
+import { API_BASE_URL } from '../config/api';
 import { tokenStorage } from '../utils/tokenStorage';
+import { withAuthRetry } from '../utils/authRetry';
 
 export const DOCS_BUCKET = 'rep-docs';
 
@@ -39,20 +42,20 @@ export interface DocTree {
   categories: DocCategory[];
 }
 
-function storageBase(): string {
-  return `${SUPABASE_URL.replace(/\/$/, '')}/storage/v1`;
-}
-
-/** Bearer + apikey headers. Throws early if there's no session token. */
-function authHeaders(): Record<string, string> {
-  const token = tokenStorage.getToken();
-  if (!token) throw new Error('Not signed in — please log in again.');
-  return { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY };
-}
-
-/** Encode each path segment but keep the "/" separators. */
-function encodePath(path: string): string {
-  return path.split('/').map(encodeURIComponent).join('/');
+/** POST one /doc-types/storage/* route; unwraps the { success, data } envelope. */
+async function call<T>(route: string, body: Record<string, unknown>): Promise<T> {
+  return withAuthRetry(async () => {
+    const token = tokenStorage.getToken();
+    if (!token) throw new Error('Not signed in — please log in again.');
+    const res = await fetch(`${API_BASE_URL}/doc-types/storage/${route}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const parsed = await res.json().catch(() => ({}));
+    if (!res.ok || parsed.success === false) throw new Error(parsed.message || `Request failed (${res.status})`);
+    return parsed.data as T;
+  });
 }
 
 async function readError(res: Response): Promise<string> {
@@ -101,18 +104,7 @@ async function list(prefix: string): Promise<{ files: DocFile[]; folders: string
 }
 
 async function listRaw(prefix: string): Promise<{ files: DocFile[]; folders: string[] }> {
-  const res = await fetch(`${storageBase()}/object/list/${DOCS_BUCKET}`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prefix,
-      limit: 1000,
-      offset: 0,
-      sortBy: { column: 'name', order: 'asc' },
-    }),
-  });
-  if (!res.ok) throw new Error(await readError(res));
-  const rows = (await res.json()) as StorageListEntry[];
+  const rows = await call<StorageListEntry[]>('list', { prefix });
 
   const files: DocFile[] = [];
   const folders: string[] = [];
@@ -178,14 +170,10 @@ export async function loadFolderChildren(path: string): Promise<{ files: DocFile
 
 /** Upload one file to `path` (overwrites — upsert). */
 export async function uploadDoc(path: string, file: File): Promise<void> {
-  const res = await fetch(`${storageBase()}/object/${DOCS_BUCKET}/${encodePath(path)}`, {
-    method: 'POST',
-    headers: {
-      ...authHeaders(),
-      'Content-Type': file.type || 'application/pdf',
-      'x-upsert': 'true',
-      'cache-control': '3600',
-    },
+  const { url } = await call<{ url: string }>('upload-url', { path });
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/pdf', 'cache-control': 'max-age=3600' },
     body: file,
   });
   if (!res.ok) throw new Error(await readError(res));
@@ -193,41 +181,23 @@ export async function uploadDoc(path: string, file: File): Promise<void> {
 
 /** Delete a single object by path. */
 export async function removeDoc(path: string): Promise<void> {
-  const res = await fetch(`${storageBase()}/object/${DOCS_BUCKET}`, {
-    method: 'DELETE',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prefixes: [path] }),
-  });
-  if (!res.ok) throw new Error(await readError(res));
+  await call('remove', { path });
 }
 
 /** Rename/move an object (used for rename — same dir, new filename). */
 export async function moveDoc(fromPath: string, toPath: string): Promise<void> {
-  const res = await fetch(`${storageBase()}/object/move`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bucketId: DOCS_BUCKET, sourceKey: fromPath, destinationKey: toPath }),
-  });
-  if (!res.ok) throw new Error(await readError(res));
+  await call('move', { fromPath, toPath });
 }
 
 /** Raw signed URL (no forced download) for a private object — used to open/view it. */
-async function signedUrl(path: string, expiresIn: number): Promise<string> {
-  const res = await fetch(`${storageBase()}/object/sign/${DOCS_BUCKET}/${encodePath(path)}`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expiresIn }),
-  });
-  if (!res.ok) throw new Error(await readError(res));
-  const body = (await res.json()) as { signedURL: string };
-  return `${storageBase()}${body.signedURL}`;
+async function signedUrl(path: string, expiresIn: number, download = false): Promise<string> {
+  const { url } = await call<{ url: string }>('view-url', { path, expiresIn, download });
+  return url;
 }
 
 /** Signed, time-limited download URL for a private object (forces save-as). */
 export async function signedDownloadUrl(path: string, expiresIn = 60): Promise<string> {
-  const url = await signedUrl(path, expiresIn);
-  const name = path.slice(path.lastIndexOf('/') + 1);
-  return `${url}&download=${encodeURIComponent(name)}`;
+  return signedUrl(path, expiresIn, true);
 }
 
 /** Signed URL to open a doc directly (e.g. in a new tab) — no forced download. */

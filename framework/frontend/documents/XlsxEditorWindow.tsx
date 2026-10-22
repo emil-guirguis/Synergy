@@ -247,10 +247,8 @@ const XlsxEditorPage: React.FC<XlsxEditorPageProps> = ({ win, doc, entityType, r
         throw metaError;
       }
 
-      // New row is in; drop the edited-from one. Metadata first — an orphaned
-      // object is sweepable, an orphaned row is a broken link in the grid.
+      // New row is in; drop the edited-from one (the API removes its bytes too).
       await api.remove(doc.document_id);
-      await storage.remove(doc.storage_path!).catch(() => undefined);
 
       dirtyRef.current = false;
       onSaved();

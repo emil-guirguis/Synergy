@@ -8,8 +8,8 @@ export { EmailDocumentDialog } from './EmailDocumentDialog';
 export type { EmailDocumentDialogProps } from './EmailDocumentDialog';
 export { createDocumentsApi } from './api';
 export type { DocumentsApiConfig } from './api';
-export { createSupabaseDocumentStorage } from './storage';
-export type { SupabaseStorageConfig } from './storage';
+export { createWorkerDocumentStorage } from './storage';
+export type { WorkerStorageConfig } from './storage';
 export {
   DOC_TYPES,
   DOC_TYPE_LABELS,
@@ -22,6 +22,7 @@ export type {
   DocumentRecord,
   DocumentsApi,
   DocumentStorage,
+  StoredObjectStat,
   CreateDocumentPayload,
   EmailDocumentInput,
 } from './types';

@@ -6,8 +6,13 @@
  * Thin Hono wrapper over the framework module
  * (@meterit/framework-backend/api/base/documents) — this file owns only what is
  * TBWC-specific: auth middleware, which entity types are accepted, and the
- * response envelope. File bytes never pass through here: the browser uploads
- * straight to the Supabase `record-docs` bucket and posts the metadata back.
+ * response envelope.
+ *
+ * Bytes: the browser never touches the `record-docs` bucket with its own token.
+ * The /storage/* routes below authorize in code (same checks as the metadata
+ * routes) and hand back a signed URL — view, or upload-to — minted with the
+ * service-role key. Bucket RLS is deny-all with no permission logic, so a new
+ * custom role works without a migration (storageAdmin.ts).
  *
  * Access is per module's Documents grid (migration 100): a row with
  * entity_type 'order' needs orderGridDocument:read/create/write/delete, a
@@ -30,6 +35,7 @@ import {
 } from '@meterit/framework-backend/api/base/documents';
 import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
 import { emailStoredFile, FileEmailError } from '../fileEmail';
+import { removeObjects, signObjectUrl, signUploadUrl, statObject, StorageAdminError } from '../storageAdmin';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -167,6 +173,132 @@ async function resolveWriteAccess(
   };
 }
 
+const RECORD_DOCS_BUCKET = 'record-docs';
+// Share links go out by email, so the longest view URL lives a week.
+const MAX_VIEW_URL_TTL = 60 * 60 * 24 * 7;
+const DEFAULT_VIEW_URL_TTL = 60;
+
+/**
+ * Read check for one document row: the grid's read grant, own-scoped quote
+ * ownership, and the rep-visible order doc types for anyone without the
+ * order grid's write grant. Shared by email and view-url so "may I see this
+ * file" has exactly one answer.
+ */
+async function canReadDocument(c: any, row: { entity_type: string; entity_id: string; doc_type: string }): Promise<boolean> {
+  if (!isEntityType(row.entity_type)) return false;
+  const permissions = await ensurePermissions(c);
+  if (!permissions.has(gridPerm(row.entity_type, 'read'))) return false;
+  if (row.entity_type === 'quote' && !(await quoteOwnedByCaller(c, row.entity_id, 'read'))) return false;
+  if (
+    row.entity_type === 'order' &&
+    !permissions.has(gridPerm('order', 'write')) &&
+    !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(row.doc_type)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * "<entityType>/<entityId>/<file>" — the shape storagePathFor() builds. Returns
+ * null for anything else (unknown module, traversal, missing segments), so a
+ * caller can't aim a signed URL outside a record's own folder.
+ */
+function parseStoragePath(path: unknown): { entityType: string; entityId: string } | null {
+  if (typeof path !== 'string' || path.length > 1024) return null;
+  const parts = path.split('/');
+  if (parts.length < 3 || parts.some((p) => !p || p === '.' || p === '..')) return null;
+  if (!isEntityType(parts[0])) return null;
+  return { entityType: parts[0], entityId: parts[1] };
+}
+
+/** True when the caller may put bytes into (or clean bytes out of) this record's folder. */
+async function canWriteFolder(c: any, entityType: string, entityId: string): Promise<boolean> {
+  for (const action of ['create', 'write'] as const) {
+    if ((await resolveWriteAccess(c, entityType, entityId, action)).allowed) return true;
+  }
+  return false;
+}
+
+async function findDocumentByPath(c: any, path: string) {
+  const { rows } = await execQuery(
+    c.env,
+    `SELECT document_id, entity_type, entity_id, doc_type
+       FROM public.document WHERE storage_bucket = $1 AND storage_path = $2 LIMIT 1`,
+    [RECORD_DOCS_BUCKET, path],
+    'documents.findDocumentByPath'
+  );
+  return rows[0] ?? null;
+}
+
+function storageFail(c: any, e: unknown) {
+  if (e instanceof StorageAdminError) return c.json({ success: false, message: e.message }, e.status);
+  throw e;
+}
+
+/** Signed view URL for a file that belongs to a document row the caller may read. */
+app.post('/storage/view-url', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!parseStoragePath(body.path)) return c.json({ success: false, message: 'Invalid path' }, 400);
+  const row = await findDocumentByPath(c, body.path);
+  // Not-yours and doesn't-exist answer the same, so the route can't probe paths.
+  if (!row || !(await canReadDocument(c, row))) return c.json({ success: false, message: 'Document not found' }, 404);
+  const requested = Number(body.expiresIn);
+  const ttl = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_VIEW_URL_TTL) : DEFAULT_VIEW_URL_TTL;
+  try {
+    return c.json({ success: true, data: { url: await signObjectUrl(c.env, RECORD_DOCS_BUCKET, body.path, ttl) } });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
+/** Signed upload URL into a record's folder; the browser PUTs the bytes there itself. */
+app.post('/storage/upload-url', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const target = parseStoragePath(body.path);
+  if (!target) return c.json({ success: false, message: 'Invalid path' }, 400);
+  if (!(await canWriteFolder(c, target.entityType, target.entityId))) return forbidden(c);
+  try {
+    return c.json({ success: true, data: { url: await signUploadUrl(c.env, RECORD_DOCS_BUCKET, body.path) } });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
+/**
+ * Remove bytes no document row points at — the rollback after a failed
+ * metadata write. A file that still has a row goes through DELETE /:id, which
+ * applies the delete grant and drops the bytes itself.
+ */
+app.post('/storage/remove', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const target = parseStoragePath(body.path);
+  if (!target) return c.json({ success: false, message: 'Invalid path' }, 400);
+  if (!(await canWriteFolder(c, target.entityType, target.entityId))) return forbidden(c);
+  if (await findDocumentByPath(c, body.path)) {
+    return c.json({ success: false, message: 'File still belongs to a document — delete the document instead' }, 409);
+  }
+  try {
+    await removeObjects(c.env, RECORD_DOCS_BUCKET, [body.path]);
+    return c.json({ success: true, data: { removed: true } });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
+/** Do the bytes at `path` really exist, and how big? (Quote Import's post-upload check.) */
+app.post('/storage/stat', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const target = parseStoragePath(body.path);
+  if (!target) return c.json({ success: false, message: 'Invalid path' }, 400);
+  if (!(await canWriteFolder(c, target.entityType, target.entityId))) return forbidden(c);
+  try {
+    return c.json({ success: true, data: await statObject(c.env, RECORD_DOCS_BUCKET, body.path) });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
 app.get('/', async (c) => {
   const entityType = c.req.query('entity_type');
   const entityId = c.req.query('entity_id');
@@ -243,20 +375,10 @@ app.post('/:id/email', async (c) => {
   if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
   if (!isEntityType(existing.entity_type)) return c.json({ success: false, message: 'Document not found' }, 404);
 
-  const permissions = await ensurePermissions(c);
-  if (!permissions.has(gridPerm(existing.entity_type, 'read'))) return forbidden(c);
-  if (existing.entity_type === 'quote' && !(await quoteOwnedByCaller(c, existing.entity_id, 'read'))) {
-    return c.json({ success: false, message: 'Document not found' }, 404);
-  }
-  // Same filter the list route applies: a caller who only sees the rep-visible
+  // Same rules as the list route: a caller who only sees the rep-visible
   // order doc types must not be able to email an internal one either.
-  if (
-    existing.entity_type === 'order' &&
-    !permissions.has(gridPerm('order', 'write')) &&
-    !(REP_VISIBLE_ORDER_DOC_TYPES as readonly string[]).includes(existing.doc_type)
-  ) {
-    return c.json({ success: false, message: 'Document not found' }, 404);
-  }
+  if (!(await ensurePermissions(c)).has(gridPerm(existing.entity_type, 'read'))) return forbidden(c);
+  if (!(await canReadDocument(c, existing))) return c.json({ success: false, message: 'Document not found' }, 404);
 
   const body = await c.req.json().catch(() => ({}));
   try {
@@ -304,8 +426,8 @@ app.put('/:id', async (c) => {
   }
 });
 
-// Deletes the row and hands it back; the client then drops the object from the
-// bucket with its own token (see framework DocumentsGrid.confirmDelete).
+// Deletes the row, then its bytes (service role — the browser has no bucket
+// access of its own), and hands the row back.
 app.delete('/:id', async (c) => {
   // Fetched first, before deleting, so the write-access/quote gates can
   // run on its entity_type — deleteDocument's returned row would be too late
@@ -316,6 +438,13 @@ app.delete('/:id', async (c) => {
   if (!allowed) return forbidden(c);
   const row = await deleteDocument(execQuery, c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Document not found' }, 404);
+  // Metadata first, bytes second: an orphaned object is sweepable, an orphaned
+  // row is a broken link in the grid — so a failed removal is logged, not surfaced.
+  if (row.storage_path) {
+    await removeObjects(c.env, row.storage_bucket || RECORD_DOCS_BUCKET, [row.storage_path]).catch((e) =>
+      console.error('[documents] removing bytes failed:', e instanceof Error ? e.message : e)
+    );
+  }
   return c.json({ success: true, data: row });
 });
 

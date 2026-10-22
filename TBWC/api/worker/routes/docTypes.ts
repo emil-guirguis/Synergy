@@ -14,8 +14,18 @@ import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
 import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
 import { emailStoredFile, FileEmailError } from '../fileEmail';
+import {
+  listObjects,
+  moveObject,
+  removeObjects,
+  signObjectUrl,
+  signUploadUrl,
+  StorageAdminError,
+  type StorageListEntry,
+} from '../storageAdmin';
 
 const RESOURCE_BUCKET = 'rep-docs';
+const MAX_VIEW_URL_TTL = 60 * 60 * 24 * 7;
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -57,6 +67,116 @@ async function upsertResourceDocument(
   return result.rows[0]?.document_id ?? null;
 }
 
+/** Every path → type row. The table is small (one row per typed file/folder). */
+async function loadTypeMap(env: Env): Promise<Map<string, DocType>> {
+  const { rows } = await execQuery(env, 'SELECT doc_path, doc_type FROM public.document_type', [], 'docTypes.loadTypeMap');
+  return new Map(rows.map((r: any) => [r.doc_path, r.doc_type]));
+}
+
+/**
+ * A type set on a folder is inherited by everything under it; the nearest
+ * typed ancestor wins, and nothing typed anywhere up the chain means 'all'.
+ * Mirrors ResourcesTab.tsx's typeOf().
+ */
+function effectiveType(types: Map<string, DocType>, path: string): DocType {
+  for (let p = path; p; p = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '') {
+    const t = types.get(p);
+    if (t) return t;
+  }
+  return 'all';
+}
+
+/** 'employee' files (or anything under an 'employee' folder) are invisible without resource:write. */
+async function canSeePath(c: any, path: string, types?: Map<string, DocType>): Promise<boolean> {
+  if (c.get('permissions').has('resource:write')) return true;
+  return effectiveType(types ?? (await loadTypeMap(c.env)), path) !== 'employee';
+}
+
+/** A bucket key: non-empty segments, no traversal. "" (the root) only where `allowRoot`. */
+function isResourcePath(v: unknown, allowRoot = false): v is string {
+  if (typeof v !== 'string' || v.length > 1024) return false;
+  if (v === '') return allowRoot;
+  return v.split('/').every((p) => p && p !== '.' && p !== '..');
+}
+
+function storageFail(c: any, e: unknown) {
+  if (e instanceof StorageAdminError) return c.json({ success: false, message: e.message }, e.status);
+  throw e;
+}
+
+// ---- Bytes. The browser has no bucket access of its own: every call below is
+// authorized here (resource:read / resource:write + the employee-type rule) and
+// then done with the service-role key. rep-docs RLS carries no logic.
+
+/** One folder's direct children ("" = root), with employee-only entries removed for read-only callers. */
+app.post('/storage/list', requirePermission('resource:read'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const prefix = body.prefix ?? '';
+  if (!isResourcePath(prefix, true)) return c.json({ success: false, message: 'Invalid prefix' }, 400);
+  try {
+    const entries = await listObjects(c.env, RESOURCE_BUCKET, prefix);
+    const types = c.get('permissions').has('resource:write') ? undefined : await loadTypeMap(c.env);
+    const visible: StorageListEntry[] = [];
+    for (const e of entries) {
+      if (await canSeePath(c, prefix ? `${prefix}/${e.name}` : e.name, types)) visible.push(e);
+    }
+    return c.json({ success: true, data: visible });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
+/** Signed view (or forced-download) URL for one file the caller may see. */
+app.post('/storage/view-url', requirePermission('resource:read'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!isResourcePath(body.path)) return c.json({ success: false, message: 'Invalid path' }, 400);
+  if (!(await canSeePath(c, body.path))) return c.json({ success: false, message: 'Not found' }, 404);
+  const requested = Number(body.expiresIn);
+  const ttl = Number.isFinite(requested) && requested > 0 ? Math.min(requested, MAX_VIEW_URL_TTL) : 60;
+  try {
+    let url = await signObjectUrl(c.env, RESOURCE_BUCKET, body.path, ttl);
+    if (body.download) url += `&download=${encodeURIComponent(body.path.slice(body.path.lastIndexOf('/') + 1))}`;
+    return c.json({ success: true, data: { url } });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
+/** Signed upload URL; overwrites an existing file at the same path (Resources re-upload replaces). */
+app.post('/storage/upload-url', requirePermission('resource:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!isResourcePath(body.path)) return c.json({ success: false, message: 'Invalid path' }, 400);
+  try {
+    return c.json({ success: true, data: { url: await signUploadUrl(c.env, RESOURCE_BUCKET, body.path, true) } });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
+app.post('/storage/remove', requirePermission('resource:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!isResourcePath(body.path)) return c.json({ success: false, message: 'Invalid path' }, 400);
+  try {
+    await removeObjects(c.env, RESOURCE_BUCKET, [body.path]);
+    return c.json({ success: true });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
+app.post('/storage/move', requirePermission('resource:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!isResourcePath(body.fromPath) || !isResourcePath(body.toPath)) {
+    return c.json({ success: false, message: 'Invalid path' }, 400);
+  }
+  try {
+    await moveObject(c.env, RESOURCE_BUCKET, body.fromPath, body.toPath);
+    return c.json({ success: true });
+  } catch (e) {
+    return storageFail(c, e);
+  }
+});
+
 // { "Category/file.pdf": "rep", ... } for every file that has a type set.
 // Files with no row default to 'all' on the client. A caller without
 // resource:write (i.e. the read-only rep-facing view — mirrors ResourcesTab.tsx's
@@ -86,15 +206,7 @@ app.post('/email', requirePermission('resource:read'), async (c) => {
   const path = typeof body.path === 'string' ? body.path : '';
   if (!path) return c.json({ success: false, message: 'path is required' }, 400);
 
-  if (!c.get('permissions').has('resource:write')) {
-    const { rows } = await execQuery(
-      c.env,
-      `SELECT 1 FROM public.document_type WHERE doc_path = $1 AND doc_type = 'employee'`,
-      [path],
-      'docTypes.emailVisibility'
-    );
-    if (rows.length > 0) return c.json({ success: false, message: 'Not found' }, 404);
-  }
+  if (!(await canSeePath(c, path))) return c.json({ success: false, message: 'Not found' }, 404);
 
   // mime_type comes from the mirror row when there is one; the bucket's own
   // content type is not readable from here, and a missing one falls back to

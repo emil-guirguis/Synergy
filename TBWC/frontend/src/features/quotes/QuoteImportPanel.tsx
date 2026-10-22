@@ -48,9 +48,9 @@ import {
 } from '@meterit/framework-frontend/documents';
 import { ImportPanel, StatusChip, downloadCsv, type ImportColumn, type ImportFacet } from '@meterit/framework-frontend/import';
 import { documentsApi, documentsStorage, RECORD_DOCS_BUCKET } from '../../services/documentsClient';
+import type { StoredObjectStat } from '@meterit/framework-frontend/documents';
 import { quotesService, quoteLinesApi } from './quotesStore';
 import { buildLinePayloads, extractQuotePdf, mergeHeaders, type ParsedQuoteHeader, type ParsedQuoteLine } from './quotePdfParse';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../config/api';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { authService } from '../../services/authService';
 
@@ -230,10 +230,6 @@ async function pickPrimary(
   return { header: mergeHeaders(headers), lines: bestLines };
 }
 
-function encodeStoragePath(path: string): string {
-  return path.split('/').map(encodeURIComponent).join('/');
-}
-
 const STORED_SIZE_TIMEOUT_MS = 8000;
 const PLAN_FETCH_TIMEOUT_MS = 15000;
 /** Deadline for ONE PDF parse (was a single 20s budget shared by every candidate in a
@@ -335,35 +331,7 @@ function withDeadline<T>(step: string, ms: number, run: (signal: AbortSignal) =>
   });
 }
 
-type StoredObjectCheck =
-  /** Bytes are really there. `size` is null when the object exists but its length
-   *  couldn't be read — callers then fall back to the DB's file_size column. */
-  | { status: 'found'; size: number | null }
-  | { status: 'missing' } // confirmed absent — the object genuinely isn't in the bucket
-  | { status: 'unknown' }; // couldn't tell (no token/network/CORS/timeout)
-
-/**
- * Supabase Storage reports a genuinely absent object as **HTTP 400** with a body of
- * `{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}`
- * — the HTTP status is 400, the 404 is only inside the JSON. The old probe tested
- * `res.status === 404`, so it NEVER recognised an absent object: every dead document fell
- * through to 'unknown', the plan fell back to the DB's file_size column (which matches,
- * since the bulk CLI importer wrote the row and the bytes from the same fs.statSync), the
- * document was classified 'already', and the whole quote came out "up to date" with nothing
- * queued. Verified against record-docs on 2026-10-16: 404 of 1456 quote documents across
- * 157 quotes answer exactly this, and every one of them was being reported as fine.
- */
-async function isObjectAbsent(res: Response): Promise<boolean> {
-  if (res.status === 404) return true;
-  if (res.ok) return false;
-  const body = await res.text().catch(() => '');
-  try {
-    const parsed = JSON.parse(body) as { statusCode?: unknown; error?: unknown; code?: unknown };
-    return parsed?.code === 'NoSuchKey' || parsed?.error === 'not_found' || String(parsed?.statusCode) === '404';
-  } catch {
-    return /nosuchkey|object not found|not_?found/i.test(body);
-  }
-}
+type StoredObjectCheck = StoredObjectStat;
 
 /** Post-upload verification ONLY — nothing in the plan consults this any more. Read what
  *  actually landed in the bucket for an object we just wrote ourselves, where we know the
@@ -372,37 +340,17 @@ async function isObjectAbsent(res: Response): Promise<boolean> {
  *  Distinguishes a confirmed-absent object from "couldn't check" (network blip), so a blip
  *  never causes a good upload to be thrown away.
  *
- *  Existence is settled by a ONE-BYTE RANGED GET, not a HEAD. A HEAD is answered out of
- *  the object's metadata row and so reports 200 for a path whose bytes are gone (Villa
- *  Hermosa, 2026-10-15: HEAD said found, the download 404'd), and a HEAD carries no body,
- *  so there is no way to read the not_found marker out of Supabase's 400 either. A ranged
- *  GET travels the same path as a user clicking the document, costs one byte, and comes
- *  back with a readable error body — see isObjectAbsent.
- *
- *  Size comes from a parallel HEAD, because `content-range` on the 206 is NOT a
- *  CORS-safelisted response header and Supabase sends no Access-Control-Expose-Headers,
- *  so browser JS cannot read it; `content-length` on the HEAD is safelisted. Both requests
- *  are in flight together, so this still costs one round trip of wall time, and a failed
- *  HEAD only costs the (informational) size comparison, never the existence verdict.
+ *  The Worker answers it (POST /documents/storage/stat) with a service-role one-byte
+ *  ranged GET — not a HEAD, which reports 200 for a path whose bytes are gone (Villa
+ *  Hermosa, 2026-10-15) — and reads Supabase's "400 with a 404 inside" as missing.
  *
  *  Hard-timed out: a plan over hundreds of jobs awaits this per-document, and a single
  *  request that never resolves would otherwise hang the run at whichever job hit it. */
 async function checkStoredObject(storagePath: string): Promise<StoredObjectCheck> {
-  const token = tokenStorage.getToken();
-  if (!token) return { status: 'unknown' };
-  const url = `${SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/${RECORD_DOCS_BUCKET}/${encodeStoragePath(storagePath)}`;
-  const auth = { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STORED_SIZE_TIMEOUT_MS);
   try {
-    const [bytes, meta] = await Promise.all([
-      fetch(url, { method: 'GET', headers: { ...auth, Range: 'bytes=0-0' }, signal: controller.signal }),
-      fetch(url, { method: 'HEAD', headers: auth, signal: controller.signal }).catch(() => null),
-    ]);
-    if (await isObjectAbsent(bytes)) return { status: 'missing' };
-    if (!bytes.ok) return { status: 'unknown' };
-    const len = meta && meta.ok ? meta.headers.get('content-length') : null;
-    return { status: 'found', size: len == null ? null : Number(len) };
+    return await documentsStorage.stat!(storagePath, controller.signal);
   } catch {
     return { status: 'unknown' };
   } finally {

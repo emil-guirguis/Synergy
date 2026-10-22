@@ -1,36 +1,37 @@
 /**
- * Supabase Storage backend for the documents grid.
+ * Storage backend for the documents grid, brokered by the app's own Worker.
  *
- * Plain fetch against `${url}/storage/v1/*` — no @supabase/supabase-js dependency,
- * same style as framework/frontend/auth/supabaseAuth.ts and TBWC's storageService.
- * The browser uploads with the signed-in user's own access token, so the bucket's
- * RLS policies decide who may write/read; file bytes never touch the app's Worker.
+ * The browser never calls a permission-gated bucket with its own token: it asks
+ * the Worker (`${apiBaseUrl}/documents/storage/*`), which authorizes in code
+ * against the caller's role permissions and hands back a signed URL minted with
+ * the service-role key. Bucket RLS carries no permission logic of its own, so a
+ * new role made in Settings > Roles works without a database migration.
+ *
+ * Bytes still go straight between the browser and storage — uploads PUT to a
+ * signed upload URL, views open a signed GET URL — never through the Worker.
  */
-import type { DocumentStorage } from './types';
+import type { DocumentStorage, StoredObjectStat } from './types';
 
-export interface SupabaseStorageConfig {
-  /** Project URL, e.g. https://xxxx.supabase.co */
-  supabaseUrl: string;
-  /** Public anon key (sent as the apikey header). */
-  anonKey: string;
-  /** Current Supabase access token, or null when signed out. */
+export interface WorkerStorageConfig {
+  /** e.g. "https://api.example.com/api" — the routes live at `${apiBaseUrl}/documents/storage`. */
+  apiBaseUrl: string;
+  /** Current access token, or null when signed out. */
   getToken: () => string | null;
-  /** Private bucket holding record attachments. */
+  /** Bucket the Worker brokers (recorded on each document row). */
   bucket: string;
   /** Lifetime of the view URLs handed to a new tab. Default 60s. */
   signedUrlTtl?: number;
+  /** Override if an app mounts the routes somewhere other than /documents. */
+  path?: string;
 }
 
-function storageBase(supabaseUrl: string): string {
-  return `${supabaseUrl.replace(/\/$/, '')}/storage/v1`;
+interface ApiEnvelope<T> {
+  success: boolean;
+  data?: T;
+  message?: string;
 }
 
-/** Encode each path segment but keep the "/" separators. */
-function encodePath(path: string): string {
-  return path.split('/').map(encodeURIComponent).join('/');
-}
-
-async function readError(res: Response): Promise<string> {
+async function readStorageError(res: Response): Promise<string> {
   try {
     const body = await res.json();
     return body.message || body.error || body.msg || `Storage request failed (${res.status})`;
@@ -39,55 +40,53 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
-export function createSupabaseDocumentStorage(config: SupabaseStorageConfig): DocumentStorage {
-  const base = storageBase(config.supabaseUrl);
+export function createWorkerDocumentStorage(config: WorkerStorageConfig): DocumentStorage {
+  const base = `${config.apiBaseUrl.replace(/\/$/, '')}${config.path ?? '/documents'}/storage`;
   const ttl = config.signedUrlTtl ?? 60;
 
-  const authHeaders = (): Record<string, string> => {
+  async function call<T>(route: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
     const token = config.getToken();
     if (!token) throw new Error('Not signed in — please log in again.');
-    return { Authorization: `Bearer ${token}`, apikey: config.anonKey };
-  };
+    const res = await fetch(`${base}/${route}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+      signal,
+    });
+    const parsed = (await res.json().catch(() => ({}))) as ApiEnvelope<T>;
+    if (!res.ok || parsed.success === false) {
+      throw new Error(parsed.message || `Request failed (${res.status})`);
+    }
+    return parsed.data as T;
+  }
 
   return {
     bucket: config.bucket,
 
     async upload(path: string, file: File, signal?: AbortSignal): Promise<void> {
-      const res = await fetch(`${base}/object/${config.bucket}/${encodePath(path)}`, {
-        method: 'POST',
-        headers: {
-          ...authHeaders(),
-          'Content-Type': file.type || 'application/octet-stream',
-          // Paths carry a random prefix (storagePathFor), so a collision here
-          // means something is wrong — fail loudly instead of overwriting.
-          'x-upsert': 'false',
-          'cache-control': '3600',
-        },
+      const { url } = await call<{ url: string }>('upload-url', { path }, signal);
+      // Paths carry a random prefix (storagePathFor), and the Worker signs with
+      // upsert off, so a collision fails loudly instead of overwriting.
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream', 'cache-control': 'max-age=3600' },
         body: file,
         signal,
       });
-      if (!res.ok) throw new Error(await readError(res));
+      if (!res.ok) throw new Error(await readStorageError(res));
     },
 
     async remove(path: string, signal?: AbortSignal): Promise<void> {
-      const res = await fetch(`${base}/object/${config.bucket}`, {
-        method: 'DELETE',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prefixes: [path] }),
-        signal,
-      });
-      if (!res.ok) throw new Error(await readError(res));
+      await call('remove', { path }, signal);
     },
 
     async viewUrl(path: string, ttlSeconds?: number): Promise<string> {
-      const res = await fetch(`${base}/object/sign/${config.bucket}/${encodePath(path)}`, {
-        method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expiresIn: ttlSeconds ?? ttl }),
-      });
-      if (!res.ok) throw new Error(await readError(res));
-      const body = (await res.json()) as { signedURL: string };
-      return `${base}${body.signedURL}`;
+      const { url } = await call<{ url: string }>('view-url', { path, expiresIn: ttlSeconds ?? ttl });
+      return url;
+    },
+
+    async stat(path: string, signal?: AbortSignal): Promise<StoredObjectStat> {
+      return call<StoredObjectStat>('stat', { path }, signal);
     },
   };
 }

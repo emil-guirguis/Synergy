@@ -1,15 +1,15 @@
 /**
  * TBWC wiring for the framework documents module: metadata through the TBWC
- * Worker (/api/documents), bytes through the private Supabase `record-docs`
- * bucket. Both halves are app-agnostic in the framework — this file supplies the
+ * Worker (/api/documents); bytes via signed URLs the Worker mints for the
+ * private Supabase `record-docs` bucket after checking the caller's role. Both halves are app-agnostic in the framework — this file supplies the
  * URLs and the token getter, same pattern as features/ai/AiChatPage.tsx.
  */
 import {
   createDocumentsApi,
-  createSupabaseDocumentStorage,
+  createWorkerDocumentStorage,
 } from '@meterit/framework-frontend/documents';
 import type { DocumentsApi, DocumentStorage } from '@meterit/framework-frontend/documents';
-import { API_BASE_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from '../config/api';
+import { API_BASE_URL } from '../config/api';
 import { tokenStorage } from '../utils/tokenStorage';
 import { withAuthRetry } from '../utils/authRetry';
 
@@ -21,9 +21,8 @@ const rawApi = createDocumentsApi({
   getToken: () => tokenStorage.getToken(),
 });
 
-const rawStorage = createSupabaseDocumentStorage({
-  supabaseUrl: SUPABASE_URL,
-  anonKey: SUPABASE_ANON_KEY,
+const rawStorage = createWorkerDocumentStorage({
+  apiBaseUrl: API_BASE_URL,
   getToken: () => tokenStorage.getToken(),
   bucket: RECORD_DOCS_BUCKET,
   // DocumentsGrid's Email share puts this URL in a mailto: body — the default
@@ -32,7 +31,7 @@ const rawStorage = createSupabaseDocumentStorage({
   signedUrlTtl: 60 * 60 * 24 * 7,
 });
 
-// Both halves talk straight to their own backend (Worker / Supabase Storage),
+// Both halves call the Worker directly,
 // bypassing the zustand store middleware that normally catches an expired
 // access token and refreshes it (createEntitySlice.ts's withAuthRetry) — an
 // upload sitting on an open form for a while is exactly when this bites.
@@ -43,11 +42,13 @@ export const documentsApi: DocumentsApi = {
   create: (payload) => withAuthRetry(() => rawApi.create(payload)),
   update: (documentId, patch) => withAuthRetry(() => rawApi.update(documentId, patch)),
   remove: (documentId) => withAuthRetry(() => rawApi.remove(documentId)),
+  email: (documentId, input) => withAuthRetry(() => rawApi.email(documentId, input)),
 };
 
 export const documentsStorage: DocumentStorage = {
   bucket: rawStorage.bucket,
   upload: (path, file, signal) => withAuthRetry(() => rawStorage.upload(path, file, signal)),
   remove: (path, signal) => withAuthRetry(() => rawStorage.remove(path, signal)),
-  viewUrl: (path) => withAuthRetry(() => rawStorage.viewUrl(path)),
+  viewUrl: (path, ttlSeconds) => withAuthRetry(() => rawStorage.viewUrl(path, ttlSeconds)),
+  stat: (path, signal) => withAuthRetry(() => rawStorage.stat!(path, signal)),
 };

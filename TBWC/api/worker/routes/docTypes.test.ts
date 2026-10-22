@@ -41,6 +41,26 @@ vi.mock('../db', () => ({
   execQuery: (...a: any[]) => mockExecQuery(...a),
 }));
 
+const { mockListObjects, mockSignObjectUrl, mockSignUploadUrl, mockRemoveObjects, mockMoveObject } = vi.hoisted(() => ({
+  mockListObjects: vi.fn(),
+  mockSignObjectUrl: vi.fn(),
+  mockSignUploadUrl: vi.fn(),
+  mockRemoveObjects: vi.fn(),
+  mockMoveObject: vi.fn(),
+}));
+vi.mock('../storageAdmin', () => ({
+  listObjects: (...a: any[]) => mockListObjects(...a),
+  signObjectUrl: (...a: any[]) => mockSignObjectUrl(...a),
+  signUploadUrl: (...a: any[]) => mockSignUploadUrl(...a),
+  removeObjects: (...a: any[]) => mockRemoveObjects(...a),
+  moveObject: (...a: any[]) => mockMoveObject(...a),
+  StorageAdminError: class StorageAdminError extends Error {
+    constructor(message: string, public status = 500) {
+      super(message);
+    }
+  },
+}));
+
 import docTypesApp from './docTypes';
 
 const ENV = {} as any;
@@ -199,7 +219,7 @@ describe('POST /email — send a resource as an attachment', () => {
     // Same rule as GET /: without resource:write an 'employee' file is invisible,
     // so it must not be emailable either.
     currentGrants = ['resource:read'];
-    mockExecQuery.mockResolvedValue({ rows: [{ 1: 1 }] });
+    mockExecQuery.mockResolvedValue({ rows: [{ doc_path: 'HR/Handbook.pdf', doc_type: 'employee' }] });
     const res = await req('/email', json('POST', { path: 'HR/Handbook.pdf', to: 'c@example.com' }));
     expect(res.status).toBe(404);
     expect(mockEmailStoredFile).not.toHaveBeenCalled();
@@ -211,5 +231,65 @@ describe('POST /email — send a resource as an attachment', () => {
     const res = await req('/email', json('POST', { path: 'Reps/Big.pdf', to: 'c@example.com' }));
     expect(res.status).toBe(413);
     expect((await res.json()) as any).toEqual({ success: false, message: 'too big' });
+  });
+});
+
+describe('/storage/* — Resources bytes brokered by the Worker', () => {
+  const TYPES = { rows: [{ doc_path: 'HR', doc_type: 'employee' }, { doc_path: 'Reps/Secret.pdf', doc_type: 'employee' }] };
+
+  it('hides employee files AND everything under an employee folder from a read-only caller', async () => {
+    currentGrants = ['resource:read'];
+    mockExecQuery.mockResolvedValue(TYPES);
+    mockListObjects.mockResolvedValue([
+      { name: 'Price.pdf', id: '1' },
+      { name: 'Secret.pdf', id: '2' },
+    ]);
+    const res = await req('/storage/list', json('POST', { prefix: 'Reps' }));
+    expect(((await res.json()) as any).data.map((e: any) => e.name)).toEqual(['Price.pdf']);
+
+    mockListObjects.mockResolvedValue([{ name: 'HR', id: null }, { name: 'Training', id: null }]);
+    const root = await req('/storage/list', json('POST', { prefix: '' }));
+    expect(((await root.json()) as any).data.map((e: any) => e.name)).toEqual(['Training']);
+  });
+
+  it('shows everything to a resource:write holder', async () => {
+    mockListObjects.mockResolvedValue([{ name: 'HR', id: null }]);
+    const res = await req('/storage/list', json('POST', { prefix: '' }));
+    expect(((await res.json()) as any).data).toHaveLength(1);
+    expect(mockExecQuery).not.toHaveBeenCalled();
+  });
+
+  it('refuses a view URL for a file inside an employee folder (inherited type)', async () => {
+    currentGrants = ['resource:read'];
+    mockExecQuery.mockResolvedValue(TYPES);
+    const res = await req('/storage/view-url', json('POST', { path: 'HR/Sub/Handbook.pdf' }));
+    expect(res.status).toBe(404);
+    expect(mockSignObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it('signs a forced-download URL for a visible file', async () => {
+    currentGrants = ['resource:read'];
+    mockExecQuery.mockResolvedValue(TYPES);
+    mockSignObjectUrl.mockResolvedValue('https://x.test/s?token=t');
+    const res = await req('/storage/view-url', json('POST', { path: 'Reps/Price List.pdf', download: true }));
+    expect(((await res.json()) as any).data.url).toBe('https://x.test/s?token=t&download=Price%20List.pdf');
+  });
+
+  it.each(['upload-url', 'remove'])('403s %s without resource:write', async (route) => {
+    currentGrants = ['resource:read'];
+    const res = await req(`/storage/${route}`, json('POST', { path: 'Reps/x.pdf' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('upload URL is signed with upsert (re-upload replaces)', async () => {
+    mockSignUploadUrl.mockResolvedValue('u');
+    await req('/storage/upload-url', json('POST', { path: 'Reps/x.pdf' }));
+    expect(mockSignUploadUrl).toHaveBeenCalledWith(ENV, 'rep-docs', 'Reps/x.pdf', true);
+  });
+
+  it('400s traversal paths', async () => {
+    const res = await req('/storage/move', json('POST', { fromPath: 'Reps/x.pdf', toPath: '../record-docs/x.pdf' }));
+    expect(res.status).toBe(400);
+    expect(mockMoveObject).not.toHaveBeenCalled();
   });
 });
