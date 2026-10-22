@@ -17,6 +17,7 @@ import {
   BACKUP_BUCKETS, backupStorageToSupabase, storageBackupStatus,
   restoreObjectFromBackup, restoreBucketBatch,
   backupPauseState, setBackupPaused,
+  verifyBackupBatch, verifyBackupTotal, VERIFY_JOB_NAME,
 } from '../storageBackup';
 import { recentRunsForJob, runJob, logCompletedRun } from '../cronMonitor';
 import { JOB_REGISTRY } from '../jobRegistry';
@@ -202,10 +203,21 @@ app.get('/storage-backup', requirePermission('setting:read'), async (c) => {
   return c.json({ success: true, data: { buckets, ...pause } });
 });
 
-// Last 7 days of backupStorage runs (dates/times/status) — job-specific, not
-// the shared 100-row recentRuns() a frequent-tier job elsewhere would crowd out.
+// Last 7 days of the two document-backup jobs (dates/times/status) —
+// job-specific, not the shared 100-row recentRuns() a frequent-tier job
+// elsewhere would crowd out. Verification runs are merged in rather than
+// given their own table: they are runs against the same mirror, and a
+// "nothing copied" sweep reads very differently next to the verification pass
+// that proves the mirror is actually intact. Callers tell them apart by
+// job_name, which CronRunRow already carries.
 app.get('/storage-backup/history', requirePermission('setting:read'), async (c) => {
-  const runs = await recentRunsForJob(c.env, 'backupStorage', 7);
+  const [sweeps, verifications] = await Promise.all([
+    recentRunsForJob(c.env, 'backupStorage', 7),
+    recentRunsForJob(c.env, VERIFY_JOB_NAME, 7),
+  ]);
+  const runs = [...sweeps, ...verifications].sort(
+    (a, b) => +new Date(b.started_at) - +new Date(a.started_at)
+  );
   return c.json({ success: true, data: runs });
 });
 
@@ -237,6 +249,33 @@ app.post('/storage-backup/run', requirePermission('setting:write'), async (c) =>
   const detail = await runJob(c.env, 'backupStorage', () => backupStorageToSupabase(c.env));
   const buckets = await storageBackupStatus(c.env);
   return c.json({ success: true, data: { buckets, ...(await backupPauseState(c.env)), detail } });
+});
+
+// Verifies one cursor-paged slice of the mirror and repairs what it finds
+// wrong — the backward pass the incremental sweep can't do, see
+// storageBackup.ts's Verification section. Paged for the same reason the
+// sweep is: one ranged GET per object against a per-invocation subrequest cap
+// that runs out well before 12k objects, so the panel calls this in a loop
+// until `cursor` comes back null.
+//
+// setting:write, not setting:read: a failed check deletes the rotten mirror
+// object and its ledger row so the next sweep re-copies the file properly.
+// Allowed while the backup is paused (unlike /run), since the check itself is
+// read-only against live storage and the repairs are what a later resume
+// acts on — but the panel says so, because nothing gets re-copied until then.
+app.post('/storage-backup/verify', requirePermission('setting:write'), async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const cursor = typeof body.cursor === 'string' ? body.cursor : null;
+  try {
+    const result = await verifyBackupBatch(c.env, cursor);
+    // Only on the first call: the panel needs a denominator for its progress
+    // bar, and re-counting the whole ledger on every call in the loop would
+    // be a wasted query per batch.
+    const total = cursor ? undefined : await verifyBackupTotal(c.env);
+    return c.json({ success: true, data: { ...result, ...(total === undefined ? {} : { total }) } });
+  } catch (e) {
+    return c.json({ success: false, message: e instanceof Error ? e.message : 'Verification failed' }, 500);
+  }
 });
 
 // The stop/start switch. Writes scheduled_job.cron_tier ('off' <-> 'nightly'),
@@ -354,8 +393,12 @@ app.post('/backup/storage/object', requirePermission('setting:write'), async (c)
 // than the Worker timing a function it never actually ran.
 app.post('/backup/log', requirePermission('setting:write'), async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  if (body.job_name !== 'exportStorage' && body.job_name !== 'restoreStorage') {
-    return c.json({ success: false, message: 'job_name must be exportStorage or restoreStorage' }, 400);
+  // verifyBackup rides this endpoint too: its loop also runs in the browser
+  // (one HTTP call per batch), so the Worker never sees the pass as a whole
+  // and can't time it with runJob the way a cron job is timed.
+  const ALLOWED = ['exportStorage', 'restoreStorage', VERIFY_JOB_NAME];
+  if (!ALLOWED.includes(body.job_name)) {
+    return c.json({ success: false, message: `job_name must be one of: ${ALLOWED.join(', ')}` }, 400);
   }
   await logCompletedRun(
     c.env,

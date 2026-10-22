@@ -4,9 +4,11 @@
  *  - Supabase: everything that happens on Supabase's own side. The nightly
  *    worker/storageBackup.ts mirror of record-docs/rep-docs/item-images into
  *    a second bucket (migrations 105/106/109) — per-bucket progress, a
- *    manual "back up now", a stop/resume switch, and restore (one file or a
- *    whole bucket) from that mirror — plus a read-only list of Supabase's own
- *    managed Postgres backups (worker/backupExport.ts's Management API call).
+ *    manual "back up now", a "verify backup" pass that reads the mirrored
+ *    bytes back and repairs what rotted, a stop/resume switch, and restore
+ *    (one file or a whole bucket) from that mirror — plus a read-only list of
+ *    Supabase's own managed Postgres backups (worker/backupExport.ts's
+ *    Management API call).
  *    The mirror copying happens in the Worker on a Cron Trigger regardless of
  *    whether this page is open; only whole-bucket restore genuinely needs it
  *    open (its loop lives in confirmRestoreBucket below).
@@ -33,14 +35,16 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import DownloadIcon from '@mui/icons-material/Download';
 import FolderIcon from '@mui/icons-material/Folder';
 import UploadIcon from '@mui/icons-material/Upload';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import { formatDateTime } from '@meterit/framework-frontend/utils';
 import {
   getStorageBackupStatus, getStorageBackupHistory, runStorageBackupNow,
   restoreStorageObject, restoreStorageBucketBatch, setStorageBackupPaused,
   downloadDatabaseBackup, getManagedBackups, listLiveStorageObjects,
   fetchLiveStorageObjectBytes, restoreLiveStorageObjectBytes, logBackupRun,
-  getBackupHistory,
+  getBackupHistory, verifyStorageBackupBatch,
   type StorageBackupState, type BackupBucket, type CronRun, type ManagedBackupsResult, type DbDumpProgress,
+  type VerifyBatchResult,
 } from '../../services/settingsService';
 
 const EXPORT_BUCKETS: BackupBucket[] = ['record-docs', 'rep-docs', 'item-images'];
@@ -176,12 +180,35 @@ function HistoryStatusChip({ status }: { status: CronRun['status'] }) {
   return <Chip size="small" label="ok" color="success" variant="outlined" />;
 }
 
-// detail jsonb (migration 108) on a backupStorage row is {copied, failed,
-// stopped} — see storageBackup.ts's StorageBackupRunDetail.
-function fmtDetail(detail: Record<string, unknown> | null): string {
-  if (!detail) return '—';
-  const { copied, failed, stopped } = detail as { copied?: number; failed?: number; stopped?: boolean };
-  return `${copied ?? 0} copied${failed ? `, ${failed} failed` : ''}${stopped ? ' (stopped early)' : ''}`;
+/** The job_name a verification pass is logged under — see the Worker's
+ *  VERIFY_JOB_NAME. The history table carries both kinds of run. */
+const VERIFY_JOB = 'verifyBackup';
+
+const RUN_KIND_LABELS: Record<string, string> = {
+  backupStorage: 'Backup',
+  [VERIFY_JOB]: 'Verify',
+};
+
+// detail jsonb (migration 108) is job-shaped: {copied, failed, stopped} for a
+// backupStorage sweep (storageBackup.ts's StorageBackupRunDetail),
+// {checked, repaired, lost, failed} for a verification pass.
+function fmtRunDetail(run: CronRun): string {
+  if (!run.detail) return '—';
+  if (run.job_name === VERIFY_JOB) {
+    const d = run.detail as { checked?: number; repaired?: number; lost?: number; failed?: number; stopped?: boolean };
+    const parts = [`${(d.checked ?? 0).toLocaleString()} checked`];
+    if (d.repaired) parts.push(`${d.repaired.toLocaleString()} repaired`);
+    if (d.lost) parts.push(`${d.lost.toLocaleString()} unrecoverable`);
+    if (d.failed) parts.push(`${d.failed.toLocaleString()} unchecked`);
+    if (parts.length === 1) parts.push('all intact');
+    return parts.join(', ') + (d.stopped ? ' (stopped early)' : '');
+  }
+  const { copied, failed, stopped } = run.detail as { copied?: number; failed?: number; stopped?: boolean };
+  // A sweep copies only what's new, so zero is the normal steady state once
+  // the mirror has caught up — printing a bare "0 copied" against a green
+  // "ok" read like a broken job, which is exactly how it got reported.
+  if (!copied && !failed) return stopped ? 'Stopped before copying anything' : 'No new files to copy';
+  return `${(copied ?? 0).toLocaleString()} copied${failed ? `, ${failed.toLocaleString()} failed` : ''}${stopped ? ' (stopped early)' : ''}`;
 }
 
 /** What the last backup run did, shown in the card itself so the answer to
@@ -218,6 +245,51 @@ function lastRunFromHistory(run: CronRun | undefined): LastRun | null {
   };
 }
 
+/** What the last verification pass found. Separate from LastRun because the
+ *  two answer different questions: LastRun is "did anything new get copied",
+ *  this is "is what was copied before still there and still correct". */
+interface LastVerify {
+  checked: number;
+  repaired: number;
+  lost: number;
+  failed: number;
+  stopped: boolean;
+  durationMs: number | null;
+  at: string | null;
+}
+
+function lastVerifyFromHistory(run: CronRun | undefined): LastVerify | null {
+  if (!run) return null;
+  const d = (run.detail ?? {}) as { checked?: number; repaired?: number; lost?: number; failed?: number; stopped?: boolean };
+  return {
+    checked: d.checked ?? 0,
+    repaired: d.repaired ?? 0,
+    lost: d.lost ?? 0,
+    failed: d.failed ?? 0,
+    stopped: d.stopped ?? false,
+    durationMs: run.duration_ms,
+    at: run.finished_at ?? run.started_at,
+  };
+}
+
+/** Worst thing the pass found decides the colour — a repair is good news
+ *  (it's already fixed) but means the mirror WAS wrong, and a file whose
+ *  backup and source are both gone is the one outcome this whole feature
+ *  exists to surface. */
+function verifySeverity(v: LastVerify): 'success' | 'warning' | 'error' {
+  if (v.lost > 0) return 'error';
+  if (v.repaired > 0 || v.failed > 0 || v.stopped) return 'warning';
+  return 'success';
+}
+
+function verifyHeadline(v: LastVerify): string {
+  if (v.lost > 0) return `${v.lost.toLocaleString()} ${v.lost === 1 ? 'file has' : 'files have'} no usable copy left`;
+  if (v.repaired > 0) return `${v.repaired.toLocaleString()} backup ${v.repaired === 1 ? 'copy was' : 'copies were'} rebuilt`;
+  if (v.failed > 0) return `${v.failed.toLocaleString()} ${v.failed === 1 ? 'file could' : 'files could'} not be checked`;
+  if (v.stopped) return 'Verification stopped before finishing';
+  return 'Every backup copy checked and intact';
+}
+
 const LAST_RUN_SEVERITY: Record<LastRun['outcome'], 'success' | 'info' | 'warning' | 'error'> = {
   complete: 'success',
   uptodate: 'info',
@@ -230,10 +302,11 @@ function lastRunHeadline(r: LastRun): string {
   // work is kept, and running again resumes rather than starting over.
   if (r.outcome === 'failed') return r.copied > 0 ? 'Last run stopped on an error' : 'Last run failed';
   if (r.outcome === 'stopped') return 'Last run was stopped';
-  // Only a scheduled run can land here: it copies just what's new, so zero
-  // copied means nothing was added since the run before it. "Back up now"
-  // always re-copies everything, so a manual run is never 'uptodate'.
-  if (r.outcome === 'uptodate') return 'Last scheduled run: no new files to copy';
+  // Both a scheduled tick and "Back up now" land here once the mirror has
+  // caught up: each copies only what the ledger doesn't already have, so zero
+  // copied means nothing was uploaded since the run before it. Proving the
+  // copies already made are still intact is "Verify backup", not this.
+  if (r.outcome === 'uptodate') return 'Last run: no new files to copy';
   return 'Last run finished';
 }
 
@@ -308,6 +381,20 @@ export default function StorageBackupPanel() {
   // loop is an already-executing async function and would never see a later
   // setState.
   const runCancelledRef = useRef(false);
+  // Verification is its own run with its own counters: it reads already-copied
+  // objects back rather than copying new ones, so none of the backup run's
+  // state above describes it.
+  const [verifying, setVerifying] = useState(false);
+  const [verifyChecked, setVerifyChecked] = useState(0);
+  const [verifyTotal, setVerifyTotal] = useState(0);
+  const [verifyRepaired, setVerifyRepaired] = useState(0);
+  const [verifyLost, setVerifyLost] = useState(0);
+  const [lastVerify, setLastVerify] = useState<LastVerify | null>(null);
+  const [confirmVerify, setConfirmVerify] = useState(false);
+  // A ref for the same reason as the other loop flags here: the verify loop is
+  // an already-running async function and would never see a setState.
+  const verifyCancelledRef = useRef(false);
+  const [verifyStopRequested, setVerifyStopRequested] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -347,6 +434,11 @@ export default function StorageBackupPanel() {
   const [confirmRestoreDisk, setConfirmRestoreDisk] = useState(false);
 
   const [tab, setTab] = useState(0);
+
+  // Declared up here, not with the other derived values below: the run
+  // callbacks read it, and a const declared after them would be in its
+  // temporal dead zone when their dependency arrays are evaluated.
+  const paused = state?.paused ?? false;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -704,6 +796,117 @@ export default function StorageBackupPanel() {
     }
   }, []);
 
+  // "Verify backup" is the pass "Back up now" can't be. The sweep anti-joins
+  // the ledger, so it never looks at an object it has already copied — which
+  // is correct (Supabase's object/copy has no upsert, so re-copying the lot
+  // would conflict on every object and write nothing) but means a mirror
+  // object that lost its bytes, or a source file replaced in place after it
+  // was mirrored, would go unnoticed forever. This reads every mirrored
+  // object's real bytes back and compares them with the source, repairing
+  // what doesn't match.
+  //
+  // Cursor-paged from here for the same reason the backup loop is: one ranged
+  // GET per object against a per-invocation subrequest cap that runs out well
+  // short of 12k. Needs the tab open; stopping (or closing it) loses nothing
+  // beyond the rest of the pass — repairs already made are already made.
+  const runVerify = useCallback(async () => {
+    setConfirmVerify(false);
+    setVerifying(true);
+    setError(null);
+    setMessage(null);
+    verifyCancelledRef.current = false;
+    setVerifyStopRequested(false);
+    setVerifyChecked(0);
+    setVerifyTotal(0);
+    setVerifyRepaired(0);
+    setVerifyLost(0);
+    setLastVerify(null);
+    let checked = 0;
+    let repaired = 0;
+    let lost = 0;
+    let failed = 0;
+    let cursor: string | null = null;
+    // A batch that neither advanced the cursor nor checked anything made no
+    // progress — it ran out of subrequests on its very first chunk, and the
+    // server honestly hands back the cursor it was given. Looping on that
+    // would spin forever, so give it a couple of tries (the next invocation
+    // may get a bigger budget) and then stop.
+    let stalled = 0;
+    const startedAt = Date.now();
+    try {
+      for (;;) {
+        let res: VerifyBatchResult | null = null;
+        // Retried like the backup loop's batches: a transient network blip
+        // shouldn't cost the whole pass, and a batch is idempotent.
+        for (let attempt = 1; ; attempt++) {
+          try {
+            res = await verifyStorageBackupBatch(cursor);
+            break;
+          } catch (e) {
+            if (attempt >= 4 || verifyCancelledRef.current) throw e;
+            await new Promise((r) => setTimeout(r, attempt * 2000));
+          }
+        }
+        if (!res) break;
+        // Only the first batch reports it — re-counting the ledger every call
+        // would be a wasted query per batch.
+        if (res.total != null) setVerifyTotal(res.total);
+        checked += res.checked;
+        repaired += res.repaired;
+        lost += res.lost;
+        failed += res.failed;
+        setVerifyChecked(checked);
+        setVerifyRepaired(repaired);
+        setVerifyLost(lost);
+        const advanced = res.cursor !== cursor || res.checked > 0;
+        stalled = advanced ? 0 : stalled + 1;
+        cursor = res.cursor;
+        if (cursor === null || verifyCancelledRef.current || stalled >= 3) break;
+      }
+      const stopped = verifyCancelledRef.current || cursor !== null;
+      setLastVerify({
+        checked, repaired, lost, failed, stopped,
+        durationMs: Date.now() - startedAt,
+        at: new Date().toISOString(),
+      });
+      if (lost > 0) {
+        setError(
+          `${lost.toLocaleString()} ${lost === 1 ? 'file has' : 'files have'} neither a live copy nor a usable backup — see the Worker log for the paths.`
+        );
+      } else if (repaired > 0) {
+        // The repair is only half the fix: the re-copy itself happens on the
+        // next sweep, which is why this says so rather than claiming done.
+        setMessage(
+          `Checked ${checked.toLocaleString()} files. ${repaired.toLocaleString()} ${repaired === 1 ? 'backup copy was' : 'backup copies were'} missing or out of date and ${repaired === 1 ? 'has' : 'have'} been queued to copy again${paused ? ' — resume the backup to let that happen' : ''}.`
+        );
+      } else if (stopped) {
+        setMessage(`Stopped after checking ${checked.toLocaleString()} files. Verifying again picks up from the start.`);
+      } else {
+        setMessage(`All ${checked.toLocaleString()} backed-up files verified — every copy is present and the right size.`);
+      }
+      await logBackupRun(
+        VERIFY_JOB,
+        lost > 0 ? 'error' : 'ok',
+        { checked, repaired, lost, failed, stopped },
+        Date.now() - startedAt,
+        lost > 0 ? `${lost} files have no usable copy left` : null
+      ).catch(() => {});
+      // Repairs drop ledger rows, so the per-bucket counts moved.
+      const [refreshed, hist] = await Promise.all([getStorageBackupStatus(), getStorageBackupHistory()]);
+      setState(refreshed);
+      setHistory(hist);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Verification failed');
+      setLastVerify({
+        checked, repaired, lost, failed, stopped: true,
+        durationMs: Date.now() - startedAt,
+        at: new Date().toISOString(),
+      });
+    } finally {
+      setVerifying(false);
+    }
+  }, [paused]);
+
   // Stopping is a server-side state change, not a client-side abort: the
   // backup runs in the Worker on a schedule, so "stop" has to be something a
   // later tick (or the tick running right now) can read — migration 107.
@@ -764,15 +967,18 @@ export default function StorageBackupPanel() {
     }
   }, [bulkRestoreBucket]);
 
-  const paused = state?.paused ?? false;
   // Reuses the mirror's own per-bucket totals (same live storage.objects
   // count the Cloud tab shows) as the denominator for the export's progress
   // bar — no separate count-everything-first pass needed.
   const exportTotal = state ? state.buckets.reduce((n, b) => n + b.total, 0) : 0;
   const runElapsed = useElapsed(running);
   // This session's run if there's been one, otherwise whatever the newest
-  // logged run did — so the card is never silent about the last backup.
-  const lastRunShown = lastRun ?? lastRunFromHistory(history[0]);
+  // logged run did — so the card is never silent about the last backup. The
+  // history now carries verification runs too, so pick the newest run of the
+  // right kind rather than just the newest row.
+  const lastRunShown = lastRun ?? lastRunFromHistory(history.find((r) => r.job_name !== VERIFY_JOB));
+  const lastVerifyShown = lastVerify ?? lastVerifyFromHistory(history.find((r) => r.job_name === VERIFY_JOB));
+  const verifyElapsed = useElapsed(verifying);
   // A full backup's denominator is every object; until the first batch reports
   // it, fall back to the bucket totals already on screen.
   const runDenominator = runTotal || exportTotal;
@@ -849,16 +1055,25 @@ export default function StorageBackupPanel() {
                     <Table size="small" data-testid="storage-backup-history-table">
                       <TableHead>
                         <TableRow>
+                          {/* Two kinds of run share this table — a sweep that
+                              copies new files and a verification pass that
+                              re-checks old ones. Without this column a 0-copied
+                              sweep and a clean verification are impossible to
+                              tell apart. */}
+                          <TableCell>Run</TableCell>
                           <TableCell>Started</TableCell>
                           <TableCell>Finished</TableCell>
                           <TableCell>Status</TableCell>
                           <TableCell align="right">Duration</TableCell>
-                          <TableCell>Copied</TableCell>
+                          <TableCell>Result</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {history.map((run) => (
                           <TableRow key={run.cron_run_log_id}>
+                            <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                              {RUN_KIND_LABELS[run.job_name] ?? run.job_name}
+                            </TableCell>
                             <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtTime(run.started_at)}</TableCell>
                             {/* cron_run_log has always recorded this; the table
                                 just never showed it, so a finished run read as
@@ -880,7 +1095,7 @@ export default function StorageBackupPanel() {
                             </TableCell>
                             <TableCell align="right">{fmtDuration(run.duration_ms)}</TableCell>
                             <TableCell>
-                              <Typography variant="caption" color="text.secondary">{fmtDetail(run.detail)}</Typography>
+                              <Typography variant="caption" color="text.secondary">{fmtRunDetail(run)}</Typography>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -910,7 +1125,12 @@ export default function StorageBackupPanel() {
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                     "Back up now" copies anything the schedule hasn't picked up yet. It is the same work
-                    the nightly run does, just immediately — everything already copied stays backed up.
+                    the nightly run does, just immediately — everything already copied stays backed up,
+                    so with nothing new waiting it finishes having copied nothing.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    "Verify backup" is the other direction: it reads every backed-up file's bytes back and
+                    compares them with the original, then re-queues anything missing or out of date.
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>
@@ -943,10 +1163,38 @@ export default function StorageBackupPanel() {
                       size="small"
                       startIcon={<CloudSyncIcon />}
                       onClick={runNow}
-                      disabled={loading || paused}
+                      disabled={loading || paused || verifying}
                       data-testid="storage-backup-run-now"
                     >
                       Back up now
+                    </Button>
+                  )}
+                  {/* Allowed while the backup is stopped: the checking is
+                      read-only and finding out the mirror is rotten is more
+                      use than being made to resume first. The repairs just sit
+                      pending until it is resumed, which the result says. */}
+                  {verifying ? (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      color="warning"
+                      startIcon={<StopIcon />}
+                      onClick={() => { verifyCancelledRef.current = true; setVerifyStopRequested(true); }}
+                      disabled={verifyStopRequested}
+                      data-testid="storage-backup-stop-verify"
+                    >
+                      Stop verifying
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<FactCheckIcon />}
+                      onClick={() => setConfirmVerify(true)}
+                      disabled={loading || running || totalBackedUp === 0}
+                      data-testid="storage-backup-verify"
+                    >
+                      Verify backup
                     </Button>
                   )}
                 </Stack>
@@ -1066,6 +1314,62 @@ export default function StorageBackupPanel() {
                         ].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
+              )}
+
+              {/* Verification's own readout. Deliberately not folded into the
+                  backup run's progress above: "12,000 of 12,799 copied" and
+                  "12,000 of 12,799 checked" mean completely different things,
+                  and a repair count has no equivalent on the copy side. */}
+              {verifying ? (
+                <Box sx={{ mb: 2 }} data-testid="storage-backup-verify-progress">
+                  <LinearProgress
+                    variant={verifyTotal > 0 ? 'determinate' : 'indeterminate'}
+                    value={verifyTotal > 0 ? Math.min(100, Math.floor((verifyChecked / verifyTotal) * 100)) : undefined}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    {[
+                      verifyStopRequested ? 'Stopping…' : 'Verifying…',
+                      verifyTotal > 0
+                        ? `${verifyChecked.toLocaleString()} of ${verifyTotal.toLocaleString()} files checked`
+                        : `${verifyChecked.toLocaleString()} files checked`,
+                      verifyRepaired > 0 ? `${verifyRepaired.toLocaleString()} repaired` : null,
+                      verifyLost > 0 ? `${verifyLost.toLocaleString()} unrecoverable` : null,
+                      `${fmtDuration(verifyElapsed)} elapsed`,
+                      etaText(verifyChecked, verifyTotal, verifyElapsed) || null,
+                    ].filter(Boolean).join(' · ')}
+                  </Typography>
+                </Box>
+              ) : lastVerifyShown ? (
+                <Alert
+                  severity={verifySeverity(lastVerifyShown)}
+                  icon={false}
+                  sx={{ mb: 2 }}
+                  data-testid="storage-backup-verify-status"
+                >
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <strong>{verifyHeadline(lastVerifyShown)}</strong>
+                    <span>·</span>
+                    <span>{lastVerifyShown.checked.toLocaleString()} files checked</span>
+                    {lastVerifyShown.failed > 0 && (
+                      <>
+                        <span>·</span>
+                        <span>{lastVerifyShown.failed.toLocaleString()} not checkable</span>
+                      </>
+                    )}
+                    <span>·</span>
+                    <span>took {fmtDuration(lastVerifyShown.durationMs)}</span>
+                    {lastVerifyShown.at && (
+                      <>
+                        <span>·</span>
+                        <span>{fmtTime(lastVerifyShown.at)}</span>
+                      </>
+                    )}
+                  </Stack>
+                </Alert>
+              ) : (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                  The backup copies have never been checked against the originals. "Verify backup" does that.
+                </Typography>
               )}
 
               {state && (
@@ -1305,6 +1609,31 @@ export default function StorageBackupPanel() {
           </Card>
         </>
       )}
+
+      {/* Confirmed rather than run on one click: the pass can delete mirror
+          objects (that is how a stale copy gets rebuilt), it can take a while
+          on a mirror this size, and it needs the tab left open. */}
+      <Dialog open={confirmVerify} onClose={() => setConfirmVerify(false)}>
+        <DialogTitle>Verify every backup copy?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Each of the {totalBackedUp.toLocaleString()} backed-up files is read back from the backup
+            bucket and compared with the original. Nothing in live storage is touched. A copy that is
+            missing, empty or out of date is deleted from the backup bucket and queued to be copied
+            again{paused ? ' — which only happens once the backup is resumed' : ' on the next run'}.
+          </DialogContentText>
+          <DialogContentText sx={{ mt: 2 }}>
+            This runs in batches and takes a while — keep this tab open. Stopping part-way is safe;
+            anything already checked or repaired stays that way.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmVerify(false)}>Cancel</Button>
+          <Button onClick={runVerify} variant="contained" startIcon={<FactCheckIcon />} data-testid="storage-backup-verify-confirm">
+            Verify backup
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!bulkRestoreBucket} onClose={() => !bulkRestoring && setBulkRestoreBucket(null)}>
         <DialogTitle>Restore entire bucket?</DialogTitle>

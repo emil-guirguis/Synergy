@@ -209,7 +209,8 @@ export async function getStorageBackupStatus(): Promise<StorageBackupState> {
   return data.data;
 }
 
-/** Last 7 days of backupStorage runs, newest first — reuses CronRun's shape. */
+/** Last 7 days of backupStorage AND verifyBackup runs merged, newest first —
+ *  reuses CronRun's shape; tell them apart by `job_name`. */
 export async function getStorageBackupHistory(): Promise<CronRun[]> {
   const data = await parse(await fetch(`${API_BASE_URL}/settings/storage-backup/history`, { headers: authHeaders() }));
   return data.data;
@@ -240,6 +241,44 @@ export async function setStorageBackupPaused(paused: boolean): Promise<StorageBa
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ paused }),
+    })
+  );
+  return data.data;
+}
+
+export interface VerifyBatchResult {
+  checked: number;
+  ok: number;
+  /** Mirror copy was missing/empty/stale and the source is still there, so it
+   *  was cleared for the next sweep to copy again. */
+  repaired: number;
+  /** Mirror copy was rotten AND the source file is gone — unrecoverable. */
+  lost: number;
+  /** Couldn't be checked this pass; left alone and re-checked next time. */
+  failed: number;
+  cursor: string | null;
+  stopped: boolean;
+  /** Ledger rows the whole pass has to get through — returned on the FIRST
+   *  call only (no cursor), as the progress denominator. */
+  total?: number;
+}
+
+/** Verifies one batch of the mirror: reads each backed-up object's real bytes
+ *  back and compares them with the source, repairing anything rotten (see the
+ *  Worker's storageBackup.ts). Call again with the returned cursor until it
+ *  comes back null — StorageBackupPanel's "Verify backup" drives that loop.
+ *
+ *  This is the pass "Back up now" deliberately cannot be: the sweep skips
+ *  every object already in the ledger, so it never re-examines a copy it made
+ *  before. A re-copy of everything would be pointless anyway — Supabase's
+ *  object/copy has no upsert, so it would just conflict on every object and
+ *  write nothing. */
+export async function verifyStorageBackupBatch(cursor: string | null): Promise<VerifyBatchResult> {
+  const data = await parse(
+    await fetch(`${API_BASE_URL}/settings/storage-backup/verify`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ cursor }),
     })
   );
   return data.data;
@@ -402,7 +441,7 @@ export async function restoreLiveStorageObjectBytes(bucket: BackupBucket, path: 
 }
 
 export async function logBackupRun(
-  jobName: 'exportStorage' | 'restoreStorage',
+  jobName: 'exportStorage' | 'restoreStorage' | 'verifyBackup',
   status: 'ok' | 'error',
   detail?: Record<string, unknown> | null,
   durationMs?: number | null,

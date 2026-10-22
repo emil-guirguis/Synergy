@@ -31,6 +31,11 @@
  * Cloudflare Cron Trigger, so it runs with the portal closed. (Whole-bucket
  * RESTORE is the opposite — restoreBucketBatch is driven in a loop by the
  * Settings panel and stops if that tab goes away.)
+ *
+ * Because the ledger makes the sweep skip anything already copied, nothing in
+ * that path ever re-examines a mirror object — so verifyBackupBatch (the
+ * Verification section at the end of this file) is the separate backward
+ * pass that reads the mirror's real bytes back and repairs what rotted.
  */
 import { Env, execQuery } from './db';
 import { isJobPaused, setJobTier, jobTier, type CronTier } from './cronMonitor';
@@ -58,6 +63,16 @@ function requireSupabaseEnv(env: Env): { url: string; key: string } {
   return { url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY };
 }
 
+/** True if the destination object exists with real, matching bytes — the
+ *  409 reconciliation below. A thin read of inspectMirrorObject (see the
+ *  Verification section at the end of this file): the ranged-GET-not-HEAD
+ *  trick both callers depend on lives in one place, since getting it wrong
+ *  means trusting a ghost object. expectedSize is only compared when known
+ *  (the 409 retry path doesn't always have one). */
+async function destinationLooksReal(env: Env, destinationKey: string, expectedSize: string | null): Promise<boolean> {
+  return (await inspectMirrorObject(env, destinationKey, expectedSize)) === 'ok';
+}
+
 /** Mirrors one object into the backup bucket via Supabase Storage's
  *  server-side object/copy — same call restoreObjectFromBackup already uses
  *  for the reverse direction. This replaced a download-then-reupload
@@ -69,23 +84,6 @@ function requireSupabaseEnv(env: Env): { url: string; key: string } {
  *  so download+reupload was the only option there; moving the destination
  *  into the same Supabase project (109) made a server-side copy possible,
  *  but only restoreObjectFromBackup was written to use it at the time. */
-/** True if the destination object exists with real, matching bytes. Uses a
- *  ranged GET, not HEAD — this project's Storage API has a known history of
- *  HEAD returning 200 for objects with no real bytes behind them (the same
- *  ghost-object class as the quote-doc-bytes audit), so HEAD can't be
- *  trusted here. expectedSize is only checked when known (the 409 retry path
- *  below doesn't have one). */
-async function destinationLooksReal(env: Env, destinationKey: string, expectedSize: string | null): Promise<boolean> {
-  const { url, key } = requireSupabaseEnv(env);
-  const res = await fetch(`${url}/storage/v1/object/${BACKUP_BUCKET}/${destinationKey.split('/').map(encodeURIComponent).join('/')}`, {
-    headers: { Authorization: `Bearer ${key}`, apikey: key, Range: 'bytes=0-0' },
-  });
-  if (res.status !== 206) return false;
-  if (expectedSize == null) return true;
-  const total = res.headers.get('content-range')?.split('/')[1];
-  return total != null && Number(total) === Number(expectedSize);
-}
-
 async function copyToBackupBucket(
   env: Env,
   sourceBucket: string,
@@ -455,4 +453,272 @@ export async function restoreBucketBatch(env: Env, bucket: string, cursor?: stri
     lastPath = path;
   }
   return { restored, failed, cursor: rows.length === BATCH_SIZE ? lastPath : null };
+}
+
+// --- Verification -----------------------------------------------------------
+//
+// The backup sweep only ever looks FORWARD: pendingObjects anti-joins
+// storage.objects against the ledger, so once an object has a
+// storage_backup_object row it is never looked at again. That is the right
+// shape for a backup (re-copying an object already mirrored is pure waste —
+// object/copy has no upsert, so a "start over" sweep would 409 on every
+// single object, fall into destinationLooksReal, and write nothing), but it
+// means nothing ever re-checks the mirror itself. Two things can rot behind
+// the ledger's back:
+//
+//   1. The mirror object loses its bytes, or never really had them. This
+//      project has a documented history of exactly that (the quote-doc audit
+//      found 404 of 1456 documents with a storage.objects row and no bytes),
+//      and the ledger would still claim the file is backed up.
+//   2. The SOURCE object is replaced in place — same bucket, same path, new
+//      bytes. The ledger row already exists, so the sweep skips it forever
+//      and the mirror keeps the old version.
+//
+// verifyBackupBatch is the backward pass: for every ledger row, read the
+// mirror object's real size and compare it with the source's current size.
+// Anything that doesn't match is REPAIRED rather than just reported — the
+// stale/ghost mirror object is deleted and its ledger row dropped, which puts
+// the object back in pendingObjects' sight so the next sweep copies it
+// properly. Deleting the mirror object is not optional: object/copy has no
+// upsert, so a re-copy over a surviving stale object would 409 forever.
+//
+// Admin-triggered from Settings > Backup, cursor-paged and driven by a loop
+// in the panel, for the same reason "back up now" is: one Worker invocation
+// runs out of subrequests long before 12k objects (observed 50-304 here, not
+// the documented 1000), and each row costs one ranged GET.
+
+/** How a mirror object compares with what the ledger/source say it should be. */
+type MirrorState = 'ok' | 'missing' | 'mismatch' | 'error';
+
+function encodeStoragePath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
+/** Reads the mirror object's real size with a ranged GET and says how it
+ *  compares with `expectedSize`. A ranged GET, never HEAD: this project's
+ *  Storage API answers HEAD with 200 for objects that have no bytes behind
+ *  them at all (the ghost-object class above), so only a request that
+ *  actually asks for bytes can tell a real object from a dead row. A missing
+ *  object answers 400 with a 404 in the body here, not a 404 status — hence
+ *  treating both as 'missing'. Lets fetch() rejections (notably Cloudflare's
+ *  subrequest limit) propagate: the caller has to tell "this invocation is
+ *  spent" apart from "this object is bad". */
+async function inspectMirrorObject(env: Env, destinationKey: string, expectedSize: string | null): Promise<MirrorState> {
+  const { url, key } = requireSupabaseEnv(env);
+  const res = await fetch(`${url}/storage/v1/object/${BACKUP_BUCKET}/${encodeStoragePath(destinationKey)}`, {
+    headers: { Authorization: `Bearer ${key}`, apikey: key, Range: 'bytes=0-0' },
+  });
+  if (res.status === 206) {
+    if (expectedSize == null) return 'ok';
+    const total = res.headers.get('content-range')?.split('/')[1];
+    return total != null && Number(total) === Number(expectedSize) ? 'ok' : 'mismatch';
+  }
+  // 416 means the object exists but has no first byte to hand back — a
+  // zero-length object, which for a document mirror is a dead copy either way.
+  if (res.status === 400 || res.status === 404 || res.status === 416) return 'missing';
+  return 'error';
+}
+
+/** Removes a rotten mirror object so the next sweep's object/copy can land
+ *  (it has no upsert and would 409 against a surviving one). An object that's
+ *  already gone is the desired state, not an error — hence tolerating the
+ *  missing-object answers (400/404). */
+async function deleteMirrorObject(env: Env, destinationKey: string): Promise<void> {
+  const { url, key } = requireSupabaseEnv(env);
+  const res = await fetch(`${url}/storage/v1/object/${BACKUP_BUCKET}/${encodeStoragePath(destinationKey)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${key}`, apikey: key },
+  });
+  if (!res.ok && res.status !== 404 && res.status !== 400) {
+    throw new Error(`Supabase mirror delete failed: ${res.status} ${await res.text().catch(() => '')}`);
+  }
+}
+
+async function dropLedgerRow(env: Env, bucket: string, path: string): Promise<void> {
+  await execQuery(
+    env,
+    `DELETE FROM public.storage_backup_object WHERE bucket = $1 AND storage_path = $2`,
+    [bucket, path],
+    'storageBackup.dropLedgerRow'
+  );
+}
+
+/** The job_name verification runs under in cron_run_log. No scheduled_job row
+ *  and no tier: it is admin-triggered only (the panel drives the loop), so it
+ *  never appears in jobsForTier. cron_run_log has no FK on job_name, so
+ *  logCompletedRun can write it without a migration. */
+export const VERIFY_JOB_NAME = 'verifyBackup';
+
+/** Rows pulled per call. Every row costs one ranged GET, so the real ceiling
+ *  is Cloudflare's per-invocation subrequest cap — which is both lower and
+ *  less predictable than documented (50-304 observed here, not 1000). Sized
+ *  above that high end rather than below the low end: hitting the cap is
+ *  handled (the call returns `stopped` with a cursor and the panel calls
+ *  again), while sizing for the worst case would cost a round trip per 50
+ *  objects even on a generous invocation. */
+const VERIFY_BATCH = 150;
+
+/** Wall-clock budget per call. Shorter than the sweep's MAX_TICK_MILLIS
+ *  because this is driven from the browser, not a cron tick: a call that
+ *  returns every ~20s keeps the panel's progress bar moving, and the cursor
+ *  means a short call costs nothing but one more round trip. */
+const VERIFY_MAX_MILLIS = 20_000;
+
+export interface VerifyBatchResult {
+  /** Ledger rows examined this call. */
+  checked: number;
+  /** Mirror object present with the right byte count. */
+  ok: number;
+  /** Mirror object missing, empty or stale AND the source is still there:
+   *  mirror object deleted and ledger row dropped, so the next sweep re-copies it. */
+  repaired: number;
+  /** Mirror object was rotten and the SOURCE is gone too — nothing left to
+   *  re-copy from, so that file is genuinely unrecoverable. The ledger row is
+   *  dropped so nothing keeps claiming it is backed up; the path is logged. */
+  lost: number;
+  /** Couldn't be checked (a non-2xx that isn't a missing-object answer, say):
+   *  left exactly as it was, so the next verification pass re-checks it. */
+  failed: number;
+  /** Pass back as `cursor` on the next call; null means the whole ledger has
+   *  been verified. */
+  cursor: string | null;
+  /** True if this call bailed on its time budget or the subrequest limit —
+   *  the cursor still says where to resume, it just isn't finished. */
+  stopped: boolean;
+}
+
+interface LedgerRow {
+  bucket: string;
+  storage_path: string;
+  /** Size recorded when the copy was made. node-postgres returns bigint as string. */
+  bytes: string | null;
+  /** The SOURCE object's size right now; null if the source no longer exists. */
+  live_size: string | null;
+  source_exists: boolean;
+}
+
+/** Verifies one cursor-paged slice of the ledger. Keyset-paged on
+ *  (bucket, storage_path) — the table's unique key, so the ORDER BY is an
+ *  index walk and rows the sweep inserts mid-verification can't shift the
+ *  page under us the way an OFFSET would. */
+export async function verifyBackupBatch(env: Env, cursor?: string | null): Promise<VerifyBatchResult> {
+  // Cursor is `${bucket}/${path}`; bucket names contain no '/', so the first
+  // one separates them.
+  const slash = cursor ? cursor.indexOf('/') : -1;
+  const fromBucket = slash > 0 ? cursor!.slice(0, slash) : '';
+  const fromPath = slash > 0 ? cursor!.slice(slash + 1) : '';
+
+  const { rows } = await execQuery(
+    env,
+    `SELECT b.bucket, b.storage_path, b.bytes,
+            (o.metadata->>'size')::bigint AS live_size,
+            (o.name IS NOT NULL) AS source_exists
+       FROM public.storage_backup_object b
+       LEFT JOIN storage.objects o
+         ON o.bucket_id = b.bucket AND o.name = b.storage_path
+        AND o.is_delete_marker = false AND o.archived_at IS NULL
+      WHERE (b.bucket, b.storage_path) > ($1, $2)
+      ORDER BY b.bucket, b.storage_path
+      LIMIT $3`,
+    [fromBucket, fromPath, VERIFY_BATCH],
+    'storageBackup.verify.page'
+  );
+  const page: LedgerRow[] = rows;
+  if (page.length === 0) return { checked: 0, ok: 0, repaired: 0, lost: 0, failed: 0, cursor: null, stopped: false };
+
+  const deadline = Date.now() + VERIFY_MAX_MILLIS;
+  let checked = 0;
+  let okCount = 0;
+  let repaired = 0;
+  let lost = 0;
+  let failed = 0;
+  let budgetSpent = false;
+  // Only advanced past a chunk that finished, so a call cut short by the
+  // subrequest limit resumes at the start of the chunk it died in. Re-checking
+  // a few rows is free — verification is idempotent — and much cheaper than
+  // the alternative of skipping them.
+  let resumeFrom: string | null = cursor ?? null;
+
+  for (let i = 0; i < page.length; i += CONCURRENCY) {
+    if (i > 0 && Date.now() >= deadline) {
+      return { checked, ok: okCount, repaired, lost, failed, cursor: resumeFrom, stopped: true };
+    }
+    const chunk = page.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (row): Promise<'ok' | 'error' | 'repaired' | 'lost' | 'spent'> => {
+        const destinationKey = `${row.bucket}/${row.storage_path}`;
+        // The source's CURRENT size is what the mirror has to match — that is
+        // what catches an object replaced in place, which the ledger alone
+        // never can. Falls back to the size recorded at copy time when the
+        // source is gone: a backup of a deleted file is the copy that matters
+        // most, and it is still checkable against what was copied.
+        const expected = row.source_exists ? row.live_size : row.bytes;
+        try {
+          const state = await inspectMirrorObject(env, destinationKey, expected);
+          if (state === 'ok' || state === 'error') return state;
+          // Rotten. Clear both sides so the sweep re-copies it from scratch.
+          if (!row.source_exists) {
+            console.error(`[verifyBackup] UNRECOVERABLE: ${destinationKey} (${state}) and the source is gone`);
+            await dropLedgerRow(env, row.bucket, row.storage_path);
+            return 'lost';
+          }
+          console.warn(`[verifyBackup] repairing ${destinationKey} (${state}) — will re-copy on the next sweep`);
+          await deleteMirrorObject(env, destinationKey);
+          await dropLedgerRow(env, row.bucket, row.storage_path);
+          return 'repaired';
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          // Same lesson as the sweep (see backupBucket): running out of
+          // subrequests means this invocation is spent, not that the object is
+          // bad. Counting it as a failure would report thousands of healthy
+          // files as unverifiable.
+          if (msg.includes('Too many subrequests')) return 'spent';
+          console.error(`[verifyBackup] check failed for ${destinationKey}:`, msg);
+          return 'error';
+        }
+      })
+    );
+    for (const r of results) {
+      if (r === 'spent') { budgetSpent = true; continue; }
+      checked++;
+      if (r === 'ok') okCount++;
+      else if (r === 'repaired') repaired++;
+      else if (r === 'lost') lost++;
+      else failed++;
+    }
+    if (budgetSpent) {
+      return { checked, ok: okCount, repaired, lost, failed, cursor: resumeFrom, stopped: true };
+    }
+    const last = chunk[chunk.length - 1];
+    resumeFrom = `${last.bucket}/${last.storage_path}`;
+  }
+
+  // A short page means the ledger is exhausted — a null cursor ends the
+  // panel's loop. A full page always hands back a cursor, even if the next
+  // call turns out to find nothing, because "150 rows" and "the last 150
+  // rows" are indistinguishable from here.
+  return {
+    checked,
+    ok: okCount,
+    repaired,
+    lost,
+    failed,
+    cursor: page.length < VERIFY_BATCH ? null : resumeFrom,
+    stopped: false,
+  };
+}
+
+/** How many ledger rows a full verification pass has to get through — the
+ *  panel's progress denominator. Counts the ledger itself, not
+ *  storageBackupStatus's per-bucket totals: rows whose source has since been
+ *  deleted are still verified (and are exactly the copies worth checking),
+ *  but they no longer join to a live storage.objects row. */
+export async function verifyBackupTotal(env: Env): Promise<number> {
+  const { rows } = await execQuery(
+    env,
+    `SELECT count(*)::int AS total FROM public.storage_backup_object`,
+    [],
+    'storageBackup.verify.total'
+  );
+  return rows[0]?.total ?? 0;
 }
