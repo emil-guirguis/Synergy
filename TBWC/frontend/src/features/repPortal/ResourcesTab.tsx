@@ -76,16 +76,19 @@ function typeOf(docTypes: Record<string, DocType>, path: string): DocType {
   }
 }
 
-/** Keep only files passing `keep`, recursively; prune folders left with nothing under them. */
-function filterCategory(cat: DocCategory, keep: (f: DocFile) => boolean): DocCategory | null {
+/** Keep only files passing `keep`, recursively; prune folders left with nothing under them.
+ *  A `loaded: false` stub is never pruned: its children haven't been fetched yet (lazy
+ *  per-folder loading is the default), so "nothing matched" is indistinguishable from
+ *  "nothing loaded" — pruning it emptied the whole browser instead of filtering it. */
+export function filterCategory(cat: DocCategory, keep: (f: DocFile) => boolean): DocCategory | null {
   const files = cat.files.filter(keep);
   const subs = cat.subs.map((s) => filterCategory(s, keep)).filter((s): s is DocCategory => s !== null);
-  if (files.length === 0 && subs.length === 0) return null;
+  if (files.length === 0 && subs.length === 0 && cat.loaded !== false) return null;
   return { ...cat, files, subs };
 }
 
 /** Drop files that don't match `typeSel` ('all' = no filtering); prune emptied folders, any depth. */
-function filterTree(tree: DocTree, docTypes: Record<string, DocType>, typeSel: DocType): DocTree {
+export function filterTree(tree: DocTree, docTypes: Record<string, DocType>, typeSel: DocType): DocTree {
   if (typeSel === 'all') return tree;
   const keep = (f: DocFile) => {
     const t = typeOf(docTypes, f.path);
@@ -368,18 +371,17 @@ export default function ResourcesTab({ readOnly = false }: { readOnly?: boolean 
     }
   }
 
-  // Reps only ever see 'all' + 'rep' docs — 'employee' stays hidden regardless of typeSel.
-  const filteredTree = useMemo(() => {
-    if (readOnly) {
-      const keep = (f: DocFile) => typeOf(docTypes, f.path) !== 'employee';
-      const rootFiles = tree.rootFiles.filter(keep);
-      const categories = tree.categories
-        .map((c) => filterCategory(c, keep))
-        .filter((c): c is DocCategory => c !== null);
-      return { rootFiles, categories };
-    }
-    return filterTree(tree, docTypes, typeSel);
-  }, [tree, docTypes, typeSel, readOnly]);
+  // 'employee' docs are stripped server-side for a read-only caller — both the
+  // listing (/doc-types/storage/list) and the type map (GET /doc-types) already
+  // omit them, at every depth (see api/worker/routes/docTypes.ts), so there is
+  // nothing left to hide here. This used to re-filter the same rule client-side,
+  // which pruned every not-yet-expanded folder stub and left a rep looking at an
+  // empty Resources page. typeSel is the uploader's selector and stays 'all' in
+  // read-only mode (the form is hidden), so this is a no-op there.
+  const filteredTree = useMemo(
+    () => filterTree(tree, docTypes, typeSel),
+    [tree, docTypes, typeSel]
+  );
 
   const searching = search.trim().length > 0;
   const displayTree = useMemo(() => {
