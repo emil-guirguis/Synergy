@@ -4,6 +4,7 @@ import type { SidebarSectionProps } from '../sidebar/Sidebar';
 import { useSchema } from './utils/schemaLoader';
 import { useSchemaForm } from './hooks/useSchemaForm';
 import { useFormTabs } from './hooks/useFormTabs';
+import { useFieldVisibility } from '../../auth/fieldVisibility';
 import { useReportDirty } from './FormDirtyContext';
 import { FormTabs } from './FormTabs';
 import { ValidationFieldSelect } from '../validationfieldselect/ValidationFieldSelect';
@@ -114,6 +115,11 @@ export interface BaseFormProps {
    * the form itself shows them somewhere else (or not at all).
    */
   hiddenTabs?: string[];
+  /** Read grant whose per-field visibility decides which fields the form draws
+   *  (e.g. 'order:read'). A field the role can't see is dropped — along with a
+   *  section or tab left empty — rather than rendered as a blank input over a
+   *  value the server already redacted. Omit for no field filtering. */
+  fieldPermission?: string;
 }
 
 /**
@@ -179,6 +185,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
   variant,
   tabHeaderActions,
   hiddenTabs,
+  fieldPermission,
   sidePanel,
   sidePanelWidth = 300,
 }) => {
@@ -213,20 +220,34 @@ export const BaseForm: React.FC<BaseFormProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema?.formTabs, activeTab, hiddenTabs?.join('|')]);
 
+  // Fields this role can't see, read off the grant named by `fieldPermission`.
+  // Same source as the grids' column visibility (see auth/fieldVisibility) —
+  // the API redacts these out of the row, so the form must not draw them.
+  const isFieldVisible = useFieldVisibility();
+  const hiddenFields = React.useMemo(() => {
+    if (!fieldPermission || !schema?.formFields) return [] as string[];
+    return Object.keys(schema.formFields).filter((name) => !isFieldVisible(fieldPermission, name));
+  }, [fieldPermission, schema?.formFields, isFieldVisible]);
+
   // Use formTabs from schema if available, otherwise use provided fieldSections
   const { tabs: allTabs, fieldSections: formTabsFieldSections, tabList } = useFormTabs(
     schema?.formTabs,
     effectiveActiveTab,
     variant,
-    hiddenTabs
+    hiddenTabs,
+    hiddenFields
   );
 
-  // Call onTabChange when effectiveActiveTab changes (including initial load)
+  // The tab chosen above may have been pruned (every field in it hidden for
+  // this role), so settle on one that actually exists before rendering.
+  const shownTab = tabList.includes(effectiveActiveTab) ? effectiveActiveTab : (tabList[0] ?? '');
+
+  // Call onTabChange when the shown tab changes (including initial load)
   React.useEffect(() => {
-    if (effectiveActiveTab && onTabChange) {
-      onTabChange(effectiveActiveTab);
+    if (shownTab && onTabChange) {
+      onTabChange(shownTab);
     }
-  }, [effectiveActiveTab, onTabChange]);
+  }, [shownTab, onTabChange]);
 
 
   const handleDynamicSubmit = async (e: React.FormEvent) => {
@@ -619,7 +640,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
       <>
         {tabList.map(tabName => {
           const tabSections = allTabs[tabName]?.sections || {};
-          const isActive = tabName === effectiveActiveTab;
+          const isActive = tabName === shownTab;
           const tabSchema = schema?.formTabs?.find(t => t.name === tabName);
           const tabSchemaSections = tabSchema?.sections || [];
           // Explicit grid from schema (tab({ columns, rows })). Must take precedence over
@@ -663,7 +684,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
         const sectionEntries = Object.entries(sectionsToRender);
 
         if (sectionEntries.length > 0) {
-          return renderTabSections(sectionsToRender, effectiveActiveTab, useFlexbox);
+          return renderTabSections(sectionsToRender, shownTab, useFlexbox);
         } else {
           // Fallback: render all form fields if no sections are defined
           const allFields = Object.keys(schema?.formFields || {})
@@ -729,7 +750,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
           <FormTabs
             tabs={allTabs}
             tabList={tabList}
-            activeTab={effectiveActiveTab}
+            activeTab={shownTab}
             onTabChange={(tabName) => {
               setActiveTab(tabName);
               onTabChange?.(tabName);

@@ -30,6 +30,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import MicIcon from '@mui/icons-material/Mic';
 import { useSchema, type ConvertedSchema } from '../form/utils/schemaLoader';
+import { useFieldVisibility } from '../../auth/fieldVisibility';
 import { useReportDirty } from '../form/FormDirtyContext';
 import { ReferenceSearchField, type ReferenceSearchConfig, type ReferenceSearchOption } from '../form/ReferenceSearchField';
 import { selectOnFocus } from './selectOnFocus';
@@ -65,8 +66,13 @@ export interface ChildRowsGridProps {
   /** Small content right next to the title text itself (e.g. an info icon with a tooltip) —
    *  distinct from toolbarActions, which sits on the opposite side next to Add. */
   titleAdornment?: React.ReactNode;
-  /** Column summed into a footer total (e.g. 'amount'). */
+  /** Column summed into a footer total (e.g. 'amount'). Dropped along with the
+   *  column when the caller's role hides it. */
   totalField?: string;
+  /** Grant whose per-field visibility decides which columns are shown; defaults
+   *  to `<schemaName>:read`. Pass explicitly when the grid is driven by a
+   *  `schema` object rather than a `schemaName`. */
+  readPermission?: string;
   /** Server-recomputed parent figures after each change (e.g. { total }). */
   onParentChange?: (parent: Record<string, any>) => void;
   /** Custom display content for a column (e.g. a file cell with open/share buttons). Return
@@ -152,7 +158,7 @@ const same = (a: any, b: any) => String(a ?? '') === String(b ?? '');
  */
 export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
   schemaName, schema: schemaProp, parentId, api, search, canCreate = false, canEdit = false, canDelete = false,
-  title, titleAdornment, totalField, onParentChange, renderCell: renderCustomCell, onAddClick, toolbarActions, busy = false,
+  title, titleAdornment, totalField, readPermission, onParentChange, renderCell: renderCustomCell, onAddClick, toolbarActions, busy = false,
   reloadKey, rowFilter, enumOverrides, emptyMessage, deleteConfirmText, containerProps, containerSx, voiceAdd,
 }) => {
   const fetched = useSchema(schemaProp ? '' : schemaName ?? '');
@@ -183,10 +189,23 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
 
   const pk = schema?.idFieldName ?? 'id';
 
+  // Columns the caller's role hides are dropped, not just blanked: the API
+  // redacts those fields out of every row (see the backend's redactRows), so
+  // without this the grid showed a headed, permanently empty column and
+  // unticking it in Settings > Roles looked like it did nothing.
+  const isFieldVisible = useFieldVisibility();
+  const fieldGrant = readPermission ?? (schemaName ? `${schemaName}:read` : null);
+
   const columns = useMemo<Column[]>(() => {
     if (!schema) return [];
-    return Object.entries(schema.formFields)
-      .filter(([, def]) => def.showOn?.includes('list'))
+    const listFields = Object.entries(schema.formFields).filter(([, def]) => def.showOn?.includes('list'));
+    // An app's isFieldVisible also answers false for a grant the role doesn't
+    // hold at all, which would read as "every column hidden". That isn't a
+    // column rule, it's a missing grant — and the API already answers 403 for
+    // it — so fall back to the schema's own columns rather than render a grid
+    // with no columns at all.
+    const permitted = fieldGrant ? listFields.filter(([name]) => isFieldVisible(fieldGrant, name)) : listFields;
+    return (permitted.length > 0 ? permitted : listFields)
       .map(([name, def]) => {
         const d = def as any;
         return {
@@ -204,7 +223,7 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schema, JSON.stringify(enumOverrides ?? null)]);
+  }, [schema, fieldGrant, isFieldVisible, JSON.stringify(enumOverrides ?? null)]);
 
   const writable = useMemo(() => columns.filter((c) => !c.readOnly).map((c) => c.name), [columns]);
 
@@ -485,10 +504,12 @@ export const ChildRowsGrid: React.FC<ChildRowsGridProps> = ({
     }
   };
 
+  // No footer total for a column the role can't see — the rows don't carry it.
+  const totalShown = !!totalField && columns.some((c) => c.name === totalField);
   const total = useMemo(
-    () => (totalField ? shown.reduce((sum, r) => sum + (Number(r.values[totalField]) || 0), 0) : null),
+    () => (totalShown ? shown.reduce((sum, r) => sum + (Number(r.values[totalField!]) || 0), 0) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, totalField, rowFilter]
+    [rows, totalField, totalShown, rowFilter]
   );
 
   const widthOf = (col: Column) =>

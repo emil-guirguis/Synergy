@@ -4,3 +4,4 @@
  */
 export * from './supabaseAuth';
 export * from './impersonation';
+export * from './fieldVisibility';

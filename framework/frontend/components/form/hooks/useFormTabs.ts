@@ -57,12 +57,17 @@ export interface UseFormTabsResult {
  *   this is the caller's call rather than the schema's: it is for a tab whose fields
  *   must stay in the schema — list columns and filters are generated from them —
  *   while the form itself has no use for them.
+ * @param hiddenFields - Field names the caller's role can't see. Dropped from
+ *   their section, and a section or tab left with nothing in it goes too: the
+ *   server redacts these fields out of the row, so rendering them anyway would
+ *   put empty inputs (and empty tabs) in front of the user.
  */
 function processFormTabs(
   formTabs: Tab[] | undefined,
   activeTab: string,
   variant?: string | null,
-  hiddenTabs?: string[]
+  hiddenTabs?: string[],
+  hiddenFields?: string[]
 ): UseFormTabsResult {
   if (!formTabs || formTabs.length === 0) {
     return { tabs: {}, tabList: [], fieldSections: {} };
@@ -75,6 +80,7 @@ function processFormTabs(
   };
 
   const hidden = new Set(hiddenTabs ?? []);
+  const hiddenField = new Set(hiddenFields ?? []);
   const filteredTabs = formTabs.filter((tab) => !hidden.has(tab.name) && matchesVariant(tab.visibleFor));
 
   interface FieldWithOrder {
@@ -86,6 +92,9 @@ function processFormTabs(
     label: string;
     order: number;
     sections: Record<string, { fields: FieldWithOrder[]; order: number }>;
+    /** Whether the schema gave this tab any sections — a tab that never had
+     *  any draws its content from renderTabContent and must not be pruned. */
+    hadSections: boolean;
   }
 
   const tabsMap: Record<string, TabInfoInternal> = Object.create(null);
@@ -98,6 +107,7 @@ function processFormTabs(
       label: tabName,
       order: tabOrder,
       sections: {},
+      hadSections: (tab.sections?.length ?? 0) > 0,
     };
 
     if (tab.sections && Array.isArray(tab.sections)) {
@@ -115,6 +125,7 @@ function processFormTabs(
         if (section.fields && Array.isArray(section.fields)) {
           section.fields.forEach((fieldRef) => {
             if (!matchesVariant(fieldRef.visibleFor)) return;
+            if (hiddenField.has(fieldRef.name)) return;
 
             const fieldName = fieldRef.name || (typeof fieldRef === 'string' ? fieldRef : null);
             if (!fieldName) {
@@ -145,9 +156,15 @@ function processFormTabs(
           .sort((a, b) => a.order - b.order)
           .map(f => f.name);
 
-        sectionAcc[sectionName] = sortedFields;
+        // A section whose every field the role hides is nothing to draw.
+        if (sortedFields.length > 0) sectionAcc[sectionName] = sortedFields;
         return sectionAcc;
       }, Object.create(null) as Record<string, string[]>);
+
+    // Likewise a tab: it had sections, and the role can see no field in any of
+    // them. (A tab that declares no sections at all is left alone — its content
+    // comes from renderTabContent, not from fields.)
+    if (Object.keys(sortedSections).length === 0 && tab.hadSections) return;
 
     sortedTabs[tabName] = {
       label: tab.label,
@@ -176,15 +193,17 @@ export const useFormTabs = (
   formTabs: Tab[] | null | undefined,
   activeTab: string,
   variant?: string | null,
-  hiddenTabs?: string[]
+  hiddenTabs?: string[],
+  hiddenFields?: string[]
 ): UseFormTabsResult => {
   // Callers pass a literal (`hiddenTabs={['Image']}`), so a fresh array arrives on
   // every render — key the memo on the contents rather than the identity.
   const hiddenKey = (hiddenTabs ?? []).join('|');
+  const hiddenFieldKey = (hiddenFields ?? []).join('|');
   return useMemo(() => {
-    return processFormTabs(formTabs || undefined, activeTab, variant, hiddenTabs);
+    return processFormTabs(formTabs || undefined, activeTab, variant, hiddenTabs, hiddenFields);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formTabs, activeTab, variant, hiddenKey]);
+  }, [formTabs, activeTab, variant, hiddenKey, hiddenFieldKey]);
 };
 
 export default useFormTabs;

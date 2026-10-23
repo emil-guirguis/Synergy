@@ -13,6 +13,13 @@ import {
   FieldTypes,
 } from '@meterit/framework-backend/api/base/SchemaDefinition';
 
+// Nothing in this schema is variant-gated (no visibleFor anywhere): who sees a
+// tab or a field is the role's own call — Settings > Roles > Order > Fields,
+// which OrderForm feeds into BaseForm as hiddenTabs + fieldPermission. A
+// variant gate could only ever take access away: RolesForm persists denials
+// only, so a ticked checkbox writes nothing and could never override one.
+// Migration 116 moved the last five (order_type/due_date/ship_no_later_than/
+// jay/service) onto the rep role's own hidden_fields so nobody's view changed.
 export const orderSchema = defineSchema({
   entityName: 'Order',
   tableName: 'qb_sales_order',
@@ -48,7 +55,7 @@ export const orderSchema = defineSchema({
             // deliberately no in-form control to change it.
             field({
               name: 'order_type', order: 0, type: FieldTypes.SELECT, default: 'order', required: false,
-              readOnly: true, label: 'Type', dbField: 'order_type', showOn: ['list', 'form'], visibleFor: ['admin'],
+              readOnly: true, label: 'Type', dbField: 'order_type', showOn: ['list', 'form'],
               enumValues: ['order', 'hold_for_release', 'consignment'],
               enumLabels: { order: 'Order', hold_for_release: 'Hold for Release', consignment: 'Consignment' },
             }),
@@ -73,8 +80,8 @@ export const orderSchema = defineSchema({
           gridRow: '1',
           fields: [
             field({ name: 'txn_date', order: 1, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Order Date', dbField: 'txn_date', showOn: ['list', 'form'] }),
-            field({ name: 'due_date', order: 2, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Due Date', dbField: 'due_date', showOn: ['form'], visibleFor: ['admin'] }),
-            field({ name: 'ship_no_later_than', order: 3, type: FieldTypes.DATE, default: null, required: false, label: 'Ship NLT', description: 'Ship No Later Than', dbField: 'ship_no_later_than', showOn: ['list', 'form'], visibleFor: ['admin'] }),
+            field({ name: 'due_date', order: 2, type: FieldTypes.DATE, default: null, required: false, readOnly: true, label: 'Due Date', dbField: 'due_date', showOn: ['form'] }),
+            field({ name: 'ship_no_later_than', order: 3, type: FieldTypes.DATE, default: null, required: false, label: 'Ship NLT', description: 'Ship No Later Than', dbField: 'ship_no_later_than', showOn: ['list', 'form'] }),
             field({ name: 'actual_ship_date', order: 5, type: FieldTypes.DATE, default: null, required: false, label: 'Ship Date', dbField: 'actual_ship_date', showOn: ['list', 'form'] }),
           ],
         }),
@@ -86,8 +93,8 @@ export const orderSchema = defineSchema({
           horizontal: true,
           fields: [
             field({ name: 'expedite', order: 1, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Expedite', dbField: 'expedite', showOn: ['list', 'form'] }),
-            field({ name: 'jay', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Jay', dbField: 'jay', showOn: ['form'], visibleFor: ['admin'] }),
-            field({ name: 'service', order: 3, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Service', dbField: 'service', showOn: ['list', 'form'], visibleFor: ['admin'] }),
+            field({ name: 'jay', order: 2, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Jay', dbField: 'jay', showOn: ['form'] }),
+            field({ name: 'service', order: 3, type: FieldTypes.BOOLEAN, default: false, required: false, label: 'Service', dbField: 'service', showOn: ['list', 'form'] }),
           ],
         }),
       ],
@@ -95,10 +102,10 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Shipping',
       order: 2,
-      // Reps get a trimmed order form: only this general Order tab and the QB
-      // line items. Everything else (addresses, money, notes, documents) is
-      // admin-only -- OrderForm passes variant='admin' for admins, 'rep' otherwise.
-      visibleFor: ['admin'],
+      // No visibleFor — see the Serial Numbers tab below for why none of these
+      // tabs carries one any more: who sees a tab is the role's own call
+      // (Settings > Roles > Order > Fields), and a variant gate could only
+      // ever take a tab away, never let a role switch it back on.
       // QB's "TBWC Sales Order" template layout: addresses on the left,
       // shipping/tax details stacked on the right.
       columns: '1fr 1fr',
@@ -181,7 +188,13 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Financials',
       order: 4,
-      visibleFor: ['admin'],
+      // Role-controlled, not variant-gated (see Serial Numbers below). The
+      // figures themselves are per-field grants, not a tab: migration 040 hid
+      // sold_for/d_net_cost/overage/commission/commission_total/
+      // project_admin_fee/trade_ally_fee from the rep role and 113 put `total`
+      // and `freight` back, so a rep opening this tab sees exactly those two —
+      // the rest are dropped from the form (BaseForm's fieldPermission) and
+      // redacted out of the payload (orders.ts's redactRow) alike.
       // Costs on the left, fees/commission on the right.
       columns: '1fr 1fr',
       sections: [
@@ -226,7 +239,7 @@ export const orderSchema = defineSchema({
     tab({
       name: 'Notes',
       order: 5,
-      visibleFor: ['admin'],
+      // Role-controlled, not variant-gated (see Serial Numbers below).
       sections: [
         section({
           name: 'Notes',
@@ -251,10 +264,17 @@ export const orderSchema = defineSchema({
         }),
       ],
     }),
+    // No visibleFor: who sees this tab is the role's own call (Settings >
+    // Roles > Order > Fields > Serial Numbers, a tab:<Name> view bit that
+    // OrderForm feeds into BaseForm's hiddenTabs), not a hardcoded variant.
+    // It was ['admin'], which meant the variant filter dropped the tab for
+    // every own-scoped role before the role's own checkbox was ever read —
+    // ticking it there did nothing. The data behind it is role-controlled
+    // too: orders.ts attaches serial_numbers before redactRow, so a role that
+    // denies the field gets nothing even with the tab on.
     tab({
       name: 'Serial Numbers',
       order: 6,
-      visibleFor: ['admin'],
       sections: [
         section({
           name: 'Serial Numbers',
@@ -284,7 +304,8 @@ export const orderSchema = defineSchema({
       // Reps get a cut-down Documents tab: OrderForm passes them a readOnly
       // (unless granted document:write) grid scoped to customer-visible types
       // only (see DocumentsGrid's visibleDocTypes prop in OrderForm.tsx).
-      visibleFor: ['admin', 'rep'],
+      // No visibleFor: it listed both variants, so it gated nothing — and
+      // would have silently excluded any variant added later.
       sections: [
         section({
           name: 'Documents',

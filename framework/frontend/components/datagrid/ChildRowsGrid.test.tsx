@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChildRowsGrid, type ChildRowsApi } from './ChildRowsGrid';
+import { FieldVisibilityProvider, type IsFieldVisible } from '../../auth/fieldVisibility';
 import type { ConvertedSchema } from '../form/utils/schemaLoader';
 
 // Passed as `schema`, so nothing is fetched.
@@ -120,5 +121,75 @@ describe('ChildRowsGrid', () => {
     expect(screen.getByText('Remove First?')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^delete$/i }));
     await waitFor(() => expect(api.remove).toHaveBeenCalledWith(7, 1));
+  });
+});
+
+/** A role that hides `hiddenFields` on `grant` and holds nothing else. */
+function visibility(grant: string, hiddenFields: string[]): IsFieldVisible {
+  return (permission, field) => permission === grant && !hiddenFields.includes(field);
+}
+
+describe('ChildRowsGrid — per-role column visibility', () => {
+  const renderWith = (isFieldVisible: IsFieldVisible, props: Partial<React.ComponentProps<typeof ChildRowsGrid>> = {}) =>
+    render(
+      <FieldVisibilityProvider value={isFieldVisible}>
+        <ChildRowsGrid
+          schema={schema}
+          readPermission="thingGridLine:read"
+          parentId={7}
+          api={makeApi()}
+          totalField="amount"
+          canCreate
+          canEdit
+          canDelete
+          {...props}
+        />
+      </FieldVisibilityProvider>
+    );
+
+  it('shows every column outside a provider (nothing hidden)', async () => {
+    renderGrid({ totalField: 'amount' });
+    expect(await screen.findByText('First')).toBeInTheDocument();
+    expect(screen.getByText('Amount')).toBeInTheDocument();
+    expect(screen.getByText('Total: $50.00')).toBeInTheDocument();
+  });
+
+  it('drops a column the role hides, and its footer total with it', async () => {
+    renderWith(visibility('thingGridLine:read', ['amount']));
+    expect(await screen.findByText('First')).toBeInTheDocument();
+    expect(screen.getByText('Qty')).toBeInTheDocument();
+    expect(screen.queryByText('Amount')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Total:/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the total when the summed column is visible', async () => {
+    renderWith(visibility('thingGridLine:read', ['quantity']));
+    expect(await screen.findByText('First')).toBeInTheDocument();
+    expect(screen.queryByText('Qty')).not.toBeInTheDocument();
+    expect(screen.getByText('Total: $50.00')).toBeInTheDocument();
+  });
+
+  it('derives the grant from schemaName when readPermission is not given', async () => {
+    const seen: string[] = [];
+    const isFieldVisible: IsFieldVisible = (permission, field) => {
+      seen.push(permission);
+      return field !== 'amount';
+    };
+    render(
+      <FieldVisibilityProvider value={isFieldVisible}>
+        <ChildRowsGrid schema={schema} schemaName="quoteGridLine" parentId={7} api={makeApi()} />
+      </FieldVisibilityProvider>
+    );
+    expect(await screen.findByText('First')).toBeInTheDocument();
+    expect(new Set(seen)).toEqual(new Set(['quoteGridLine:read']));
+    expect(screen.queryByText('Amount')).not.toBeInTheDocument();
+  });
+
+  it('a grant the role does not hold at all hides nothing — the API, not the grid, refuses', async () => {
+    renderWith(visibility('some:other', []));
+    expect(await screen.findByText('First')).toBeInTheDocument();
+    for (const label of ['Description', 'Qty', 'Amount', 'Kind']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
   });
 });

@@ -36,8 +36,9 @@ interface QuoteFormProps {
  * open rather than trusting the row the list handed it, same rationale as
  * OrderForm (another edit elsewhere could have changed it).
  *
- * Reps (no quote:write grant) get a read-only viewer: BaseForm's variant
- * filter and isDisabled mirror OrderForm's admin/rep split exactly.
+ * Reps (no quote:write grant) get a read-only viewer — isDisabled, same as
+ * OrderForm. Nothing here is variant-gated; per-tab/per-field narrowing is
+ * the role grant's job.
  */
 export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading = false }) => {
   const quotes = useQuotesEnhanced();
@@ -48,8 +49,11 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
   // Documents tab below (documents.ts's own quote:write gate is the real
   // enforcement; this just keeps the UI from offering controls that would 403).
   const canWriteQuotes = scopeOf('quote:write') !== null;
-  const variant = canWriteQuotes ? 'admin' : 'rep';
   const readOnly = !canWriteQuotes;
+  // No `variant` passed to BaseForm: quoteSchema.ts gates nothing by variant,
+  // and a variant gate can only ever take access away (RolesForm persists
+  // denials only), so what this form draws is the role's own call — see
+  // orderSchema.ts's header for the full reasoning.
   // Line items have their own grants (quoteGridLine:*, migration 094) — Settings >
   // Roles > Quote > Line Items — independent of quote:write on the header.
   const canAddLines = scopeOf('quoteGridLine:create') !== null;
@@ -159,7 +163,6 @@ export const QuoteForm: React.FC<QuoteFormProps> = ({ quote, onCancel, loading =
         className="quote-form"
         loading={loading}
         showTabs={true}
-        variant={variant}
         isDisabled={readOnly}
         fieldsToClean={['id', 'lines', 'documents', 'customer_list_id']}
         renderCustomField={(fieldName, fieldDef, _value, error, _isDisabled, onChange) => {

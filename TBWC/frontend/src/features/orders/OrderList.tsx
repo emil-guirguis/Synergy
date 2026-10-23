@@ -369,10 +369,12 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
 
   // Rep list view is a deliberately trimmed-down field set (per rep request) —
   // distinct from the admin view, which keeps the fuller QB-derived columns.
-  // Build notes are internal-to-TBWC: dropped from the rep list here and from
-  // the rep form by the Notes tab's visibleFor: ['admin'] (see orderSchema.ts).
-  // Order money is admin-only too — no total here, and OrderLinesGrid drops the
-  // rate/amount columns and the totals footer for the same reason.
+  // Build notes are internal-to-TBWC: dropped from the rep list here. On the
+  // FORM they are no longer variant-gated — the Notes tab is role-controlled
+  // now (Settings > Roles > Order > Fields), so untick it there to hide it.
+  // Order money is per-field the same way: no total column here, and
+  // OrderLinesGrid drops the rate/amount columns (and the totals footer) off
+  // orderGridLine:read's own column grant.
   // No shipped_date here: QB's own ship-by date is an internal scheduling date,
   // so reps see only actual_ship_date (the date it really shipped).
   // A managing rep sees orders across several reps, so they need the Sales

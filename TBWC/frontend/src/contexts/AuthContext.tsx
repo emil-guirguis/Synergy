@@ -9,6 +9,7 @@ import { authService } from '../services/authService';
 import { tokenStorage } from '../utils/tokenStorage';
 import { resetAllEntityStores } from '../store/slices/createEntitySlice';
 import { setSystemConfig } from '@meterit/framework-frontend/utils';
+import { FieldVisibilityProvider } from '@meterit/framework-frontend/auth/fieldVisibility';
 import type { LoginCredentials, User } from '../types/auth';
 
 // checkPermission() takes the frontend's create/update/delete-shaped
@@ -161,5 +162,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isFieldVisible,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  // Framework components that build their own columns (ChildRowsGrid) read
+  // isFieldVisible through this, so a role's unticked column disappears from
+  // every such grid without each call site remembering to pass it.
+  return (
+    <AuthContext.Provider value={value}>
+      <FieldVisibilityProvider value={isFieldVisible}>{children}</FieldVisibilityProvider>
+    </AuthContext.Provider>
+  );
 }

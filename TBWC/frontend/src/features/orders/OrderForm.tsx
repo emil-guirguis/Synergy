@@ -92,21 +92,17 @@ function renderPlaceholderField(fieldDef: any, value: any, disabled: boolean, on
 export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading = false }) => {
   const orders = useOrdersEnhanced();
   const { user, isFieldVisible, scopeOf } = useAuth();
-  // Rep-shaped roles get a cut-down form: the general Order tab, Line Items
-  // and Documents. The other tabs carry visibleFor: ['admin'] in
-  // orderSchema.ts, and BaseForm's `variant` filter drops any tab whose
-  // visibleFor doesn't include the variant (tabs without visibleFor are
-  // always shown).
+  // No `variant` is passed to BaseForm any more, and orderSchema.ts carries no
+  // visibleFor: which tabs and fields this form draws is the role's own call
+  // (hiddenTabs + fieldPermission below, both read off the caller's grant, with
+  // the server's redactRow stripping the same fields from the payload).
   //
-  // "Rep-shaped" is the order:read SCOPE, not the Administrator role — a rep
-  // sees own rows ('own'), every other role that can open Orders at all sees
-  // them all ('all'). Branching on is_admin here is what hid the whole
-  // Shipping/Financials/Notes/Serial side of the form from the Employee role,
-  // which holds order:read 'all' with nothing hidden. Field- and tab-level
-  // narrowing within the variant still comes from the role's own grant
-  // (hiddenTabs below, plus the server's redactRow).
-  const fullScope = scopeOf('order:read') === 'all';
-  const variant = fullScope ? 'admin' : 'rep';
+  // A variant gate could only ever take access AWAY: RolesForm persists denials
+  // only — an unticked box writes a view:false bit, a ticked one writes nothing
+  // — so "ticked" is indistinguishable from "never configured" and could never
+  // override one. That is why ticking Serial Numbers for the rep role did
+  // nothing until the gates came out (migration 116 moved the last five fields
+  // onto the rep role's own hidden_fields, so nobody's view changed).
   // PUT /api/orders/:id is requirePermission('order:write'), so the form is a
   // viewer for anyone without that grant: every field disabled, and
   // OrderManagementPage hides the Save button on the same test.
@@ -136,18 +132,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
   const isManagingRep = (user?.managed_sales_rep_list_ids?.length ?? 0) > 0;
   const orderDocGrant = (action: 'create' | 'write' | 'delete') => scopeOf(`orderGridDocument:${action}`) !== null;
   const restrictedOrderDocs = !orderDocGrant('write');
-  // Settings > Roles > Order > Line Items > Columns (orderGridLine:read,
-  // orderGridLineSchema.ts) can hide Rate/Amount independently of the
-  // rep/admin split above — the server already strips them per that grant;
-  // this just drops the empty columns. Additive to readOnly, never narrower.
-  // Not tied to readOnly: the Employee role edits orders without being an
-  // admin, and a read-only viewer with the grant should still see the prices.
-  const hideLineAmounts =
-    !isFieldVisible('orderGridLine:read', 'rate') || !isFieldVisible('orderGridLine:read', 'amount');
-  // Same field-security grid, one level up: Settings > Roles > Order > Fields
-  // has a checkbox per tab (addressed as tab:<Name>, see RolesForm.tsx) that
-  // feeds straight into BaseForm's own hiddenTabs prop — on top of, not
-  // instead of, the existing visibleFor:['admin'] tabs above.
+  // Settings > Roles > Order > Fields has a checkbox per tab (addressed as
+  // tab:<Name>, see RolesForm.tsx) that feeds straight into BaseForm's own
+  // hiddenTabs prop — on top of, not instead of, the existing
+  // visibleFor:['admin'] tabs above. (Line Items columns are handled by
+  // OrderLinesGrid itself, off orderGridLine's own grant.)
   const { schema: orderSchema } = useSchema('order');
   const hiddenTabs = (orderSchema?.formTabs ?? [])
     .filter((tab) => !isFieldVisible('order:read', `tab:${tab.name}`))
@@ -265,9 +254,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
           className="order-form"
           loading={loading}
           showTabs={true}
-          variant={variant}
           isDisabled={readOnly}
           hiddenTabs={hiddenTabs}
+          // Per-field grants decide what the form draws: the Financials tab is
+          // no longer admin-only, so a rep opening it must see the figures
+          // their role allows (total/freight per migration 113) and not blank
+          // inputs where the server redacted the rest.
+          fieldPermission="order:read"
           fieldsToClean={['id', 'lines', 'documents', 'serial_numbers']}
           sidePanel={freshOrder?.id ? <OrderInvoicesPanel orderId={freshOrder.id} order={freshOrder} showMoney={showMoney} showCommission={showCommission} /> : undefined}
           renderCustomField={(fieldName, fieldDef, value, _error, isFieldDisabled, onChange) => {
@@ -281,13 +274,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({ order, onCancel, loading =
                   <PickableLineItemsGrid
                     lines={pendingLines ?? value ?? []}
                     config={fieldDef.lineItemPicker}
+                    schemaName="orderGridLine"
                     disabled={isFieldDisabled}
                     search={tbwcReferenceSearch}
                     onChange={setPendingLines}
                   />
                 );
               }
-              return <OrderLinesGrid lines={value} total={freshOrder?.total} freight={freshOrder?.freight} hideAmounts={hideLineAmounts} />;
+              return <OrderLinesGrid lines={value} schemaName="orderGridLine" total={freshOrder?.total} freight={freshOrder?.freight} />;
             }
             if (HOLD_FOR_RELEASE_HEADER_FIELDS.has(fieldName)) {
               // Falls back to the schema's own (readOnly) rendering on a

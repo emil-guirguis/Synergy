@@ -17,6 +17,9 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useReportDirty } from '../form/FormDirtyContext';
 import { ReferenceSearchField, type ReferenceSearchConfig, type ReferenceSearchOption } from '../form/ReferenceSearchField';
+import { useSchema } from '../form/utils/schemaLoader';
+import { useFieldVisibility } from '../../auth/fieldVisibility';
+import { weightedWidths } from './columnLayout';
 import { selectOnFocus } from './selectOnFocus';
 import './EditableDataGrid.css';
 
@@ -46,6 +49,12 @@ export interface PickableLineItemsGridProps {
   /** Title bar above the grid (same chrome as EditableDataGrid's own `title`) — the schema
    *  section wrapping this field should be `bare: true` so BaseForm doesn't draw a second one. */
   title?: string;
+  /** Child-row schema naming these line fields (e.g. 'orderGridLine'): the source of every
+   *  column's label, width and whether the caller's role sees it at all. Without it the grid
+   *  falls back to its own labels and shows every column. */
+  schemaName?: string;
+  /** Grant whose per-field visibility hides columns; defaults to `<schemaName>:read`. */
+  readPermission?: string;
 }
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -56,8 +65,18 @@ function computeAmount(line: Record<string, any>, config: LineItemPickerConfig):
   return qty != null && rate != null ? Math.round(qty * rate * 100) / 100 : null;
 }
 
-// Explicit widths so header and body cells line up (same approach as OrderLinesGrid).
-const WIDTHS = { item: '22%', desc: '40%', quantity: '10%', rate: '12%', amount: '12%', actions: '44px' };
+const ACTIONS_WIDTH = '44px';
+
+/** One column of this grid: which cell editor it draws, and the line/schema field behind it. */
+type CellKind = 'item' | 'desc' | 'qty' | 'rate' | 'amount';
+interface LineColumn {
+  kind: CellKind;
+  /** Schema field name = line key; also what field visibility is checked against. */
+  field: string;
+  label: string;
+  type: string;
+  width: string;
+}
 
 /**
  * Add/remove line-item grid with an async item picker per row — declared on a schema field via
@@ -68,8 +87,38 @@ const WIDTHS = { item: '22%', desc: '40%', quantity: '10%', rate: '12%', amount:
  * line-item grids in the app read as the same component, not two different tables.
  */
 export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
-  lines, config, disabled = false, search, onChange, title = 'Line Items',
+  lines, config, disabled = false, search, onChange, title = 'Line Items', schemaName, readPermission,
 }) => {
+  // Columns, their labels and their order come from the schema; a column the
+  // caller's role hides isn't rendered (and isn't tabbed into). The editor each
+  // cell draws is this component's own business — that's `kind`.
+  const { schema } = useSchema(schemaName ?? '');
+  const isFieldVisible = useFieldVisibility();
+  const fieldGrant = readPermission ?? (schemaName ? `${schemaName}:read` : null);
+
+  const columns = useMemo<LineColumn[]>(() => {
+    const defaults: { kind: CellKind; field: string; label: string; type: string }[] = [
+      { kind: 'item', field: 'item', label: 'Item', type: 'string' },
+      { kind: 'desc', field: config.descField, label: 'Description', type: 'textarea' },
+      { kind: 'qty', field: config.quantityField, label: 'Qty', type: 'number' },
+      { kind: 'rate', field: config.rateField, label: 'Rate', type: 'currency' },
+      { kind: 'amount', field: 'amount', label: 'Amount', type: 'currency' },
+    ];
+    // Schema wins on label and type; the defaults above only cover a grid used
+    // without one (or a field the schema doesn't declare).
+    const planned = defaults.map((col) => {
+      const def = schema?.formFields?.[col.field] as any;
+      return { ...col, label: def?.label || col.label, type: def?.type || col.type };
+    });
+    // As in ChildRowsGrid: a grant the role doesn't hold at all isn't a column
+    // rule, so it hides nothing.
+    const permitted = fieldGrant ? planned.filter((c) => isFieldVisible(fieldGrant, c.field)) : planned;
+    const shown = permitted.length > 0 ? permitted : planned;
+    const widths = weightedWidths(shown.map((c) => c.type));
+    return shown.map((c, i) => ({ ...c, width: widths[i] }));
+  }, [schema, config.descField, config.quantityField, config.rateField, fieldGrant, isFieldVisible]);
+
+  const hasColumn = useCallback((kind: CellKind) => columns.some((c) => c.kind === kind), [columns]);
   // Description collapses to one ellipsised line so rows stay grid-height; the focused one expands.
   const [editingDescIndex, setEditingDescIndex] = useState<number | null>(null);
 
@@ -139,7 +188,12 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
     updateLine(index, patch);
   }, [config, updateLine]);
 
-  const COLS = ['item', 'desc', 'qty', 'rate'] as const;
+  // Tab/Enter order: the editable columns actually on screen (amount is always
+  // computed, never focused), so a hidden Rate column isn't stepped into.
+  const editableCols = useMemo(
+    () => columns.map((c) => c.kind).filter((k): k is Exclude<CellKind, 'amount'> => k !== 'amount'),
+    [columns]
+  );
 
   // Set right before stepTo() runs from a picker's onChange (a mouse click on a dropdown
   // option never fires a keydown at all, so that's the only reliable place to advance from);
@@ -149,23 +203,23 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
   const justPickedRef = useRef(false);
 
   /** Steps to the next cell to the right; past the last column of the last row, adds a new line. */
-  const stepTo = useCallback((row: number, col: typeof COLS[number]) => {
-    const colIdx = COLS.indexOf(col);
-    if (colIdx < COLS.length - 1) {
-      focusCell(row, COLS[colIdx + 1]);
+  const stepTo = useCallback((row: number, col: CellKind) => {
+    const colIdx = editableCols.indexOf(col as Exclude<CellKind, 'amount'>);
+    if (colIdx >= 0 && colIdx < editableCols.length - 1) {
+      focusCell(row, editableCols[colIdx + 1]);
       return;
     }
     if (row + 1 < lines.length) {
-      focusCell(row + 1, COLS[0]);
+      focusCell(row + 1, editableCols[0]);
     } else {
-      pendingFocusRef.current = { row: row + 1, col: COLS[0] };
+      pendingFocusRef.current = { row: row + 1, col: editableCols[0] };
       addLine();
     }
-  }, [focusCell, lines.length, addLine]);
+  }, [focusCell, lines.length, addLine, editableCols]);
 
   /** Enter and Tab both step to the next cell to the right (see stepTo). Shift+Enter is left
    *  alone (newline in the description); Shift+Tab is left alone (native backward tab). */
-  const handleStepKeyDown = (row: number, col: typeof COLS[number]) => (e: React.KeyboardEvent) => {
+  const handleStepKeyDown = (row: number, col: CellKind) => (e: React.KeyboardEvent) => {
     if (disabled || e.shiftKey) return;
     if (e.key !== 'Enter' && e.key !== 'Tab') return;
     e.preventDefault(); // also stops the implicit <form> submit on Enter
@@ -175,7 +229,7 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
 
   /** A picker's onChange: applies the pick, then advances the same way Tab/Enter would —
    *  covers a mouse click on a dropdown option, which never fires a keydown to hang that off. */
-  const applyPickAndStep = useCallback((row: number, col: typeof COLS[number], option: ReferenceSearchOption | null) => {
+  const applyPickAndStep = useCallback((row: number, col: CellKind, option: ReferenceSearchOption | null) => {
     applyPick(row, option);
     if (!option) return;
     justPickedRef.current = true;
@@ -184,8 +238,104 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
   }, [applyPick, stepTo]);
 
   const handleAddClick = () => {
-    pendingFocusRef.current = { row: lines.length, col: 'item' };
+    pendingFocusRef.current = { row: lines.length, col: editableCols[0] };
     addLine();
+  };
+
+  /** One body cell. Which columns exist is the schema's business (see `columns`);
+   *  which editor each one draws is this grid's, and that's what `kind` selects. */
+  const renderCell = (col: LineColumn, line: Record<string, any>, i: number) => {
+    switch (col.kind) {
+      case 'item':
+        return (
+          <TableCell key={col.kind} className="editable-data-grid__cell" data-line-row={i} data-line-col="item">
+            <div onKeyDown={handleStepKeyDown(i, 'item')}>
+              <ReferenceSearchField
+                config={config.itemSearch}
+                search={search}
+                disabled={disabled}
+                value={line.itemValue ?? null}
+                valueLabel={line.item ?? null}
+                placeholder="Search item…"
+                onChange={(option) => applyPickAndStep(i, 'item', option)}
+              />
+            </div>
+          </TableCell>
+        );
+      case 'desc':
+        return (
+          <TableCell key={col.kind} className="editable-data-grid__cell" data-line-row={i} data-line-col="desc">
+            {config.descSearch ? (
+              <div onKeyDown={handleStepKeyDown(i, 'desc')}>
+                <ReferenceSearchField
+                  config={config.descSearch}
+                  search={search}
+                  disabled={disabled}
+                  value={line.itemValue ?? null}
+                  valueLabel={line[config.descField] ?? null}
+                  placeholder="Search description…"
+                  onChange={(option) => applyPickAndStep(i, 'desc', option)}
+                />
+              </div>
+            ) : (
+              <TextField
+                size="small"
+                fullWidth
+                onKeyDown={handleStepKeyDown(i, 'desc')}
+                multiline={editingDescIndex === i}
+                maxRows={4}
+                variant="outlined"
+                onFocus={() => setEditingDescIndex(i)}
+                onBlur={() => setEditingDescIndex(null)}
+                placeholder="Description"
+                disabled={disabled}
+                value={line[config.descField] ?? ''}
+                onChange={(e) => updateLine(i, { [config.descField]: e.target.value })}
+              />
+            )}
+          </TableCell>
+        );
+      case 'qty':
+        return (
+          <TableCell key={col.kind} className="editable-data-grid__cell" data-line-row={i} data-line-col="qty">
+            <TextField
+              size="small"
+              fullWidth
+              onKeyDown={handleStepKeyDown(i, 'qty')}
+              variant="outlined"
+              placeholder="Qty"
+              type="number"
+              onFocus={selectOnFocus}
+              disabled={disabled}
+              value={line[config.quantityField] ?? ''}
+              onChange={(e) => updateLine(i, { [config.quantityField]: e.target.value === '' ? null : Number(e.target.value) })}
+            />
+          </TableCell>
+        );
+      case 'rate':
+        return (
+          <TableCell key={col.kind} className="editable-data-grid__cell" data-line-row={i} data-line-col="rate">
+            <TextField
+              size="small"
+              fullWidth
+              onKeyDown={handleStepKeyDown(i, 'rate')}
+              variant="outlined"
+              placeholder="Rate"
+              type="number"
+              onFocus={selectOnFocus}
+              disabled={disabled}
+              value={line[config.rateField] ?? ''}
+              onChange={(e) => updateLine(i, { [config.rateField]: e.target.value === '' ? null : Number(e.target.value) })}
+            />
+          </TableCell>
+        );
+      case 'amount':
+        return (
+          <TableCell key={col.kind} className="editable-data-grid__cell" align="right">
+            <Typography variant="body2">{line.amount != null ? money(line.amount) : '—'}</Typography>
+          </TableCell>
+        );
+    }
   };
 
   return (
@@ -210,21 +360,26 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: WIDTHS.item }}>Item</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: WIDTHS.desc }}>Description</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: WIDTHS.quantity }}>Qty</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: WIDTHS.rate }}>Rate</TableCell>
-              <TableCell className="editable-data-grid__header-cell" style={{ width: WIDTHS.amount }} align="right">Amount</TableCell>
+              {columns.map((col) => (
+                <TableCell
+                  key={col.kind}
+                  className="editable-data-grid__header-cell"
+                  style={{ width: col.width }}
+                  align={col.kind === 'amount' ? 'right' : 'left'}
+                >
+                  {col.label}
+                </TableCell>
+              ))}
               <TableCell
                 className="editable-data-grid__header-cell editable-data-grid__actions-header-cell"
-                style={{ width: WIDTHS.actions }}
+                style={{ width: ACTIONS_WIDTH }}
               />
             </TableRow>
           </TableHead>
           <TableBody>
             {lines.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" className="editable-data-grid__empty">
+                <TableCell colSpan={columns.length + 1} align="center" className="editable-data-grid__empty">
                   No line items
                 </TableCell>
               </TableRow>
@@ -234,80 +389,7 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
                   key={i}
                   className={`editable-data-grid__row${baselineRef.current.has(line) ? '' : ' editable-data-grid__row--changed'}`}
                 >
-                  <TableCell className="editable-data-grid__cell" data-line-row={i} data-line-col="item">
-                    <div onKeyDown={handleStepKeyDown(i, 'item')}>
-                      <ReferenceSearchField
-                        config={config.itemSearch}
-                        search={search}
-                        disabled={disabled}
-                        value={line.itemValue ?? null}
-                        valueLabel={line.item ?? null}
-                        placeholder="Search item…"
-                        onChange={(option) => applyPickAndStep(i, 'item', option)}
-                      />
-                    </div>
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell" data-line-row={i} data-line-col="desc">
-                    {config.descSearch ? (
-                      <div onKeyDown={handleStepKeyDown(i, 'desc')}>
-                        <ReferenceSearchField
-                          config={config.descSearch}
-                          search={search}
-                          disabled={disabled}
-                          value={line.itemValue ?? null}
-                          valueLabel={line[config.descField] ?? null}
-                          placeholder="Search description…"
-                          onChange={(option) => applyPickAndStep(i, 'desc', option)}
-                        />
-                      </div>
-                    ) : (
-                      <TextField
-                        size="small"
-                        fullWidth
-                        onKeyDown={handleStepKeyDown(i, 'desc')}
-                        multiline={editingDescIndex === i}
-                        maxRows={4}
-                        variant="outlined"
-                        onFocus={() => setEditingDescIndex(i)}
-                        onBlur={() => setEditingDescIndex(null)}
-                        placeholder="Description"
-                        disabled={disabled}
-                        value={line[config.descField] ?? ''}
-                        onChange={(e) => updateLine(i, { [config.descField]: e.target.value })}
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell" data-line-row={i} data-line-col="qty">
-                    <TextField
-                      size="small"
-                      fullWidth
-                      onKeyDown={handleStepKeyDown(i, 'qty')}
-                      variant="outlined"
-                      placeholder="Qty"
-                      type="number"
-                      onFocus={selectOnFocus}
-                      disabled={disabled}
-                      value={line[config.quantityField] ?? ''}
-                      onChange={(e) => updateLine(i, { [config.quantityField]: e.target.value === '' ? null : Number(e.target.value) })}
-                    />
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell" data-line-row={i} data-line-col="rate">
-                    <TextField
-                      size="small"
-                      fullWidth
-                      onKeyDown={handleStepKeyDown(i, 'rate')}
-                      variant="outlined"
-                      placeholder="Rate"
-                      type="number"
-                      onFocus={selectOnFocus}
-                      disabled={disabled}
-                      value={line[config.rateField] ?? ''}
-                      onChange={(e) => updateLine(i, { [config.rateField]: e.target.value === '' ? null : Number(e.target.value) })}
-                    />
-                  </TableCell>
-                  <TableCell className="editable-data-grid__cell" align="right">
-                    <Typography variant="body2">{line.amount != null ? money(line.amount) : '—'}</Typography>
-                  </TableCell>
+                  {columns.map((col) => renderCell(col, line, i))}
                   <TableCell className="editable-data-grid__actions-cell" align="right">
                     <IconButton
                       size="small"
@@ -327,7 +409,8 @@ export const PickableLineItemsGrid: React.FC<PickableLineItemsGridProps> = ({
         </Table>
       </TableContainer>
       </Box>
-      {lines.length > 0 && (
+      {/* No subtotal without the Amount column it totals — the role can't see the figures. */}
+      {lines.length > 0 && hasColumn('amount') && (
         <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1 }}>
           <Typography variant="subtitle2">Subtotal: {money(subtotal)}</Typography>
         </Stack>

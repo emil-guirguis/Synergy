@@ -4,3 +4,4 @@ export { useGridToast, type GridToastProps } from './useGridToast';
 export { useUnsavedRow } from './useUnsavedRow';
 export { ChildRowsGrid, type ChildRowsGridProps, type ChildRowsApi } from './ChildRowsGrid';
 export { selectOnFocus } from './selectOnFocus';
+export { weightedWidths, COLUMN_TYPE_WEIGHT } from './columnLayout';
