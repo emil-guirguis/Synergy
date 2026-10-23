@@ -148,6 +148,23 @@ export function visibleRepListIds(user: any): string[] {
   return [user.sales_rep_list_id, ...(user.managed_sales_rep_list_ids ?? [])].filter(Boolean);
 }
 
+/**
+ * Row scope for one permission, as a SQL parameter: the rep list_ids the
+ * caller may see, or null when their grant covers every row. Every aggregate
+ * report takes it the same way —
+ *
+ *   AND ($n::text[] IS NULL OR <rep column> = ANY($n::text[]))
+ *
+ * — so one `own` grant narrows every figure on the page without each report
+ * inventing its own filtering. A report has no single row to check after the
+ * fact (each number is a SUM over many), so this has to go into the query
+ * rather than a post-hoc comparison like orders.ts's detail routes do.
+ * Mirrors invoices.ts's repScope, which predates this helper.
+ */
+export function reportRepScope(c: any, permission: string): string[] | null {
+  return c.get('permissions')?.scopeOf(permission) === 'own' ? visibleRepListIds(c.get('user')) : null;
+}
+
 // TBWC is single-tenant, so every role here is a system role (tenant_id NULL)
 // and the profile carries no tenant_id — the framework's tenant guard then
 // admits exactly the system roles, which is what we want.

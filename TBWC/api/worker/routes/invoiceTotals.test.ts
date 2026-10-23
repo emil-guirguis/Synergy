@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 let currentPermSet = new Set(['invoiceTotals:read']);
+let currentScope: 'all' | 'own' = 'all';
 
 vi.mock('../middleware', () => ({
   authenticateToken: (c: any, next: any) => {
@@ -12,8 +13,13 @@ vi.mock('../middleware', () => ({
     if (!currentPermSet.has(permission)) {
       return c.json({ success: false, message: 'Insufficient permissions' }, 403);
     }
+    c.set('permissions', { scopeOf: () => currentScope });
     return next();
   },
+  // Row scope is covered end-to-end in reportScope.test.ts; here it just has to
+  // exist, so these cases keep asserting the date windows at 'all' scope.
+  reportRepScope: (c: any, permission: string) =>
+    c.get('permissions')?.scopeOf(permission) === 'own' ? ['REP1'] : null,
 }));
 
 const mockExecQuery = vi.fn();
@@ -29,6 +35,7 @@ const req = (path: string) => invoiceTotalsApp.request(path, undefined, ENV);
 beforeEach(() => {
   vi.clearAllMocks();
   currentPermSet = new Set(['invoiceTotals:read']);
+  currentScope = 'all';
   mockExecQuery.mockResolvedValue({ rows: [] });
 });
 
@@ -229,33 +236,33 @@ describe('GET /timeseries', () => {
     await req('/timeseries?period=day');
     const [, sql, params] = mockExecQuery.mock.calls[0];
     expect(sql).toContain('txn_date::date');
-    expect(params).toEqual([null, 30]);
+    expect(params).toEqual([null, 30, null]); // repId, limit, row scope (null at all scope)
   });
 
   it('caps an oversized day limit at its max', async () => {
     await req('/timeseries?period=day&limit=999');
     const [, , params] = mockExecQuery.mock.calls[0];
-    expect(params).toEqual([null, 180]);
+    expect(params).toEqual([null, 180, null]); // repId, limit, row scope (null at all scope)
   });
 
   it('adds a quarter bucket expression', async () => {
     await req('/timeseries?period=quarter');
     const [, sql, params] = mockExecQuery.mock.calls[0];
     expect(sql).toContain("date_trunc('quarter', txn_date)");
-    expect(params).toEqual([null, 8]);
+    expect(params).toEqual([null, 8, null]); // repId, limit, row scope (null at all scope)
   });
 
   it('caps an oversized quarter limit at its max', async () => {
     await req('/timeseries?period=quarter&limit=999');
     const [, , params] = mockExecQuery.mock.calls[0];
-    expect(params).toEqual([null, 40]);
+    expect(params).toEqual([null, 40, null]); // repId, limit, row scope (null at all scope)
   });
 
   it('still defaults to weekly buckets with the Friday-anchor expression', async () => {
     await req('/timeseries');
     const [, sql, params] = mockExecQuery.mock.calls[0];
     expect(sql).toContain("date_trunc('week', txn_date - interval '4 days') + interval '4 days'");
-    expect(params).toEqual([null, 26]);
+    expect(params).toEqual([null, 26, null]); // repId, limit, row scope (null at all scope)
   });
 
   it('period=custom buckets by day across the given from/to, no LIMIT', async () => {
@@ -264,7 +271,7 @@ describe('GET /timeseries', () => {
     expect(sql).toContain('txn_date::date AS bucket_start');
     expect(sql).not.toContain('LIMIT');
     expect(sql).toContain('AND NOT is_packing_slip');
-    expect(params).toEqual(['2026-09-01', '2026-09-10', 'REP-2']);
+    expect(params).toEqual(['2026-09-01', '2026-09-10', 'REP-2', null]); // from, to, repId, row scope
   });
 
   it('excludes packing slips for a fixed granularity too', async () => {

@@ -1,5 +1,5 @@
 /**
- * Invoice Totals report — admin dashboard: current period vs. the previous
+ * Invoice Totals report: current period vs. the previous
  * period vs. the same period last year (three cards), plus a trend line —
  * all driven by one granularity filter (day/week/month/quarter/year/custom)
  * and an optional sales rep filter. No year picker — "current" is always
@@ -18,12 +18,18 @@
  * without moving the dollar total, and drown out genuine activity in a
  * low-volume window like a single week.
  *
+ * invoiceTotals:read honours its scope through middleware's reportRepScope,
+ * like every other report: at `own` every window, the trend line and the rep
+ * dropdown itself cover only the caller's own rep plus anyone they manage.
+ * The ?repId filter then narrows within that — it can't widen it, so asking
+ * for someone else's rep id returns nothing rather than their numbers.
+ *
  * Single aggregate endpoint, not a CRUD module — same shape as
  * repPerformance.ts and invoices.ts's receivables-summary.
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission, reportRepScope } from '../middleware';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -139,6 +145,8 @@ app.get('/summary', async (c) => {
   const repId = c.req.query('repId') || null;
   const customRange = period === 'custom' ? parseCustomRange(c.req.query('from'), c.req.query('to'), new Date()) : undefined;
   const windows = periodWindows(period, new Date(), customRange);
+  // null at `all` scope; the caller's own + managed reps at `own`.
+  const scope = reportRepScope(c, 'invoiceTotals:read');
 
   const [totals, reps] = await Promise.all([
     execQuery(
@@ -153,20 +161,25 @@ app.get('/summary', async (c) => {
          FROM public.qb_invoice
         WHERE qb_deleted_at IS NULL
           AND NOT is_packing_slip
-          AND ($7::text IS NULL OR sales_rep_list_id = $7)`,
+          AND ($7::text IS NULL OR sales_rep_list_id = $7)
+          AND ($8::text[] IS NULL OR sales_rep_list_id = ANY($8::text[]))`,
       [
         windows.currentStart, windows.currentEnd,
         windows.previousStart, windows.previousEnd,
         windows.priorYearStart, windows.priorYearEnd,
-        repId,
+        repId, scope,
       ],
       'invoiceTotals.summary'
     ),
-    // Active reps for the rep filter dropdown.
+    // Active reps for the rep filter dropdown — only the ones in scope, so an
+    // own-scoped caller isn't offered rep names they can get no figures for.
     execQuery(
       c.env,
-      `SELECT list_id, name FROM public.qb_sales_rep WHERE is_active = true AND qb_deleted_at IS NULL ORDER BY name`,
-      [],
+      `SELECT list_id, name FROM public.qb_sales_rep
+        WHERE is_active = true AND qb_deleted_at IS NULL
+          AND ($1::text[] IS NULL OR list_id = ANY($1::text[]))
+        ORDER BY name`,
+      [scope],
       'invoiceTotals.reps'
     ),
   ]);
@@ -202,6 +215,7 @@ const TREND_MAX_LIMIT: Record<FixedGranularity, number> = { day: 180, week: 104,
 app.get('/timeseries', async (c) => {
   const period = parseGranularity(c.req.query('period'));
   const repId = c.req.query('repId') || null;
+  const scope = reportRepScope(c, 'invoiceTotals:read');
 
   if (period === 'custom') {
     const { from, to } = parseCustomRange(c.req.query('from'), c.req.query('to'), new Date());
@@ -216,10 +230,11 @@ app.get('/timeseries', async (c) => {
             AND NOT is_packing_slip
             AND txn_date::date BETWEEN $1::date AND $2::date
             AND ($3::text IS NULL OR sales_rep_list_id = $3)
+            AND ($4::text[] IS NULL OR sales_rep_list_id = ANY($4::text[]))
           GROUP BY bucket_start
        ) recent
        ORDER BY bucket_start ASC`,
-      [toDateStr(from), toDateStr(to), repId],
+      [toDateStr(from), toDateStr(to), repId, scope],
       'invoiceTotals.timeseries.custom'
     );
     return c.json({
@@ -264,12 +279,13 @@ app.get('/timeseries', async (c) => {
           AND txn_date IS NOT NULL
           AND NOT is_packing_slip
           AND ($1::text IS NULL OR sales_rep_list_id = $1)
+          AND ($3::text[] IS NULL OR sales_rep_list_id = ANY($3::text[]))
         GROUP BY bucket_start
         ORDER BY bucket_start DESC
         LIMIT $2
      ) recent
      ORDER BY bucket_start ASC`,
-    [repId, limit],
+    [repId, limit, scope],
     'invoiceTotals.timeseries'
   );
 

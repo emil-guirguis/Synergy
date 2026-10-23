@@ -1,8 +1,10 @@
 /**
- * Order-to-Cash (Bottleneck Finder) — admin/employee-only. Where cash is
- * stuck: total value of orders not yet billed, the oldest of those orders by
- * name, and how long paid invoices actually take to collect. Defaults to
- * "All" (every year, the original no-filter view) with a per-year option.
+ * Order-to-Cash (Bottleneck Finder). Where cash is stuck: total value of
+ * orders not yet billed, the oldest of those orders by name, and how long
+ * paid invoices actually take to collect. Defaults to the current year (the
+ * API defaults the same way); "All years" is still in the picker.
+ * Rows arrive already scoped by the API — an own-scoped orderToCash:read
+ * grant counts only the caller's own reps.
  */
 import { useEffect, useState } from 'react';
 import {
@@ -40,8 +42,10 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   );
 }
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 export default function OrderToCashPage() {
-  const [year, setYear] = useState<number | 'all'>('all');
+  const [year, setYear] = useState<number | 'all'>(CURRENT_YEAR);
   const [years, setYears] = useState<number[]>([]);
   const [summary, setSummary] = useState<OrderToCashSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -63,6 +67,10 @@ export default function OrderToCashPage() {
   }, [year]);
 
   const orders: UninvoicedOrder[] = summary?.uninvoicedOrders ?? [];
+  // The API returns only years that actually have data in scope, so a quiet
+  // current year (or a rep with no orders yet) would otherwise leave the
+  // default selection with no matching option and the picker blank.
+  const yearOptions = years.includes(CURRENT_YEAR) ? years : [CURRENT_YEAR, ...years];
 
   return (
     <Box data-testid="order-to-cash-page" sx={{ p: 2 }}>
@@ -70,7 +78,7 @@ export default function OrderToCashPage() {
         <Typography variant="h5">Order-to-Cash</Typography>
         <Select size="small" value={year} onChange={(e) => setYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
           <MenuItem value="all">All years</MenuItem>
-          {years.map((y) => (
+          {yearOptions.map((y) => (
             <MenuItem key={y} value={y}>{y}</MenuItem>
           ))}
         </Select>

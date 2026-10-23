@@ -42,10 +42,13 @@ export default function DashboardPage() {
   const companyOrders = orderScope === 'all';
   // Company AR total — same reasoning, on invoices.
   const companyReceivables = scopeOf('invoice:read') === 'all';
-  // Portal access requests, the same grant the Rep Approvals page is gated on.
-  const canSeeInquiries = scopeOf('repApproval:write') !== null;
-  // Data-hygiene counts over public.users (users missing a role / QB rep).
-  const canSeeUserGaps = scopeOf('user:read') !== null;
+  // Portal access requests — every pending request, company-wide, so the same
+  // 'all' rule as the figures above (the Rep Approvals page itself is gated on
+  // this grant at any scope; what's company-wide is this card's total).
+  const canSeeInquiries = scopeOf('repApproval:write') === 'all';
+  // Data-hygiene counts over public.users (users missing a role / QB rep) —
+  // a count of every user, so 'all' too.
+  const canSeeUserGaps = scopeOf('user:read') === 'all';
   // "Your" quotes/orders counts. Pointless at 'all' scope (it would count the
   // whole company and call it yours), so this is the own-scoped view's card.
   const ownStats = orderScope === 'own' || scopeOf('quote:read') === 'own';

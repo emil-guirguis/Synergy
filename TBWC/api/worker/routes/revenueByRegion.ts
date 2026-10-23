@@ -1,5 +1,5 @@
 /**
- * Revenue by Region — admin/employee-only. Order revenue grouped into the 4
+ * Revenue by Region. Order revenue grouped into the 4
  * US Census regions (Northeast/Midwest/South/West), region derived from each
  * order's shipping address rather than the customer's billing address (reps
  * ship all over; the customer's billing state is often just where their AP
@@ -16,10 +16,15 @@
  *
  * ?year=YYYY filters to that year's orders (txn_date); omit or pass
  * year=all for the all-time view (the default).
+ *
+ * revenueByRegion:read honours its scope through middleware's reportRepScope,
+ * like every other report: at `own` both the region breakdown and the year
+ * picker count only the caller's own rep plus anyone they manage, so the
+ * percentages read as a share of their own book, not the company's.
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission, reportRepScope } from '../middleware';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -53,6 +58,8 @@ app.get('/summary', async (c) => {
   const year = yearParam && yearParam !== 'all' && Number.isFinite(parseInt(yearParam, 10))
     ? parseInt(yearParam, 10)
     : null;
+  // null at `all` scope; the caller's own + managed reps at `own`.
+  const scope = reportRepScope(c, 'revenueByRegion:read');
 
   const [byRegion, years] = await Promise.all([
     execQuery(
@@ -73,9 +80,10 @@ app.get('/summary', async (c) => {
              ) parsed ON true
             WHERE so.qb_deleted_at IS NULL
               AND ($1::int IS NULL OR extract(year FROM so.txn_date)::int = $1)
+              AND ($2::text[] IS NULL OR so.sales_rep_list_id = ANY($2::text[]))
          ) x
          GROUP BY region`,
-      [year],
+      [year, scope],
       'revenueByRegion.byRegion'
     ),
     execQuery(
@@ -83,8 +91,9 @@ app.get('/summary', async (c) => {
       `SELECT DISTINCT extract(year FROM txn_date)::int AS y
          FROM public.qb_sales_order
         WHERE qb_deleted_at IS NULL AND txn_date IS NOT NULL
+          AND ($1::text[] IS NULL OR sales_rep_list_id = ANY($1::text[]))
         ORDER BY y DESC`,
-      [],
+      [scope],
       'revenueByRegion.years'
     ),
   ]);

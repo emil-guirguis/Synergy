@@ -1,10 +1,17 @@
 /**
- * Rep Performance & Commission Tracker — admin/employee-only aggregate report.
+ * Rep Performance & Commission Tracker — cross-rep aggregate report.
  * Not a CRUD module (no schema, no list/detail); a single summary endpoint that
  * runs five independent per-rep GROUP BY queries against the QB-synced staging
  * tables and merges them in JS by qb_sales_rep.list_id, rather than one large
  * join — each figure has a different natural grain (invoices, payments,
  * orders) and a join across all of them would double-count.
+ *
+ * repPerformance:read honours its scope via middleware's reportRepScope, the
+ * same way every other report does: at `own` the whole report is narrowed to
+ * the caller's linked rep plus anyone they manage, so a rep-scoped grant shows
+ * that rep's own numbers instead of every rep's commissions. Every aggregate
+ * is filtered in SQL, not just the rep list driving the merge — another rep's
+ * figures must never reach the response at all.
  *
  * Caveat surfaced to the frontend via `invoiceStatusMayBeStale`: commission
  * payout gates on qb_sales_order.invoice_status = 'Paid', which is denormalised
@@ -15,7 +22,7 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission, reportRepScope } from '../middleware';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -37,12 +44,18 @@ interface RepRow {
 app.get('/summary', async (c) => {
   const yearParam = parseInt(c.req.query('year') ?? '', 10);
   const year = Number.isFinite(yearParam) ? yearParam : new Date().getFullYear();
+  // null at `all` scope (no filtering); the caller's own + managed reps at
+  // `own`, or [] — which matches nothing — when they have neither.
+  const scope = reportRepScope(c, 'repPerformance:read');
 
   const [reps, booked, collected, commission, margin, collectionDays, years] = await Promise.all([
     execQuery(
       c.env,
-      `SELECT list_id, name FROM public.qb_sales_rep WHERE is_active = true AND qb_deleted_at IS NULL ORDER BY name`,
-      [],
+      `SELECT list_id, name FROM public.qb_sales_rep
+        WHERE is_active = true AND qb_deleted_at IS NULL
+          AND ($1::text[] IS NULL OR list_id = ANY($1::text[]))
+        ORDER BY name`,
+      [scope],
       'repPerformance.reps'
     ),
     // Total invoiced per rep — "booked sales" side of the comparison.
@@ -52,8 +65,9 @@ app.get('/summary', async (c) => {
          FROM public.qb_invoice
         WHERE qb_deleted_at IS NULL AND sales_rep_list_id IS NOT NULL
           AND extract(year FROM txn_date)::int = $1
+          AND ($2::text[] IS NULL OR sales_rep_list_id = ANY($2::text[]))
         GROUP BY sales_rep_list_id`,
-      [year],
+      [year, scope],
       'repPerformance.booked'
     ),
     // Payments applied to this rep's invoices, dated by when the payment
@@ -67,8 +81,9 @@ app.get('/summary', async (c) => {
          JOIN public.qb_invoice i ON i.txn_id = elem->>'txn_id' AND i.qb_deleted_at IS NULL
         WHERE elem->>'txn_type' = 'Invoice' AND i.sales_rep_list_id IS NOT NULL
           AND extract(year FROM p.txn_date)::int = $1
+          AND ($2::text[] IS NULL OR i.sales_rep_list_id = ANY($2::text[]))
         GROUP BY i.sales_rep_list_id`,
-      [year],
+      [year, scope],
       'repPerformance.collected'
     ),
     // Commission payout ledger — only orders whose linked invoice has actually
@@ -81,8 +96,9 @@ app.get('/summary', async (c) => {
         WHERE qb_deleted_at IS NULL AND sales_rep_list_id IS NOT NULL
           AND invoice_status = 'Paid'
           AND extract(year FROM txn_date)::int = $1
+          AND ($2::text[] IS NULL OR sales_rep_list_id = ANY($2::text[]))
         GROUP BY sales_rep_list_id`,
-      [year],
+      [year, scope],
       'repPerformance.commission'
     ),
     // Gross profit margin per rep — sold_for vs. d_net_cost, every order
@@ -96,8 +112,9 @@ app.get('/summary', async (c) => {
          FROM public.qb_sales_order
         WHERE qb_deleted_at IS NULL AND sales_rep_list_id IS NOT NULL
           AND extract(year FROM txn_date)::int = $1
+          AND ($2::text[] IS NULL OR sales_rep_list_id = ANY($2::text[]))
         GROUP BY sales_rep_list_id`,
-      [year],
+      [year, scope],
       'repPerformance.margin'
     ),
     // Average days from invoice date to first payment applied to it, for
@@ -113,19 +130,22 @@ app.get('/summary', async (c) => {
          ) first_pay ON first_pay.pay_date IS NOT NULL
         WHERE i.qb_deleted_at IS NULL AND i.sales_rep_list_id IS NOT NULL
           AND extract(year FROM i.txn_date)::int = $1
+          AND ($2::text[] IS NULL OR i.sales_rep_list_id = ANY($2::text[]))
         GROUP BY i.sales_rep_list_id`,
-      [year],
+      [year, scope],
       'repPerformance.collectionDays'
     ),
     // Every year with invoice data, for the page's year picker — same pattern
-    // as invoices.ts's receivables-summary.
+    // as invoices.ts's receivables-summary. Scoped too, so an own-scope caller
+    // only gets years they actually have invoices in.
     execQuery(
       c.env,
       `SELECT DISTINCT extract(year FROM txn_date)::int AS y
          FROM public.qb_invoice
         WHERE qb_deleted_at IS NULL AND txn_date IS NOT NULL
+          AND ($1::text[] IS NULL OR sales_rep_list_id = ANY($1::text[]))
         ORDER BY y DESC`,
-      [],
+      [scope],
       'repPerformance.years'
     ),
   ]);

@@ -1,5 +1,8 @@
 /**
- * Sales Rep Performance & Commission Tracker — admin/employee-only.
+ * Sales Rep Performance & Commission Tracker.
+ * Rows come back already scoped by the API — a repPerformance:read grant at
+ * `own` scope returns just the caller's rep (plus anyone they manage), so no
+ * filtering happens here.
  * Three views over one GET /reports/rep-performance/summary fetch (per-rep,
  * per-year): booked vs. collected, the commission payout ledger (paid
  * invoices only — see repPerformance.ts for why), and a leaderboard ranked by

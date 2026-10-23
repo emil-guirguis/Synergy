@@ -1,13 +1,19 @@
 /**
- * Order-to-Cash Pipeline (Bottleneck Finder) — admin/employee-only. Maps
+ * Order-to-Cash Pipeline (Bottleneck Finder). Maps
  * Sales Order -> Invoice -> Payment status to surface where cash is stuck:
  * how much is booked but not yet billed, which specific orders are oldest in
  * that state, and how long paid invoices actually take to collect.
  *
  * ?year=YYYY filters all three figures to that year (order txn_date for the
- * open-orders figures, invoice txn_date for collection speed); omit or pass
- * year=all for the all-time/current-snapshot view (the default before this
- * filter existed, and still the default here).
+ * open-orders figures, invoice txn_date for collection speed) and is the
+ * default — the current year, like every other report's year picker. Pass
+ * year=all for the all-time/current-snapshot view (what this defaulted to
+ * before, which buried this year's bottlenecks under a decade of history).
+ *
+ * orderToCash:read honours its scope through middleware's reportRepScope,
+ * like every other report: at `own` every figure (open value, the uninvoiced
+ * list, collection speed, the year picker) counts only the caller's own rep
+ * plus anyone they manage.
  *
  * Same invoice_status staleness caveat as repPerformance.ts applies here,
  * more directly: the entire Uninvoiced Orders list is invoice_status-driven
@@ -16,7 +22,7 @@
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { AuthVariables, authenticateToken, requirePermission, reportRepScope } from '../middleware';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -31,10 +37,15 @@ app.get('/summary', async (c) => {
   const limitParam = parseInt(c.req.query('limit') ?? '', 10);
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 500) : 100;
 
+  // Default: the current year. Only an explicit year=all opts out (null here
+  // = no year filter in every query below).
   const yearParam = c.req.query('year');
-  const year = yearParam && yearParam !== 'all' && Number.isFinite(parseInt(yearParam, 10))
-    ? parseInt(yearParam, 10)
-    : null;
+  const parsedYear = parseInt(yearParam ?? '', 10);
+  const year = yearParam === 'all' ? null
+    : Number.isFinite(parsedYear) ? parsedYear
+    : new Date().getFullYear();
+  // null at `all` scope; the caller's own + managed reps at `own`.
+  const scope = reportRepScope(c, 'orderToCash:read');
 
   const [openSummary, uninvoiced, collectionSpeed, years] = await Promise.all([
     execQuery(
@@ -42,8 +53,9 @@ app.get('/summary', async (c) => {
       `SELECT COALESCE(SUM(total), 0)::numeric AS value, COUNT(*)::int AS count
          FROM public.qb_sales_order
         WHERE qb_deleted_at IS NULL AND invoice_status IN ${OPEN_STATUSES}
-          AND ($1::int IS NULL OR extract(year FROM txn_date)::int = $1)`,
-      [year],
+          AND ($1::int IS NULL OR extract(year FROM txn_date)::int = $1)
+          AND ($2::text[] IS NULL OR sales_rep_list_id = ANY($2::text[]))`,
+      [year, scope],
       'orderToCash.openSummary'
     ),
     execQuery(
@@ -56,13 +68,15 @@ app.get('/summary', async (c) => {
         WHERE so.qb_deleted_at IS NULL AND so.invoice_status IN ${OPEN_STATUSES}
           AND so.txn_date IS NOT NULL
           AND ($2::int IS NULL OR extract(year FROM so.txn_date)::int = $2)
+          AND ($3::text[] IS NULL OR so.sales_rep_list_id = ANY($3::text[]))
         ORDER BY so.txn_date ASC
         LIMIT $1`,
-      [limit, year],
+      [limit, year, scope],
       'orderToCash.uninvoiced'
     ),
-    // Company-wide: every invoice with at least one applied payment, days
-    // from invoice date to the first payment that touched it.
+    // Every invoice in scope with at least one applied payment, days from
+    // invoice date to the first payment that touched it — company-wide at
+    // `all`, the caller's own invoices at `own`.
     execQuery(
       c.env,
       `SELECT AVG(first_pay.pay_date - i.txn_date)::numeric AS avg_days, COUNT(*)::int AS paid_count
@@ -73,8 +87,9 @@ app.get('/summary', async (c) => {
             WHERE elem->>'txn_id' = i.txn_id AND elem->>'txn_type' = 'Invoice'
          ) first_pay ON first_pay.pay_date IS NOT NULL
         WHERE i.qb_deleted_at IS NULL
-          AND ($1::int IS NULL OR extract(year FROM i.txn_date)::int = $1)`,
-      [year],
+          AND ($1::int IS NULL OR extract(year FROM i.txn_date)::int = $1)
+          AND ($2::text[] IS NULL OR i.sales_rep_list_id = ANY($2::text[]))`,
+      [year, scope],
       'orderToCash.collectionSpeed'
     ),
     // Every year with sales-order or invoice data, for the picker — union of
@@ -83,12 +98,16 @@ app.get('/summary', async (c) => {
     execQuery(
       c.env,
       `SELECT DISTINCT y FROM (
-         SELECT extract(year FROM txn_date)::int AS y FROM public.qb_sales_order WHERE qb_deleted_at IS NULL AND txn_date IS NOT NULL
+         SELECT extract(year FROM txn_date)::int AS y FROM public.qb_sales_order
+          WHERE qb_deleted_at IS NULL AND txn_date IS NOT NULL
+            AND ($1::text[] IS NULL OR sales_rep_list_id = ANY($1::text[]))
          UNION
-         SELECT extract(year FROM txn_date)::int AS y FROM public.qb_invoice WHERE qb_deleted_at IS NULL AND txn_date IS NOT NULL
+         SELECT extract(year FROM txn_date)::int AS y FROM public.qb_invoice
+          WHERE qb_deleted_at IS NULL AND txn_date IS NOT NULL
+            AND ($1::text[] IS NULL OR sales_rep_list_id = ANY($1::text[]))
        ) years
        ORDER BY y DESC`,
-      [],
+      [scope],
       'orderToCash.years'
     ),
   ]);
