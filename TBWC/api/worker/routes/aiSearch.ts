@@ -5,11 +5,20 @@
  * POST /content once the user confirms from the "search file contents?"
  * prompt. TBWC has no other AI-searchable entities today — orders/customers
  * live behind their own list/filter UI, not this bar.
+ *
+ * Scoped by role, exactly like the AI chat's search_documents tool: both
+ * passes see only the entity types the caller's own grants cover, and never an
+ * 'employee'-typed resource file unless they hold resource:write (docAccess.ts
+ * owns both rules). This used to run on authenticateToken alone, which made
+ * the bar a way around every Documents grant and the Resources browser's
+ * employee-only rule — a rep could read file names, and content snippets, from
+ * every document in the system.
  */
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
-import { AuthVariables, authenticateToken } from '../middleware';
+import { AuthVariables, authenticateToken, permissionsFor } from '../middleware';
 import { searchDocumentsMetadata, searchDocumentsContent } from '@meterit/framework-backend/api/base/aiSearch';
+import { allowedDocEntityTypes, hiddenResourceDocIds, withoutHiddenDocs } from './docAccess';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -36,7 +45,14 @@ app.post('/', async (c) => {
     const { query: searchQuery, limit = 20, offset = 0 } = body;
 
     const startTime = Date.now();
-    const { matches, totalDocuments } = await searchDocumentsMetadata(execQuery, c.env, searchQuery);
+    const permissions = await permissionsFor(c.env, c.get('user'));
+    const entityTypes = allowedDocEntityTypes(permissions);
+    const hidden = await hiddenResourceDocIds(c.env, permissions, entityTypes);
+    const found = await searchDocumentsMetadata(execQuery, c.env, searchQuery, { entityTypes });
+    const matches = withoutHiddenDocs(found.matches, hidden);
+    // totalDocuments is the corpus size the search ran over — already narrowed
+    // to this caller's entity types by the query above.
+    const totalDocuments = found.totalDocuments;
     const results = matches.slice(offset, offset + limit).map((d) => ({
       id: d.documentId, name: d.fileName, type: 'document',
       docType: d.docType, mimeType: d.mimeType, entityType: d.entityType, entityId: d.entityId,
@@ -68,7 +84,11 @@ app.post('/content', async (c) => {
     const { query: searchQuery, limit = 20, offset = 0 } = body;
 
     const startTime = Date.now();
-    const { results: docResults, scanned, truncated } = await searchDocumentsContent(execQuery, c.env, searchQuery);
+    const permissions = await permissionsFor(c.env, c.get('user'));
+    const entityTypes = allowedDocEntityTypes(permissions);
+    const hidden = await hiddenResourceDocIds(c.env, permissions, entityTypes);
+    const { results: raw, scanned, truncated } = await searchDocumentsContent(execQuery, c.env, searchQuery, { entityTypes });
+    const docResults = withoutHiddenDocs(raw, hidden);
     const results = docResults.slice(offset, offset + limit).map((d) => ({
       id: d.documentId, name: d.fileName, type: 'document',
       docType: d.docType, mimeType: d.mimeType, entityType: d.entityType, entityId: d.entityId,

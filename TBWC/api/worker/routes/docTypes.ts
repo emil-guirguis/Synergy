@@ -12,6 +12,7 @@
 import { Hono } from 'hono';
 import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission } from '../middleware';
+import { effectiveResourceType, loadResourceTypeMap } from './docAccess';
 import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
 import { emailStoredFile, FileEmailError } from '../fileEmail';
 import {
@@ -67,29 +68,13 @@ async function upsertResourceDocument(
   return result.rows[0]?.document_id ?? null;
 }
 
-/** Every path → type row. The table is small (one row per typed file/folder). */
-async function loadTypeMap(env: Env): Promise<Map<string, DocType>> {
-  const { rows } = await execQuery(env, 'SELECT doc_path, doc_type FROM public.document_type', [], 'docTypes.loadTypeMap');
-  return new Map(rows.map((r: any) => [r.doc_path, r.doc_type]));
-}
-
-/**
- * A type set on a folder is inherited by everything under it; the nearest
- * typed ancestor wins, and nothing typed anywhere up the chain means 'all'.
- * Mirrors ResourcesTab.tsx's typeOf().
- */
-function effectiveType(types: Map<string, DocType>, path: string): DocType {
-  for (let p = path; p; p = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '') {
-    const t = types.get(p);
-    if (t) return t;
-  }
-  return 'all';
-}
-
-/** 'employee' files (or anything under an 'employee' folder) are invisible without resource:write. */
+/** 'employee' files (or anything under an 'employee' folder) are invisible
+ *  without resource:write. The type map and the inheritance rule live in
+ *  docAccess.ts, shared with the AI document searches — which have to hide the
+ *  same files. */
 async function canSeePath(c: any, path: string, types?: Map<string, DocType>): Promise<boolean> {
   if (c.get('permissions').has('resource:write')) return true;
-  return effectiveType(types ?? (await loadTypeMap(c.env)), path) !== 'employee';
+  return effectiveResourceType(types ?? (await loadResourceTypeMap(c.env)), path) !== 'employee';
 }
 
 /** A bucket key: non-empty segments, no traversal. "" (the root) only where `allowRoot`. */
@@ -115,7 +100,7 @@ app.post('/storage/list', requirePermission('resource:read'), async (c) => {
   if (!isResourcePath(prefix, true)) return c.json({ success: false, message: 'Invalid prefix' }, 400);
   try {
     const entries = await listObjects(c.env, RESOURCE_BUCKET, prefix);
-    const types = c.get('permissions').has('resource:write') ? undefined : await loadTypeMap(c.env);
+    const types = c.get('permissions').has('resource:write') ? undefined : await loadResourceTypeMap(c.env);
     const visible: StorageListEntry[] = [];
     for (const e of entries) {
       if (await canSeePath(c, prefix ? `${prefix}/${e.name}` : e.name, types)) visible.push(e);

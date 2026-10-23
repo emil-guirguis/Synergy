@@ -364,6 +364,86 @@ describe('document search entity-type scoping (allowedDocEntityTypes)', () => {
   });
 });
 
+// The Resources browser hides 'employee'-typed files from a caller without
+// resource:write (docTypes.ts); asking the model instead must not be the way
+// around that. docAccess.ts owns the rule for both.
+describe("employee-only resource files in document search", () => {
+  /** document_type rows + the resource document rows docAccess.ts reads. */
+  function stubResourceTables() {
+    mockExecQuery.mockImplementation((_env: any, sql: string) => {
+      if (sql.includes('public.document_type')) {
+        return { rows: [{ doc_path: 'Internal', doc_type: 'employee' }] };
+      }
+      if (sql.includes("entity_type = 'resource'")) {
+        return {
+          rows: [
+            { document_id: 1, entity_id: 'Internal/margins.xlsx' },
+            { document_id: 2, entity_id: 'Cutsheets/meter.pdf' },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+  }
+
+  const MATCHES = [
+    { documentId: 1, entityType: 'resource', fileName: 'margins.xlsx', score: 9 },
+    { documentId: 2, entityType: 'resource', fileName: 'meter.pdf', score: 8 },
+  ];
+
+  it('are dropped from matches for a read-only caller', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'resource:read' }]);
+    stubResourceTables();
+    scriptOneToolCall('search_documents', { text: 'margins' });
+    mockSearchDocumentsMetadata.mockResolvedValue({ matches: MATCHES, totalDocuments: 2 });
+    await post({ message: 'find margins' });
+    expect(JSON.parse(toolResultContent(1))).toEqual([MATCHES[1]]);
+  });
+
+  it('are dropped from the candidate fallback list too', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'resource:read' }]);
+    stubResourceTables();
+    scriptOneToolCall('search_documents', { text: 'nothing matches this' });
+    mockSearchDocumentsMetadata.mockResolvedValue({
+      matches: [],
+      totalDocuments: 2,
+      candidates: [
+        { documentId: 1, entityType: 'resource', fileName: 'margins.xlsx', docType: 'other' },
+        { documentId: 2, entityType: 'resource', fileName: 'meter.pdf', docType: 'other' },
+      ],
+    });
+    await post({ message: 'find it' });
+    const result = JSON.parse(toolResultContent(1));
+    expect(result.availableDocuments.map((d: any) => d.documentId)).toEqual([2]);
+  });
+
+  it('are dropped from content snippets', async () => {
+    currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'resource:read' }]);
+    stubResourceTables();
+    scriptOneToolCall('search_document_contents', { text: 'margin' });
+    mockSearchDocumentsContent.mockResolvedValue({
+      results: MATCHES.map((m) => ({ ...m, snippet: 'hit' })),
+      scanned: 2,
+      truncated: false,
+    });
+    await post({ message: 'search contents' });
+    expect(JSON.parse(toolResultContent(1)).map((r: any) => r.documentId)).toEqual([2]);
+  });
+
+  it('stay visible for a caller holding resource:write', async () => {
+    currentPermSet = grantSet([
+      { permission: 'aichat:use' },
+      { permission: 'resource:read' },
+      { permission: 'resource:write' },
+    ]);
+    stubResourceTables();
+    scriptOneToolCall('search_documents', { text: 'margins' });
+    mockSearchDocumentsMetadata.mockResolvedValue({ matches: MATCHES, totalDocuments: 2 });
+    await post({ message: 'find margins' });
+    expect(JSON.parse(toolResultContent(1))).toEqual(MATCHES);
+  });
+});
+
 describe('run_sql_query', () => {
   it('runs for a caller holding aichat:sql', async () => {
     currentPermSet = grantSet([{ permission: 'aichat:use' }, { permission: 'aichat:sql' }]);

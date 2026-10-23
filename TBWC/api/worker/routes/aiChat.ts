@@ -40,6 +40,9 @@ import { Env, execQuery, withTransaction } from '../db';
 import { authenticateToken, requirePermission, AuthVariables, visibleRepListIds } from '../middleware';
 import type { PermissionSet } from '@meterit/framework-backend/api/base/permissions';
 import { DOCUMENT_GRID_KEYS } from '../permissions';
+// Document visibility (entity_type allowlist + the resource library's
+// 'employee' type) is shared with aiSearch.ts — see docAccess.ts.
+import { allowedDocEntityTypes, hiddenResourceDocIds, withoutHiddenDocs } from './docAccess';
 import {
   runAiChatLoop,
   AiChatTool,
@@ -698,24 +701,6 @@ function toolAllowed(name: string, permissions: PermissionSet): boolean {
   return true;
 }
 
-/** entity_type values search_documents/search_document_contents may return:
- *  each module whose Documents grid read the caller holds at 'all' scope (a
- *  free-text search across every record can't apply an own-scope filter, so
- *  an own-scoped grant doesn't make that module searchable here), plus the
- *  resource library with resource:read.
- *  Deliberately excludes 'support_ticket' (also stored in public.document) —
- *  those attachments are owned per-ticket (filer or assignee), not coverable
- *  by a flat permission allowlist, so they stay out of this tool entirely
- *  rather than risk exposing one caller's ticket to another. */
-function allowedDocEntityTypes(permissions: PermissionSet): string[] {
-  const types: string[] = [];
-  for (const entityType of ['order', 'quote', 'invoice', 'inventory'] as const) {
-    if (permissions.scopeOf(`${DOCUMENT_GRID_KEYS[entityType]}:read`) === 'all') types.push(entityType);
-  }
-  if (permissions.has('resource:read')) types.push('resource');
-  return types;
-}
-
 /** Own-scope SQL fragment for a rep-owned table/alias, mirroring orders.ts/
  *  quotes.ts/invoices.ts's visibleRepListIds filtering: '' (no filter) at
  *  'all' scope, an impossible condition for an own-scoped caller who owns
@@ -934,7 +919,10 @@ async function executeTool(env: Env, user: any, permissions: PermissionSet, tool
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 20, 100);
         const entityTypes = allowedDocEntityTypes(permissions);
-        const { matches, candidates } = await searchDocumentsMetadata(execQuery, env, text, { entityTypes });
+        const hidden = await hiddenResourceDocIds(env, permissions, entityTypes);
+        const found = await searchDocumentsMetadata(execQuery, env, text, { entityTypes });
+        const matches = withoutHiddenDocs(found.matches, hidden);
+        const candidates = found.candidates && withoutHiddenDocs(found.candidates, hidden);
         if (matches.length === 0 && candidates && candidates.length > 0) {
           // No file name/type literally shared a word with the query — hand the
           // model the real candidate list instead of reporting "not found" on an
@@ -958,8 +946,9 @@ async function executeTool(env: Env, user: any, permissions: PermissionSet, tool
         if (!text) return JSON.stringify({ error: 'text is required' });
         const limit = Math.min(toolInput.limit ?? 10, 50);
         const entityTypes = allowedDocEntityTypes(permissions);
+        const hidden = await hiddenResourceDocIds(env, permissions, entityTypes);
         const { results } = await searchDocumentsContent(execQuery, env, text, { entityTypes });
-        return JSON.stringify(results.slice(0, limit));
+        return JSON.stringify(withoutHiddenDocs(results, hidden).slice(0, limit));
       }
 
       case 'search_orders_by_document': {
