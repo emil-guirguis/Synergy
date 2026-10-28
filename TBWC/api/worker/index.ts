@@ -31,6 +31,7 @@ import qbSyncRoutes from './routes/qbSync';
 import verifyRoutes from './routes/verify';
 import docTypeRoutes from './routes/docTypes';
 import documentRoutes from './routes/documents';
+import officeEditWebhookRoutes from './routes/officeEditWebhook';
 import notificationRoutes from './routes/notifications';
 import scheduledNotificationRuleRoutes from './routes/scheduledNotificationRules';
 import aiChatRoutes from './routes/aiChat';
@@ -120,6 +121,9 @@ app.route('/api/ai/memory', aiMemoryRoutes);
 app.route('/qbwc', qbwcRoutes);
 // Re-verification link click (no Supabase auth — the token param is the credential).
 app.route('/api/verify', verifyRoutes);
+// Microsoft Graph change notifications for Excel Online edits (no Supabase auth —
+// Graph calls this; the per-session clientState is the credential).
+app.route('/api/office-edit-webhook', officeEditWebhookRoutes);
 
 export default {
   fetch: app.fetch,

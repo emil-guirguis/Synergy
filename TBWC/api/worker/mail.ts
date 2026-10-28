@@ -21,6 +21,11 @@ export interface SendMailPayload {
    *  SMTP_FROM (the fixed system account). Requires the send-mail edge
    *  function to read body.replyTo — see tbwc-site's _shared/mailer.ts. */
   replyTo?: string;
+  /** 'document' type only — extra recipient on the actual send (e.g. the AR
+   *  collection-notice Cc to accounting@tbwcinc.com). Dropped in non-prod —
+   *  see DEV_TEST_RECIPIENT below, same reasoning: a real mailbox must never
+   *  receive test traffic. */
+  cc?: string;
   attachmentBase64?: string;
   attachmentFilename?: string;
   attachmentContentType?: string;
@@ -45,7 +50,7 @@ export async function sendMail(env: Env, payload: SendMailPayload): Promise<void
   const isProd = env.ENVIRONMENT === 'production';
   const outgoing: SendMailPayload = isProd
     ? payload
-    : { ...payload, email: DEV_TEST_RECIPIENT, subject: payload.subject ? `[dev → ${payload.email}] ${payload.subject}` : payload.subject };
+    : { ...payload, email: DEV_TEST_RECIPIENT, cc: undefined, subject: payload.subject ? `[dev → ${payload.email}] ${payload.subject}` : payload.subject };
 
   const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/send-mail`, {
     method: 'POST',

@@ -16,6 +16,7 @@ import { backfillDocumentIndex } from '@meterit/framework-backend/api/base/aiSea
 import { checkQbwcStale } from './qbwc/staleAlert';
 import { backupStorageToSupabase } from './storageBackup';
 import { pruneOldCronRunLogs } from './cronMonitor';
+import { renewOfficeEditSubscriptions } from './officeEditSync';
 
 export const JOB_REGISTRY: Record<string, (env: Env, now: Date) => Promise<Record<string, unknown> | void>> = {
   checkQbwcStale: (env) => checkQbwcStale(env),
@@ -25,4 +26,5 @@ export const JOB_REGISTRY: Record<string, (env: Env, now: Date) => Promise<Recor
   lockStaleReps: (env) => lockStaleReps(env),
   backupStorage: (env) => backupStorageToSupabase(env),
   pruneCronRunLog: (env) => pruneOldCronRunLogs(env),
+  renewOfficeEditSubscriptions: (env) => renewOfficeEditSubscriptions(env),
 };

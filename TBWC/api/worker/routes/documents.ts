@@ -38,6 +38,8 @@ import {
 import { allowedOptions } from '@meterit/framework-backend/api/base/permissions';
 import { indexDocumentContent } from '@meterit/framework-backend/api/base/aiSearch';
 import { emailStoredFile, FileEmailError } from '../fileEmail';
+import { isOfficeEditable, openEditSession } from '../officeEditSync';
+import { MsGraphError } from '../msGraph';
 import { removeObjects, signObjectUrl, signUploadUrl, statObject, StorageAdminError } from '../storageAdmin';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -416,6 +418,40 @@ app.post('/:id/email', async (c) => {
   } catch (e) {
     if (e instanceof FileEmailError) return c.json({ success: false, message: e.message }, e.status);
     throw e;
+  }
+});
+
+/**
+ * Open a spreadsheet in Excel Online and hand back the URL to send the browser to.
+ *
+ * Write-level access, unlike /email: the returned link can change the file, and
+ * every save flows back into the bucket (officeEditSync.ts). The link itself is
+ * an anonymous SharePoint edit link, so authorization happens here and only
+ * here — anyone the URL reaches can edit, which is why it is never returned to
+ * a caller who could not have replaced the file by upload anyway.
+ */
+app.post('/:id/office-edit', async (c) => {
+  const existing = await getDocument(execQuery, c.env, c.req.param('id'));
+  if (!existing) return c.json({ success: false, message: 'Document not found' }, 404);
+  if (!isEntityType(existing.entity_type)) return c.json({ success: false, message: 'Document not found' }, 404);
+
+  const { allowed } = await resolveWriteAccess(c, existing.entity_type, existing.entity_id, 'write');
+  if (!allowed) return forbidden(c);
+  if (!(await canReadDocument(c, existing))) return c.json({ success: false, message: 'Document not found' }, 404);
+
+  if (!isOfficeEditable(existing.file_name)) {
+    return c.json({ success: false, message: 'Only .xlsx and .xlsm files can be opened in Excel Online' }, 400);
+  }
+
+  try {
+    const editUrl = await openEditSession(c.env, existing, c.get('user')?.id ?? null);
+    return c.json({ success: true, data: { editUrl } });
+  } catch (e) {
+    if (e instanceof MsGraphError) {
+      console.error('[documents] office-edit failed:', e.message);
+      return c.json({ success: false, message: 'Excel Online editing is not available' }, 503);
+    }
+    return fail(c, e);
   }
 });
 

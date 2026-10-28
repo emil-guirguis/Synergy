@@ -243,6 +243,9 @@ function InvoiceRow({
             {shortDate(invoice.txn_date)}
           </Typography>
         </Box>
+        <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
+          Ship: {shortDate(invoice.ship_date)}
+        </Typography>
         {showAmount && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
             <Typography variant="body2" color="text.secondary">

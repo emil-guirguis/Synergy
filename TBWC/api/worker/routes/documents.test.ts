@@ -120,6 +120,19 @@ vi.mock('../storageAdmin', () => ({
   },
 }));
 
+// Excel Online hand-off. openEditSession is stubbed (it would reach Graph and
+// Storage); isOfficeEditable stays real so the extension gate is tested for
+// real rather than against a stand-in.
+const { mockOpenEditSession, MsGraphError } = vi.hoisted(() => {
+  class MsGraphError extends Error {}
+  return { mockOpenEditSession: vi.fn(), MsGraphError };
+});
+vi.mock('../officeEditSync', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../officeEditSync')>();
+  return { ...actual, openEditSession: (...a: any[]) => mockOpenEditSession(...a) };
+});
+vi.mock('../msGraph', () => ({ MsGraphError }));
+
 import documentsApp from './documents';
 
 const ENV = {} as any;
@@ -652,5 +665,72 @@ describe('/storage/* — bytes brokered by the Worker, authorized in code', () =
     const res = await req('/1', { method: 'DELETE' });
     expect(res.status).toBe(200);
     expect(mockRemoveObjects).toHaveBeenCalledWith(ENV, 'record-docs', [ORDER_PATH]);
+  });
+});
+
+describe('POST /:id/office-edit — open a spreadsheet in Excel Online', () => {
+  const XLSX = {
+    document_id: 9,
+    entity_type: 'order',
+    entity_id: '42',
+    doc_type: 'order',
+    file_name: 'Build List.xlsx',
+    mime_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    storage_bucket: 'record-docs',
+    storage_path: 'order/42/abc-Build List.xlsx',
+  };
+
+  beforeEach(() => {
+    mockOpenEditSession.mockReset();
+    mockOpenEditSession.mockResolvedValue('https://sharepoint.example/edit/abc');
+  });
+
+  it('returns the edit URL for a caller who may write the document', async () => {
+    mockGetDocument.mockResolvedValue(XLSX);
+    currentUser = { id: 'admin' };
+    const res = await req('/9/office-edit', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, data: { editUrl: 'https://sharepoint.example/edit/abc' } });
+    const [, doc, userId] = mockOpenEditSession.mock.calls[0];
+    expect(doc.document_id).toBe(9);
+    expect(userId).toBe('admin');
+  });
+
+  it('403s a caller with read but not write on the module grid', async () => {
+    // Write, not read: the returned link is an anonymous *edit* link, so anyone
+    // who can obtain it can change the file.
+    fakeGrants = ['orderGridDocument:read'];
+    mockGetDocument.mockResolvedValue(XLSX);
+    const res = await req('/9/office-edit', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(mockOpenEditSession).not.toHaveBeenCalled();
+  });
+
+  it('400s a file Excel Online cannot open', async () => {
+    mockGetDocument.mockResolvedValue({ ...XLSX, file_name: 'Packing Slip.pdf' });
+    const res = await req('/9/office-edit', { method: 'POST' });
+    expect(res.status).toBe(400);
+    expect(mockOpenEditSession).not.toHaveBeenCalled();
+  });
+
+  it('400s a legacy .xls, which has to be converted first', async () => {
+    mockGetDocument.mockResolvedValue({ ...XLSX, file_name: 'Old Build List.xls' });
+    const res = await req('/9/office-edit', { method: 'POST' });
+    expect(res.status).toBe(400);
+    expect(mockOpenEditSession).not.toHaveBeenCalled();
+  });
+
+  it('404s an unknown document', async () => {
+    mockGetDocument.mockResolvedValue(null);
+    const res = await req('/9/office-edit', { method: 'POST' });
+    expect(res.status).toBe(404);
+    expect(mockOpenEditSession).not.toHaveBeenCalled();
+  });
+
+  it('503s when Graph is not configured, rather than surfacing a 500', async () => {
+    mockGetDocument.mockResolvedValue(XLSX);
+    mockOpenEditSession.mockRejectedValue(new MsGraphError('Microsoft Graph is not configured'));
+    const res = await req('/9/office-edit', { method: 'POST' });
+    expect(res.status).toBe(503);
   });
 });

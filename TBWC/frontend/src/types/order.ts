@@ -106,6 +106,7 @@ export interface LinkedInvoice {
   ref_number: string | null;
   txn_date: string | null;
   due_date: string | null;
+  ship_date: string | null;
   total: number | null;
   balance_remaining: number | null;
   is_paid: boolean | null;

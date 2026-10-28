@@ -70,9 +70,8 @@ export interface DocumentHeader {
    *  always blank in practice, kept so a future sync addition needs no PDF change. */
   fob?: string | null;
   shipVia?: string | null;
-  /** Not present anywhere in TBWC's QB data today — always blank, box still
-   *  drawn (see module comment: every box QB's template has prints here
-   *  too, whether or not this app has data for it). */
+  /** Invoice only (migration 121) — QB's generic header <Other> text field.
+   *  Always blank on an order; no SalesOrder equivalent has been wired. */
   freightAcctZip?: string | null;
   subtotal?: number | null;
   salesTaxPercent?: number | null;

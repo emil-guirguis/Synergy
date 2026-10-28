@@ -365,7 +365,7 @@ app.get('/:id/invoices', requirePermission('order:read'), async (c) => {
   const po = (order.po_number ?? '').trim() || null;
   const { rows } = await execQuery(
     c.env,
-    `SELECT i.qb_invoice_id, i.ref_number, i.txn_date, i.due_date, i.total,
+    `SELECT i.qb_invoice_id, i.ref_number, i.txn_date, i.due_date, i.ship_date, i.total,
             i.balance_remaining, i.is_paid, i.is_packing_slip,
             CASE
               WHEN i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', $1::text))
@@ -582,8 +582,14 @@ app.post('/', requirePermission('order:write'), async (c) => {
 async function loadOrderForEmail(env: Env, id: string) {
   const result = await execQuery(
     env,
+    // ship_date here must stay actual_ship_date, NOT shipped_date: the latter
+    // is QB's own internal ship-by/scheduling date (SalesOrderRet ShipDate,
+    // migration 010), while actual_ship_date is the TBWC-owned manually
+    // entered date the order really shipped (migration 035) — the one reps
+    // and customers should see. Don't copy the invoice side's bare ship_date
+    // column by analogy; qb_invoice has no such split.
     `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.due_date,
-            o.shipped_date AS ship_date, o.total, o.bill_address_block, o.ship_address_block,
+            o.actual_ship_date AS ship_date, o.total, o.bill_address_block, o.ship_address_block,
             o.freight_terms, o.ship_via, o.sales_rep, o.lines, o.sales_rep_list_id, c.email AS customer_email,
             u.email AS rep_email, u.first_name AS rep_first_name, u.last_name AS rep_last_name
        FROM public.qb_sales_order o

@@ -395,6 +395,10 @@ class NoticeEmailError extends Error {
   }
 }
 
+/** Every AR collection-notice email (single or bulk) also Ccs accounting —
+ *  the human inbox that fields customer replies/disputes on these. */
+const AR_NOTICE_CC = 'accounting@tbwcinc.com';
+
 /**
  * The AR tab's "Email notice" action — single-row (POST /:id/notice-email)
  * and the AR Aging report's row-checkbox bulk send (POST
@@ -430,10 +434,11 @@ async function sendInvoiceNoticeEmail(
     `SELECT i.ref_number, i.customer_name, i.txn_date, i.due_date, i.ship_date, i.total, i.subtotal,
             i.balance_remaining, i.lines, i.sales_rep_list_id, i.po_number, i.terms, i.ship_via, i.fob,
             i.bill_address_block, i.ship_address_block, i.sales_tax_total, i.sales_tax_percent,
+            i.freight_acct_zip,
             i.notice_1_date, i.notice_1_method, i.notice_2_date, i.notice_2_method,
             i.notice_3_date, i.notice_3_method,
             c.bill_addr, c.email AS customer_email,
-            qb_sales_rep.name AS sales_rep, so_link.ref_number AS so_ref_number, so_link.job_name
+            qb_sales_rep.initial AS sales_rep, so_link.ref_number AS so_ref_number, so_link.job_name
        FROM public.qb_invoice i
        LEFT JOIN public.qb_customer c ON c.list_id = i.customer_list_id
        ${SALES_REP_JOIN_I}
@@ -460,7 +465,7 @@ async function sendInvoiceNoticeEmail(
   const company = await loadCompanySettings(c.env);
 
   try {
-    await sendDocumentEmail(c.env, invoiceDocumentHeader(row, company), toDocumentLines(row.lines), recipient, { message, subject, replyTo });
+    await sendDocumentEmail(c.env, invoiceDocumentHeader(row, company), toDocumentLines(row.lines), recipient, { message, subject, replyTo, cc: AR_NOTICE_CC, hideLogo: true });
   } catch (e: any) {
     throw new NoticeEmailError(e?.message || 'Failed to send email', 502);
   }
@@ -475,7 +480,7 @@ async function sendInvoiceNoticeEmail(
     // from the Documents grid launches Outlook (or whatever handles .eml) and
     // shows exactly what the customer received, not just the attachment.
     const { bytes: emlBytes } = await buildDocumentEml(
-      invoiceDocumentHeader(row, company), toDocumentLines(row.lines), recipient, { message, subject, replyTo }
+      invoiceDocumentHeader(row, company), toDocumentLines(row.lines), recipient, { message, subject, replyTo, cc: AR_NOTICE_CC, hideLogo: true }
     );
     const path = `${storagePrefix('invoice', id)}ar-notice-${notice}-${Date.now()}.eml`;
     await putObject(c.env, 'record-docs', path, emlBytes, 'message/rfc822');
@@ -534,8 +539,9 @@ app.get('/:id/pdf', requirePermission('invoice:read'), async (c) => {
     `SELECT i.ref_number, i.customer_name, i.txn_date, i.due_date, i.ship_date, i.total, i.subtotal,
             i.balance_remaining, i.lines, i.sales_rep_list_id, i.po_number, i.terms, i.ship_via, i.fob,
             i.bill_address_block, i.ship_address_block, i.sales_tax_total, i.sales_tax_percent,
+            i.freight_acct_zip,
             c.bill_addr,
-            qb_sales_rep.name AS sales_rep, so_link.ref_number AS so_ref_number, so_link.job_name
+            qb_sales_rep.initial AS sales_rep, so_link.ref_number AS so_ref_number, so_link.job_name
        FROM public.qb_invoice i
        LEFT JOIN public.qb_customer c ON c.list_id = i.customer_list_id
        ${SALES_REP_JOIN_I}

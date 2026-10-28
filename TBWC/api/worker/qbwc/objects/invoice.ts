@@ -6,7 +6,7 @@ import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import {
   qbxmlDoc, tag, blocks, statusCode, refField, lineItems,
-  qbTimeToTs, qbDate, num, txnModifiedFilter, QB_MAX_RETURNED, addrBlockText,
+  qbTimeToTs, qbDate, num, txnModifiedFilter, QB_MAX_RETURNED, addrBlockText, dataExtBlocks,
 } from '../qbxml';
 import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
 import { pullSince } from '../incremental';
@@ -47,6 +47,15 @@ async function buildRequest(env: Env): Promise<string> {
     `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>${filter}\n` +
     `      <IncludeLineItems>true</IncludeLineItems>\n` +
     `      <IncludeLinkedTxns>true</IncludeLinkedTxns>\n` +
+    // EXPERIMENT (2026-10-28, invoice #10522's "Job Name" field): DataExtRet
+    // only comes back for OwnerID-0 (public) custom fields unless the owning
+    // app's own OwnerID is explicitly requested too (see customer.ts/
+    // salesOrder.ts's comment on the GUID-vs-"-1" mistake that broke this
+    // before). Trying our own registered OwnerID (tbwc.qwc) on the chance a
+    // past version of this integration created the field under it. If this
+    // doesn't surface it on the next sync, revert -- it's not the answer.
+    `      <OwnerID>0</OwnerID>\n` +
+    `      <OwnerID>{BE0BBCB0-85E3-431A-8248-B818B948814A}</OwnerID>\n` +
     `    </InvoiceQueryRq>`
   );
 }
@@ -116,6 +125,10 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       addrBlockText(ret, 'ShipAddressBlock'),
       salesTaxTotal,
       num(tag(ret, 'SalesTaxPercentage')),
+      // Migration 121: QB's generic header text box — TBWC's template prints
+      // it as Freight Acct/Zip (confirmed against invoice #10522's own value).
+      tag(ret, 'Other') ?? null,
+      JSON.stringify(dataExtBlocks(ret)),
     ]);
   }
 
@@ -126,6 +139,7 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   const CASTS = [
     '', '', '', '', '', '', '', '', '', '', '', '', '', '', '::jsonb', '::jsonb', '', '::jsonb',
     '', '', '', '', '', '', '', '', // migration 120's 8 new columns
+    '', '::jsonb', // migration 121's 2 new columns
   ];
   for (const rows of chunk([...byId.values()], BATCH_SIZE)) {
     await execQuery(
@@ -133,7 +147,8 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       `INSERT INTO public.qb_invoice
          (txn_id, edit_sequence, ref_number, po_number, customer_list_id, customer_name, sales_rep_list_id, template_name,
           txn_date, due_date, subtotal, total, balance_remaining, is_paid, lines, linked_txn, time_modified, raw,
-          terms, ship_via, fob, ship_date, bill_address_block, ship_address_block, sales_tax_total, sales_tax_percent, synced_at)
+          terms, ship_via, fob, ship_date, bill_address_block, ship_address_block, sales_tax_total, sales_tax_percent,
+          freight_acct_zip, data_ext, synced_at)
        VALUES ${multiRowValues(rows.length, CASTS, ', CURRENT_TIMESTAMP')}
        ON CONFLICT (txn_id) DO UPDATE SET
          edit_sequence=EXCLUDED.edit_sequence, ref_number=EXCLUDED.ref_number, po_number=EXCLUDED.po_number,
@@ -145,7 +160,8 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
          raw=EXCLUDED.raw, synced_at=CURRENT_TIMESTAMP,
          terms=EXCLUDED.terms, ship_via=EXCLUDED.ship_via, fob=EXCLUDED.fob, ship_date=EXCLUDED.ship_date,
          bill_address_block=EXCLUDED.bill_address_block, ship_address_block=EXCLUDED.ship_address_block,
-         sales_tax_total=EXCLUDED.sales_tax_total, sales_tax_percent=EXCLUDED.sales_tax_percent`,
+         sales_tax_total=EXCLUDED.sales_tax_total, sales_tax_percent=EXCLUDED.sales_tax_percent,
+         freight_acct_zip=EXCLUDED.freight_acct_zip, data_ext=EXCLUDED.data_ext`,
       rows.flat(),
       'qbwc.invoice.upsert'
     );

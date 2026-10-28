@@ -97,6 +97,13 @@ export interface DocumentsApi {
    * clean up, and the attachment cannot go missing.
    */
   email(documentId: number, input: EmailDocumentInput): Promise<string[]>;
+  /**
+   * Opens a spreadsheet for live editing elsewhere (TBWC: Excel Online via
+   * Microsoft Graph) and resolves to the URL to send the browser to. Optional —
+   * an app whose backend has no such integration simply omits it, and the grid
+   * keeps using its own built-in editor.
+   */
+  officeEdit?(documentId: number): Promise<string>;
 }
 
 /** What really sits in the bucket at a path: `missing` is confirmed absent, `unknown` couldn't tell. */

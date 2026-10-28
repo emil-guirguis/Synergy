@@ -1085,8 +1085,9 @@ ${guard.statement}
         const ownClause = ownScopeClause(permissions, user, 'order:write', 'o.sales_rep_list_id', params);
         const result = await execQuery(
           env,
+          // actual_ship_date, not shipped_date — see orders.ts's loadOrderForEmail comment.
           `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.due_date,
-                  o.shipped_date AS ship_date, o.total, o.bill_address_block, o.ship_address_block,
+                  o.actual_ship_date AS ship_date, o.total, o.bill_address_block, o.ship_address_block,
                   o.freight_terms, o.ship_via, o.sales_rep, o.lines, c.email AS customer_email
              FROM public.qb_sales_order o
              LEFT JOIN public.qb_customer c ON c.list_id = o.customer_list_id AND c.qb_deleted_at IS NULL
@@ -1117,9 +1118,9 @@ ${guard.statement}
           env,
           `SELECT i.ref_number, i.customer_name, i.txn_date, i.due_date, i.ship_date, i.total, i.subtotal,
                   i.balance_remaining, i.lines, i.po_number, i.terms, i.ship_via, i.fob, i.bill_address_block,
-                  i.ship_address_block, i.sales_tax_total, i.sales_tax_percent,
+                  i.ship_address_block, i.sales_tax_total, i.sales_tax_percent, i.freight_acct_zip,
                   c.email AS customer_email, c.bill_addr,
-                  qb_sales_rep.name AS sales_rep, so_link.ref_number AS so_ref_number, so_link.job_name
+                  qb_sales_rep.initial AS sales_rep, so_link.ref_number AS so_ref_number, so_link.job_name
              FROM public.qb_invoice i
              LEFT JOIN public.qb_customer c ON c.list_id = i.customer_list_id AND c.qb_deleted_at IS NULL
              LEFT JOIN public.qb_sales_rep ON qb_sales_rep.list_id = i.sales_rep_list_id

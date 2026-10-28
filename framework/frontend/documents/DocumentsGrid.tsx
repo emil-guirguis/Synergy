@@ -125,6 +125,11 @@ export interface DocumentsGridProps {
   title?: string;
 }
 
+/** Formats Excel Online can open directly. Must stay in step with the API's own
+ *  check (TBWC officeEditSync.OFFICE_EDIT_EXTENSIONS) — a legacy .xls is excluded
+ *  because it has to be converted before Excel for the web will take it. */
+const isSpreadsheet = (fileName: string): boolean => /\.(xlsx|xlsm)$/i.test(fileName);
+
 /** Checked before the file is uploaded, so an oversized one is refused with a
  *  readable message instead of failing partway. Must stay in step with
  *  framework/backend/api/base/documents.ts's DEFAULT_MAX_FILE_SIZE and with
@@ -854,6 +859,22 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
 
   const openFile = async (row: DocumentRecord) => {
     if (!row.storage_path) return;
+    // Real Excel, when the project has it configured and the format qualifies.
+    // The tab is opened here, before any await, or the browser treats the later
+    // navigation as an unsolicited popup and blocks it. A backend without Graph
+    // configured answers 503, which is not an error worth showing — the built-in
+    // editor below handles the same file.
+    if (api.officeEdit && canEdit && isSpreadsheet(row.file_name)) {
+      const tab = window.open('', '_blank');
+      try {
+        const url = await api.officeEdit(row.document_id);
+        if (tab) tab.location.href = url;
+        else window.location.assign(url);
+        return;
+      } catch {
+        tab?.close();
+      }
+    }
     // xlsx/xls/csv can't render in a plain browser tab — it just downloads.
     // Open a dedicated editor tab instead, when the viewer can save it back.
     if (canEdit && isEditableTabularFile(row.file_name)) {

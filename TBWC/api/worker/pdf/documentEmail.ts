@@ -116,14 +116,33 @@ export interface InvoiceDocumentRow {
   sales_tax_total?: number | string | null;
   sales_tax_percent?: number | string | null;
   po_number?: string | null;
-  /** Joined qb_sales_rep.name off sales_rep_list_id. */
+  /** Joined qb_sales_rep.initial off sales_rep_list_id — the rep code
+   *  ("SSS", "J") the printed template shows, not the rep's full name. */
   sales_rep?: string | null;
   /** Resolved via linked_txn -> qb_sales_order (first linked SalesOrder). */
   so_ref_number?: string | null;
   job_name?: string | null;
+  /** Migration 121: QB's header <Other> text — the template's Freight Acct/Zip box. */
+  freight_acct_zip?: string | null;
 }
 
 const numOrNull = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
+
+/**
+ * QB's "Customer:Job" CustomerRef split — looks like the real job name, but
+ * verified against live data (2026-10-28) it's usually a distributor's
+ * branch/location instead (e.g. "CED:CED - San Diego", "Crawford Electric
+ * Supply:Crawford - Irving") — TBWC's customers are wholesale distributors
+ * with branch sub-customers, not QB Jobs. The actual project name lives on
+ * qb_sales_order.job_name, TBWC's own free-text field (migration 020) filled
+ * in when the order is built, so invoiceDocumentHeader/orderDocumentHeader
+ * prefer that and only fall back to this split when no linked order has one.
+ */
+export function qbJobNameFromCustomer(customerName: string | null | undefined): string | null {
+  if (!customerName) return null;
+  const parts = customerName.split(':');
+  return parts.length > 1 ? parts[parts.length - 1].trim() || null : null;
+}
 
 export function invoiceDocumentHeader(row: InvoiceDocumentRow, company?: CompanyInfo | null): DocumentHeader {
   return {
@@ -143,10 +162,11 @@ export function invoiceDocumentHeader(row: InvoiceDocumentRow, company?: Company
     terms: row.terms ?? null,
     soNumber: row.so_ref_number ?? null,
     poNumber: row.po_number ?? null,
-    jobName: row.job_name ?? null,
+    jobName: row.job_name ?? qbJobNameFromCustomer(row.customer_name) ?? null,
     rep: row.sales_rep ?? null,
     fob: row.fob ?? null,
     shipVia: row.ship_via ?? null,
+    freightAcctZip: row.freight_acct_zip ?? null,
     subtotal: numOrNull(row.subtotal),
     salesTaxPercent: numOrNull(row.sales_tax_percent),
     salesTaxAmount: numOrNull(row.sales_tax_total),
@@ -197,7 +217,7 @@ export function orderDocumentHeader(row: OrderDocumentRow, company?: CompanyInfo
     terms: row.freight_terms ?? null,
     soNumber: null,
     poNumber: row.po_number,
-    jobName: row.job_name,
+    jobName: qbJobNameFromCustomer(row.customer_name) ?? row.job_name,
     rep: row.sales_rep ?? null,
     fob: null,
     shipVia: row.ship_via ?? null,
@@ -229,7 +249,7 @@ export function uint8ToBase64(bytes: Uint8Array): string {
  * only the "Dear {customer}," salutation varies per invoice.
  */
 export function lateInvoiceSubject(refNumber?: string | null): string {
-  return refNumber ? `Late Invoice ${refNumber}` : 'Late Invoice';
+  return refNumber ? `Past Due Invoice ${refNumber}` : 'Past Due Invoice';
 }
 
 export function lateInvoiceBody(opts: {
@@ -277,6 +297,15 @@ export interface SendDocumentEmailOptions {
   /** Where a reply should go — e.g. the order's assigned sales rep — since
    *  the envelope From is always the fixed system account (SMTP_FROM). */
   replyTo?: string | null;
+  /** Extra recipient on the actual send — e.g. the AR collection-notice Cc
+   *  to accounting@tbwcinc.com (routes/invoices.ts's sendInvoiceNoticeEmail).
+   *  Carried into the stored .eml too, so the audit copy shows the same
+   *  header the customer's own copy did. */
+  cc?: string | null;
+  /** Drop the TBWC logo image from the bottom of the body card — the AR
+   *  collection-notice email (sendInvoiceNoticeEmail) opts into this so the
+   *  notice ends with the past-due terms paragraph, not a logo. */
+  hideLogo?: boolean;
 }
 
 /**
@@ -293,8 +322,9 @@ const TBWC_LOGO_URL = 'https://tbwctechnology.com/favicon.png';
  * The branded card every order/invoice/AR-notice email renders inside —
  * banner with the company name, an Invoice/Order + Due Date + ref# block
  * beside an "Amount Due" figure, the message in a bordered body (the logo
- * again, under the signature — the body text, lateInvoiceBody, ends with
- * one), a dark footer bar. Matches the email QuickBooks Desktop itself
+ * again, under the signature — skipped when hideLogo, as the AR notice
+ * does so its past-due terms paragraph is the last thing in the body), a
+ * dark footer bar. Matches the email QuickBooks Desktop itself
  * sends when you email an invoice straight from QB (confirmed against a
  * real one, invoice #10522, 2026-10-27) — colors and layout copied from it
  * so a customer sees the same look whether the email came from QB or here.
@@ -304,7 +334,7 @@ const TBWC_LOGO_URL = 'https://tbwctechnology.com/favicon.png';
  * shell — see supabase/functions/_shared/mailer.ts in that repo) so this is
  * the whole visible email, not nested inside another card.
  */
-function bannerHtml(header: DocumentHeader, refNumber: string, messageHtml: string): string {
+function bannerHtml(header: DocumentHeader, refNumber: string, messageHtml: string, hideLogo?: boolean): string {
   const amountDue = header.balanceDue ?? header.total;
   const companyName = escapeHtml(header.company?.name?.trim() || 'TBWC, Inc.');
   return (
@@ -329,7 +359,7 @@ function bannerHtml(header: DocumentHeader, refNumber: string, messageHtml: stri
     `</td></tr>` +
     `<tr><td style="padding:18px 20px;border-bottom:3px solid #E3EAF4;">` +
     `<div style="font-size:13px;font-family:Helvetica,Arial,sans-serif;line-height:1.6;color:#000000;">${messageHtml}</div>` +
-    `<img src="${TBWC_LOGO_URL}" width="110" alt="${companyName}" style="display:block;margin-top:16px;border:0;">` +
+    (hideLogo ? '' : `<img src="${TBWC_LOGO_URL}" width="110" alt="${companyName}" style="display:block;margin-top:16px;border:0;">`) +
     `</td></tr>` +
     `<tr><td style="background:#1F3246;padding:10px;">&nbsp;</td></tr>` +
     `</table>`
@@ -344,7 +374,7 @@ async function buildDocumentEmailContent(
   lines: DocumentLine[],
   options: SendDocumentEmailOptions = {}
 ): Promise<{ subject: string; bodyHtml: string; pdfBytes: Uint8Array; attachmentFilename: string }> {
-  const { message, subject: subjectOverride } = options;
+  const { message, subject: subjectOverride, hideLogo } = options;
   const pdfBytes = await buildDocumentPdf(header, lines);
   const refNumber = header.refNumber ?? '';
   const baseSubject = subjectOverride?.trim() || `${header.kind} ${refNumber} from TBWC, Inc.`.trim();
@@ -354,7 +384,7 @@ async function buildDocumentEmailContent(
     ? escapeHtml(message.trim()).replace(/\n/g, '<br>')
     : `Please find your ${header.kind.toLowerCase()} ${escapeHtml(refNumber)} attached` +
       `${header.total != null ? ` — total ${money(header.total)}` : ''}.`;
-  const bodyHtml = bannerHtml(header, refNumber, messageHtml);
+  const bodyHtml = bannerHtml(header, refNumber, messageHtml, hideLogo);
   return { subject, bodyHtml, pdfBytes, attachmentFilename: `${header.kind}-${refNumber || 'document'}.pdf` };
 }
 
@@ -365,7 +395,7 @@ export async function sendDocumentEmail(
   recipientEmail: string,
   options: SendDocumentEmailOptions = {}
 ): Promise<string> {
-  const { replyTo } = options;
+  const { replyTo, cc } = options;
   const { subject, bodyHtml, pdfBytes, attachmentFilename } = await buildDocumentEmailContent(header, lines, options);
 
   await sendMail(env, {
@@ -374,6 +404,7 @@ export async function sendDocumentEmail(
     subject,
     bodyHtml,
     replyTo: replyTo?.trim() || undefined,
+    cc: cc?.trim() || undefined,
     attachmentBase64: uint8ToBase64(pdfBytes),
     attachmentFilename,
     attachmentContentType: 'application/pdf',
@@ -425,6 +456,7 @@ function base64Wrapped(bytes: Uint8Array): string {
  */
 function buildEmlBytes(opts: {
   to: string;
+  cc?: string | null;
   subject: string;
   bodyHtml: string;
   attachmentBytes: Uint8Array;
@@ -435,6 +467,7 @@ function buildEmlBytes(opts: {
   const headers = [
     foldEmlHeader('From', EML_FROM),
     foldEmlHeader('To', opts.to),
+    ...(opts.cc?.trim() ? [foldEmlHeader('Cc', opts.cc.trim())] : []),
     foldEmlHeader('Subject', opts.subject),
     `Date: ${new Date().toUTCString()}`,
     'MIME-Version: 1.0',
@@ -475,6 +508,7 @@ export async function buildDocumentEml(
   const { subject, bodyHtml, pdfBytes, attachmentFilename } = await buildDocumentEmailContent(header, lines, options);
   const bytes = buildEmlBytes({
     to: recipientEmail,
+    cc: options.cc,
     subject,
     bodyHtml,
     attachmentBytes: pdfBytes,
