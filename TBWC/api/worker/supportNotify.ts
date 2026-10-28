@@ -6,7 +6,7 @@
  * routes/support.ts run these via `c.executionCtx.waitUntil(...)` so the
  * response doesn't wait on the SMTP round trip either.
  */
-import { Env, execQuery } from './db';
+import { Env } from './db';
 import { sendMail } from './mail';
 
 function escapeHtml(s: string): string {
@@ -42,52 +42,23 @@ interface TicketForNotify {
   status: string;
 }
 
-async function adminRecipients(env: Env): Promise<{ email: string; first_name: string | null }[]> {
-  const { rows } = await execQuery(
-    env,
-    `SELECT DISTINCT u.email, u.first_name
-       FROM public.users u
-       JOIN public.role_permission rp ON rp.role_id = u.role_id
-      WHERE rp.permission = 'support:write' AND u.email IS NOT NULL`,
-    [],
-    'supportNotify.adminRecipients'
-  );
-  return rows;
-}
-
-/** New ticket filed — emails the filer (confirmation) and every support admin (heads-up). */
+/** New ticket filed — emails the filer (confirmation) only. Admins see new tickets via the list, not email. */
 export async function notifyTicketCreated(
   env: Env,
   ticket: TicketForNotify,
   filer: { email: string | null; first_name: string | null }
 ): Promise<void> {
+  if (!filer.email) return;
   const url = ticketUrl(env, ticket.support_ticket_id);
   const filerName = filer.first_name || 'there';
-
-  if (filer.email) {
-    const body =
-      paragraph(`Hi ${escapeHtml(filerName)},`) +
-      paragraph(`We've received your support ticket <strong>#${ticket.support_ticket_id} — ${escapeHtml(ticket.title)}</strong>. We'll follow up as soon as someone picks it up.`) +
-      viewTicketButton(url);
-    try {
-      await sendMail(env, { type: 'document', email: filer.email, subject: `We received your ticket #${ticket.support_ticket_id}`, bodyHtml: body });
-    } catch (e) {
-      console.error(`[supportNotify] created->filer failed for ${filer.email}:`, e instanceof Error ? e.message : e);
-    }
-  }
-
-  const admins = await adminRecipients(env);
-  if (!admins.length) return;
-  const adminBody =
-    paragraph(`New support ticket filed by ${escapeHtml(filer.first_name || 'a user')}:`) +
-    paragraph(`<strong>#${ticket.support_ticket_id} — ${escapeHtml(ticket.title)}</strong> (${escapeHtml(ticket.type)}, ${escapeHtml(ticket.priority)} priority)`) +
+  const body =
+    paragraph(`Hi ${escapeHtml(filerName)},`) +
+    paragraph(`We've received your support ticket <strong>#${ticket.support_ticket_id} — ${escapeHtml(ticket.title)}</strong>. We'll follow up as soon as someone picks it up.`) +
     viewTicketButton(url);
-  for (const admin of admins) {
-    try {
-      await sendMail(env, { type: 'document', email: admin.email, subject: `New ticket #${ticket.support_ticket_id} — ${ticket.title}`, bodyHtml: adminBody });
-    } catch (e) {
-      console.error(`[supportNotify] created->admin failed for ${admin.email}:`, e instanceof Error ? e.message : e);
-    }
+  try {
+    await sendMail(env, { type: 'document', email: filer.email, subject: `We received your ticket #${ticket.support_ticket_id}`, bodyHtml: body });
+  } catch (e) {
+    console.error(`[supportNotify] created->filer failed for ${filer.email}:`, e instanceof Error ? e.message : e);
   }
 }
 

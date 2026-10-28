@@ -12,6 +12,11 @@ export interface Invoice {
   sales_rep_list_id: string | null;
   /** Joined from public.qb_sales_rep by sales_rep_list_id — not a qb_invoice column. */
   sales_rep: string | null;
+  /** Joined from public.qb_customer by customer_list_id — detail route only, so
+   *  absent on a row that came from the list. Drives the AR tab's notice
+   *  buttons (mailto: / tel:). */
+  customer_email?: string | null;
+  customer_phone?: string | null;
   txn_date: string | null;
   due_date: string | null;
   subtotal: number | null;

@@ -67,6 +67,12 @@ export interface Env {
   // Postgres backups. Unset => that panel section shows "not configured"
   // instead of calling out. See worker/backupExport.ts.
   SUPABASE_ACCESS_TOKEN?: string;
+  // "development" (local `wrangler dev`, via [vars] in wrangler.toml) or
+  // "production" (deployed, via [env.production.vars]). mail.ts reads this
+  // to redirect every outbound email to a fixed test address outside of
+  // production, so testing a send feature locally can never reach a real
+  // customer.
+  ENVIRONMENT?: string;
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {

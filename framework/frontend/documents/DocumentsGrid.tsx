@@ -388,7 +388,7 @@ const DEFAULT_DOCUMENT_SCHEMA: ConvertedSchema = {
     doc_type: { type: 'select', default: DEFAULT_DOC_TYPE, label: 'Type', dbField: 'doc_type', showOn: ['list', 'form'], enumValues: [...DOC_TYPES], enumLabels: DOC_TYPE_LABELS } as any,
     file_name: { type: 'string', default: null, label: 'File', dbField: 'file_name', readOnly: true, showOn: ['list', 'form'] } as any,
     file_size: { type: 'number', default: null, label: 'Size', dbField: 'file_size', readOnly: true, showOn: ['list', 'form'] } as any,
-    created_at: { type: 'date', default: null, label: 'Uploaded', dbField: 'created_at', readOnly: true, showOn: ['list', 'form'] } as any,
+    created_at: { type: 'datetime', default: null, label: 'Uploaded', dbField: 'created_at', readOnly: true, showOn: ['list', 'form'] } as any,
   },
 };
 
@@ -858,6 +858,21 @@ export const DocumentsGrid: React.FC<DocumentsGridProps> = ({
     // Open a dedicated editor tab instead, when the viewer can save it back.
     if (canEdit && isEditableTabularFile(row.file_name)) {
       openXlsxEditorWindow({ doc: row, entityType, recordId: recordId!, api, storage, onSaved: reload });
+      return;
+    }
+    // .eml has no browser-native viewer, so a new tab would just flash blank
+    // and then download anyway — skip the tab, download straight from this
+    // page (same pattern onDownloadShareClick uses below). &download= also
+    // forces the real file name, not the storage path's random suffix, so the
+    // saved file — and the Outlook window it opens into on double-click —
+    // shows "AR-Notice-2-10522.eml", not "ar-notice-2-1793151177745.eml".
+    if (row.file_name.toLowerCase().endsWith('.eml')) {
+      try {
+        const url = await storage.viewUrl(row.storage_path);
+        window.location.assign(downloadUrlFor(url, row.file_name));
+      } catch (e: any) {
+        setError(e?.message || 'Could not download the file');
+      }
       return;
     }
     // Open the tab synchronously on the click, then point it at the signed URL —

@@ -30,8 +30,8 @@ import { Env, execQuery } from '../db';
 import { AuthVariables, authenticateToken, requirePermission, visibleRepListIds } from '../middleware';
 import { redactRow, redactRows, stripNonEditable } from '@meterit/framework-backend/api/base/permissions';
 import { applyEmbeddedGrid } from '@meterit/framework-backend/api/base/childRows';
-import { buildDocumentPdf, type DocumentHeader } from '../pdf/documentPdf';
-import { dateStr, toDocumentLines, sendDocumentEmail } from '../pdf/documentEmail';
+import { buildDocumentPdf } from '../pdf/documentPdf';
+import { toDocumentLines, sendDocumentEmail, orderDocumentHeader, loadCompanySettings } from '../pdf/documentEmail';
 import { findAll, findById, create, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
 import { orderSchema } from './orderSchema';
 import { queueFieldPush } from '../qbwc/pushQueue';
@@ -205,11 +205,13 @@ const CHIP_CONDITIONS: Record<string, string> = {
   notInvoiced: `"${TABLE}".invoice_status = 'Not Invoiced' AND "${TABLE}".actual_ship_date IS NOT NULL`,
   closed: `"${TABLE}".invoice_status = 'Closed'`,
   notShipped: `"${TABLE}".actual_ship_date IS NULL AND "${TABLE}".ship_no_later_than IS NOT NULL AND "${TABLE}".ship_no_later_than < CURRENT_DATE`,
-  missingFinancials: `("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL OR "${TABLE}".d_net_cost IS NULL)`,
+  // 2026+ only — financials tracking (Sold For/Commission/D Net Cost) wasn't
+  // a thing before then, so an older order isn't "missing" anything here.
+  missingFinancials: `("${TABLE}".txn_date >= '2026-01-01' AND ("${TABLE}".sold_for IS NULL OR "${TABLE}".commission IS NULL OR "${TABLE}".d_net_cost IS NULL))`,
   holdForRelease: `"${TABLE}".order_type = 'hold_for_release'`,
   consignment: `"${TABLE}".order_type = 'consignment'`,
   // No chip/filter-dropdown option for this one — it's only a dashboard-card
-  // link target (OrderAlertsCards.tsx's "YTD Open Sales Orders" ->
+  // link target (OrderStatusCard.tsx's "YTD Open Sales Orders" pill ->
   // /orders?chips=openSalesOrder). invoice_status='Not Invoiced' already means
   // not closed/paid/partially invoiced (see orderInvoiceStatus.ts's
   // precedence), so this is just that plus nothing manually shipped yet.
@@ -312,58 +314,6 @@ app.get('/', requirePermission('order:read'), async (c) => {
   // `lines` follows its own grid grant (orderGridLine:read, orderGridLineSchema.ts).
   const items = redactRows(perms, 'order:read', result.rows).map((r) => applyEmbeddedGrid(perms, 'orderGridLine', 'lines', r));
   return c.json({ success: true, data: { items, total: result.pagination.total } });
-});
-
-// Revenue Backlog & Pipeline: value of open (Not Invoiced / Partially
-// Invoiced) orders minus what's already invoiced against them — a snapshot
-// of what's still owed to the business, not a per-year sum (unlike
-// YearlyOrderTotalCard/ReceivablesCard). "Invoiced" here is the SUM of every
-// non-packing-slip invoice QB has LinkedTxn'd to the order (an order can be
-// invoiced in more than one pass) — deliberately not the PO-number fallback
-// /:id/invoices uses, since that's an inferred match meant for one order's
-// own detail panel, not something to trust in a company-wide total.
-// Registered above /:id — both are single path segments, and Hono matches
-// these in registration order, so below /:id this would get captured as :id.
-app.get('/reports/backlog', requirePermission('order:read'), async (c) => {
-  const user = c.get('user');
-  const params: any[] = [];
-  let repFilter = '';
-  if (ownOnly(c)) {
-    const repIds = visibleRepListIds(user);
-    if (repIds.length === 0) return c.json({ success: true, data: { backlogTotal: 0, orderCount: 0 } });
-    params.push(repIds);
-    repFilter = `AND so.sales_rep_list_id = ANY($${params.length}::text[])`;
-  }
-  const { rows } = await execQuery(
-    c.env,
-    `SELECT
-       COALESCE(SUM(
-         CASE
-           WHEN so.invoice_status = 'Not Invoiced' THEN so.total
-           WHEN so.invoice_status = 'Partially Invoiced' THEN GREATEST(so.total - COALESCE(inv.invoiced, 0), 0)
-           ELSE 0
-         END
-       ), 0) AS backlog_total,
-       COUNT(*) FILTER (WHERE so.invoice_status IN ('Not Invoiced', 'Partially Invoiced')) AS order_count
-     FROM public.${TABLE} so
-     LEFT JOIN LATERAL (
-       SELECT SUM(i.total) AS invoiced
-         FROM public.qb_invoice i
-        WHERE i.linked_txn @> jsonb_build_array(jsonb_build_object('txn_id', so.txn_id))
-          AND i.qb_deleted_at IS NULL
-          AND NOT i.is_packing_slip
-     ) inv ON true
-     WHERE so.qb_deleted_at IS NULL
-       AND (so.order_type IN ${PLACEHOLDER_TYPES_SQL} OR so.txn_date >= '2022-07-01')
-       ${repFilter}`,
-    params,
-    'orders.backlogReport'
-  );
-  const row = rows[0] ?? {};
-  return c.json({
-    success: true,
-    data: { backlogTotal: Number(row.backlog_total ?? 0), orderCount: Number(row.order_count ?? 0) },
-  });
 });
 
 app.get('/:id', requirePermission('order:read'), async (c) => {
@@ -632,8 +582,9 @@ app.post('/', requirePermission('order:write'), async (c) => {
 async function loadOrderForEmail(env: Env, id: string) {
   const result = await execQuery(
     env,
-    `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.total,
-            o.bill_address_block, o.lines, o.sales_rep_list_id, c.email AS customer_email,
+    `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.due_date,
+            o.shipped_date AS ship_date, o.total, o.bill_address_block, o.ship_address_block,
+            o.freight_terms, o.ship_via, o.sales_rep, o.lines, o.sales_rep_list_id, c.email AS customer_email,
             u.email AS rep_email, u.first_name AS rep_first_name, u.last_name AS rep_last_name
        FROM public.qb_sales_order o
        LEFT JOIN public.qb_customer c ON c.list_id = o.customer_list_id AND c.qb_deleted_at IS NULL
@@ -644,19 +595,6 @@ async function loadOrderForEmail(env: Env, id: string) {
     'orders.loadForEmail'
   );
   return result.rows[0] ?? null;
-}
-
-function orderEmailHeader(row: any): DocumentHeader {
-  return {
-    kind: 'Order',
-    refNumber: row.ref_number,
-    customerName: row.customer_name,
-    billTo: row.bill_address_block,
-    date: dateStr(row.txn_date),
-    poNumber: row.po_number,
-    jobName: row.job_name,
-    total: row.total != null ? Number(row.total) : null,
-  };
 }
 
 // Preview the default recipient/sender/subject before sending — the dialog
@@ -685,7 +623,8 @@ app.get('/:id/email/pdf', requirePermission('order:write'), async (c) => {
   const row = await loadOrderForEmail(c.env, c.req.param('id'));
   if (!row) return c.json({ success: false, message: 'Order not found' }, 404);
   if (notOwnedRow(c, 'order:write', row)) return c.json({ success: false, message: 'Order not found' }, 404);
-  const pdfBytes = await buildDocumentPdf(orderEmailHeader(row), toDocumentLines(row.lines));
+  const company = await loadCompanySettings(c.env);
+  const pdfBytes = await buildDocumentPdf(orderDocumentHeader(row, company), toDocumentLines(row.lines));
   // pdf-lib's Uint8Array return type doesn't pin its buffer to plain
   // ArrayBuffer (vs. ArrayBufferLike/SharedArrayBuffer), which current DOM
   // lib typings want for BlobPart — it's never actually shared memory here.
@@ -709,9 +648,10 @@ app.post('/:id/email', requirePermission('order:write'), async (c) => {
   // assigned rep, since an admin/employee can send on a rep's behalf. See
   // documentEmail.ts's SendDocumentEmailOptions.
   const replyTo = (typeof body.replyTo === 'string' ? body.replyTo.trim() : '') || c.get('user')?.email || undefined;
+  const company = await loadCompanySettings(c.env);
 
   try {
-    await sendDocumentEmail(c.env, orderEmailHeader(row), toDocumentLines(row.lines), recipientEmail, { message, subject, replyTo });
+    await sendDocumentEmail(c.env, orderDocumentHeader(row, company), toDocumentLines(row.lines), recipientEmail, { message, subject, replyTo });
   } catch (e: any) {
     return c.json({ success: false, message: e?.message || 'Failed to send email' }, 502);
   }

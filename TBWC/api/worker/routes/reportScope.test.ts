@@ -41,6 +41,7 @@ import repPerformanceApp from './repPerformance';
 import orderToCashApp from './orderToCash';
 import invoiceTotalsApp from './invoiceTotals';
 import revenueByRegionApp from './revenueByRegion';
+import arAgingApp from './arAging';
 
 const ENV = {} as any;
 
@@ -52,6 +53,7 @@ const ENDPOINTS: { name: string; app: { request: Function }; path: string }[] = 
   { name: 'Invoice Totals (trend)', app: invoiceTotalsApp, path: '/timeseries?period=month' },
   { name: 'Invoice Totals (custom trend)', app: invoiceTotalsApp, path: '/timeseries?period=custom' },
   { name: 'Revenue by Region', app: revenueByRegionApp, path: '/summary?year=2026' },
+  { name: 'AR Aging', app: arAgingApp, path: '/summary' },
 ];
 
 /** The scope parameter's 1-based placeholder, read off the guard in the SQL. */

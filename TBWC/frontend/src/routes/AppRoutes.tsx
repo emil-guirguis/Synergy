@@ -12,6 +12,7 @@ import RepPerformancePage from '../features/reports/RepPerformancePage';
 import OrderToCashPage from '../features/reports/OrderToCashPage';
 import InvoiceTotalsPage from '../features/reports/InvoiceTotalsPage';
 import RevenueByRegionPage from '../features/reports/RevenueByRegionPage';
+import ArAgingPage from '../features/reports/ArAgingPage';
 import { QbSyncDashboardPage } from '../features/qbSync/QbSyncDashboardPage';
 import { UserManagementPage } from '../features/users/UserManagementPage';
 import RepPortalPage from '../features/repPortal/RepPortalPage';
@@ -70,6 +71,10 @@ export default function AppRoutes() {
       <Route
         path="/reports/revenue-by-region"
         element={checkPermission('revenueByRegion:read') ? <RevenueByRegionPage /> : <Navigate to="/dashboard" replace />}
+      />
+      <Route
+        path="/reports/ar-aging"
+        element={checkPermission('arAging:read') ? <ArAgingPage /> : <Navigate to="/dashboard" replace />}
       />
       <Route
         path="/qb-sync"

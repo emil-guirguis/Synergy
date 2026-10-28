@@ -86,6 +86,24 @@ export async function signUploadUrl(env: Env, bucket: string, path: string, upse
   return `${base}${body.url}`;
 }
 
+/**
+ * Direct service-role upload of bytes built server-side (a generated PDF) —
+ * unlike signUploadUrl, nothing is ever handed to the browser. `x-upsert` so
+ * writing to the same path twice (e.g. a retried request) overwrites instead
+ * of 409ing.
+ */
+export async function putObject(env: Env, bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  const { base, key } = config(env);
+  const res = await fetch(`${base}/object/${bucket}/${encodeStoragePath(path)}`, {
+    method: 'POST',
+    headers: headers(key, { 'Content-Type': contentType, 'x-upsert': 'true' }),
+    // Same DOM-lib/pdf-lib ArrayBufferLike mismatch as the Blob cast
+    // elsewhere (documentEmail.ts) — never actually shared memory here.
+    body: bytes as BodyInit,
+  });
+  if (!res.ok) throw new StorageAdminError(await readError(res));
+}
+
 /** Delete objects by path. Missing objects are not an error. */
 export async function removeObjects(env: Env, bucket: string, paths: string[]): Promise<void> {
   if (!paths.length) return;

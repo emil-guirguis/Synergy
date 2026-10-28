@@ -6,7 +6,7 @@ import { Env, execQuery } from '../../db';
 import { QbObject } from './types';
 import {
   qbxmlDoc, tag, blocks, statusCode, refField, lineItems,
-  qbTimeToTs, qbDate, num, txnModifiedFilter, QB_MAX_RETURNED,
+  qbTimeToTs, qbDate, num, txnModifiedFilter, QB_MAX_RETURNED, addrBlockText,
 } from '../qbxml';
 import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
 import { pullSince } from '../incremental';
@@ -73,6 +73,15 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
     // Migration 066: which invoice template QB used -- the reliable signal
     // for "this is a packing slip, not a real invoice" (see is_packing_slip).
     const tmpl = refField(ret, 'TemplateRef');
+    // Migration 120: the rest of what the "TBWC Invoice" QB template prints
+    // that nothing here asked for before — same fields salesOrder.ts already
+    // reads off SalesOrderRet (TermsRef/ShipMethodRef/AddressBlock), here off
+    // InvoiceRet instead. No extra request flags needed: QB returns all of
+    // these on a plain InvoiceQueryRq the same way it does for SalesOrderQueryRq.
+    const terms = refField(ret, 'TermsRef');
+    const shipMethod = refField(ret, 'ShipMethodRef');
+    const subtotal = num(tag(ret, 'Subtotal'));
+    const salesTaxTotal = num(tag(ret, 'SalesTaxTotal'));
     byId.set(txnId, [
       txnId,
       tag(ret, 'EditSequence') ?? null,
@@ -87,13 +96,11 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       tmpl.fullName ?? null,
       qbDate(tag(ret, 'TxnDate')),
       qbDate(tag(ret, 'DueDate')),
-      num(tag(ret, 'Subtotal')),
+      subtotal,
       // QB InvoiceRet has no Total element: total = Subtotal + SalesTaxTotal.
       (() => {
-        const sub = num(tag(ret, 'Subtotal'));
-        const taxV = num(tag(ret, 'SalesTaxTotal'));
-        if (sub == null && taxV == null) return null;
-        return (sub ?? 0) + (taxV ?? 0);
+        if (subtotal == null && salesTaxTotal == null) return null;
+        return (subtotal ?? 0) + (salesTaxTotal ?? 0);
       })(),
       num(tag(ret, 'BalanceRemaining')),
       (() => { const b = num(tag(ret, 'BalanceRemaining')); return b == null ? null : b === 0; })(),
@@ -101,6 +108,14 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       JSON.stringify(linkedTxns(ret)),
       qbTimeToTs(tag(ret, 'TimeModified')),
       JSON.stringify({ txnId, ret: ret.slice(0, 8000) }),
+      terms.fullName ?? null,
+      shipMethod.fullName ?? null,
+      tag(ret, 'FOB') ?? null,
+      qbDate(tag(ret, 'ShipDate')),
+      addrBlockText(ret, 'BillAddressBlock'),
+      addrBlockText(ret, 'ShipAddressBlock'),
+      salesTaxTotal,
+      num(tag(ret, 'SalesTaxPercentage')),
     ]);
   }
 
@@ -108,13 +123,17 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   // iterator page must be a handful of statements, not one per record (a
   // per-record loop was slow enough to blow the Web Connector's response
   // timeout mid-page, silently truncating large pulls).
-  const CASTS = ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '::jsonb', '::jsonb', '', '::jsonb'];
+  const CASTS = [
+    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '::jsonb', '::jsonb', '', '::jsonb',
+    '', '', '', '', '', '', '', '', // migration 120's 8 new columns
+  ];
   for (const rows of chunk([...byId.values()], BATCH_SIZE)) {
     await execQuery(
       env,
       `INSERT INTO public.qb_invoice
          (txn_id, edit_sequence, ref_number, po_number, customer_list_id, customer_name, sales_rep_list_id, template_name,
-          txn_date, due_date, subtotal, total, balance_remaining, is_paid, lines, linked_txn, time_modified, raw, synced_at)
+          txn_date, due_date, subtotal, total, balance_remaining, is_paid, lines, linked_txn, time_modified, raw,
+          terms, ship_via, fob, ship_date, bill_address_block, ship_address_block, sales_tax_total, sales_tax_percent, synced_at)
        VALUES ${multiRowValues(rows.length, CASTS, ', CURRENT_TIMESTAMP')}
        ON CONFLICT (txn_id) DO UPDATE SET
          edit_sequence=EXCLUDED.edit_sequence, ref_number=EXCLUDED.ref_number, po_number=EXCLUDED.po_number,
@@ -123,7 +142,10 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
          txn_date=EXCLUDED.txn_date, due_date=EXCLUDED.due_date, subtotal=EXCLUDED.subtotal,
          total=EXCLUDED.total, balance_remaining=EXCLUDED.balance_remaining, is_paid=EXCLUDED.is_paid,
          lines=EXCLUDED.lines, linked_txn=EXCLUDED.linked_txn, time_modified=EXCLUDED.time_modified,
-         raw=EXCLUDED.raw, synced_at=CURRENT_TIMESTAMP`,
+         raw=EXCLUDED.raw, synced_at=CURRENT_TIMESTAMP,
+         terms=EXCLUDED.terms, ship_via=EXCLUDED.ship_via, fob=EXCLUDED.fob, ship_date=EXCLUDED.ship_date,
+         bill_address_block=EXCLUDED.bill_address_block, ship_address_block=EXCLUDED.ship_address_block,
+         sales_tax_total=EXCLUDED.sales_tax_total, sales_tax_percent=EXCLUDED.sales_tax_percent`,
       rows.flat(),
       'qbwc.invoice.upsert'
     );

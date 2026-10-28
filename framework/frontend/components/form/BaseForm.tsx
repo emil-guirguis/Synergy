@@ -101,6 +101,23 @@ export interface BaseFormProps {
   /** Optional content rendered on the right side of the tab header bar */
   tabHeaderActions?: React.ReactNode;
   /**
+   * Optional buttons rendered right-aligned in a section's title bar, for
+   * one-click actions over that section's own fields (stamp a date, dial a
+   * number). Called once per rendered section; return null for the sections
+   * that need none.
+   *
+   * Gets the live form data and `updateField` so an action can write the
+   * section's fields the same way typing in them would — including marking the
+   * form dirty, so Save lights up. A section with `bare: true` draws no title
+   * bar, so it gets no actions either.
+   */
+  renderSectionActions?: (ctx: {
+    sectionName: string;
+    formData: Record<string, any>;
+    updateField: (field: string, value: any) => void;
+    isDisabled: boolean;
+  }) => React.ReactNode | null;
+  /**
    * Optional panel rendered beside the form (e.g. a linked-records summary).
    * BaseForm owns the responsive composition: side-by-side with a fixed
    * panel width above `sidePanelBreakpoint`, stacked full-width below it —
@@ -184,6 +201,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
   formMinWidth,
   variant,
   tabHeaderActions,
+  renderSectionActions,
   hiddenTabs,
   fieldPermission,
   sidePanel,
@@ -615,6 +633,20 @@ export const BaseForm: React.FC<BaseFormProps> = ({
                       <img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=16" alt="Google Maps" />
                     </a>
                   );
+                })()}
+                {(() => {
+                  // Right-aligned action slot. Rendered last so it sits after the
+                  // title text; `margin-left: auto` on the wrapper pushes it to the
+                  // far edge of the flex title bar.
+                  const actions = renderSectionActions?.({
+                    sectionName: sectionTitle,
+                    formData: form?.formData || {},
+                    updateField: form?.updateField ?? (() => {}),
+                    isDisabled: isDisabled || sectionReadOnly,
+                  });
+                  return actions ? (
+                    <span className="base-form__section-title__actions">{actions}</span>
+                  ) : null;
                 })()}
               </h3>
               {sectionData?.description && (

@@ -102,12 +102,6 @@ export const ordersService = {
     if (!res.ok) throw new Error(`Failed to load PDF preview (${res.status})`);
     return res.blob();
   },
-  /** Open order value minus what's already invoiced against it — see
-   *  routes/orders.ts's GET /reports/backlog. */
-  async getBacklogReport() {
-    const data = await parse(await fetch(`${API_BASE_URL}/orders/reports/backlog`, { headers: authHeaders() }));
-    return data.data as { backlogTotal: number; orderCount: number };
-  },
 };
 
 export const useOrdersStore = createEntityStore<Order & { id: string }>(ordersService as any, {

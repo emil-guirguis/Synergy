@@ -68,8 +68,10 @@ function getOrderStatusChips(order: Order): ChipItem[] {
   }
 
   // Financials tab never filled in — any of its three core fields missing counts.
-  // Overage excluded on purpose — it's legitimately left blank often.
-  if (order.sold_for == null || order.commission == null || order.d_net_cost == null) {
+  // Overage excluded on purpose — it's legitimately left blank often. 2026+
+  // only (mirrors orders.ts's CHIP_CONDITIONS.missingFinancials) — financials
+  // tracking wasn't a thing before then, so an older order isn't "missing" it.
+  if (order.txn_date && order.txn_date >= '2026-01-01' && (order.sold_for == null || order.commission == null || order.d_net_cost == null)) {
     chips.push({
       label: 'Missing Financials',
       variant: 'warning',

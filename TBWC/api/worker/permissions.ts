@@ -56,15 +56,20 @@ const STATIC_PERMISSIONS = [
   'quote:write',
   'quote:delete',
   'invoice:read',
+  // The AR tab only (collection notices + AR notes, migration 118). Every
+  // other invoice column is QuickBooks-owned and unwritable regardless — see
+  // routes/invoices.ts's WRITABLE allowlist.
+  'invoice:write',
   'customer:read',
   'payment:read',
-  // The 3 nav: Reports sub-pages. Used to share one report:read — fine for
-  // the backend gate, but it meant the roles tree couldn't show the 3 the
+  // The nav: Reports sub-pages. Used to share one report:read — fine for
+  // the backend gate, but it meant the roles tree couldn't show the ones the
   // sidebar actually has, same problem Resources had with document:read.
   'repPerformance:read',
   'orderToCash:read',
   'invoiceTotals:read',
   'revenueByRegion:read',
+  'arAging:read',
   'inventory:read',
   'inventory:write',
   'user:read',

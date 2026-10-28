@@ -15,12 +15,15 @@ const TOKEN_TTL_DAYS = 7;
 export async function lockStaleReps(env: Env): Promise<void> {
   const stale = await execQuery(
     env,
-    `SELECT id, email, first_name
-     FROM public.users
-     WHERE type = 'rep'
-       AND approved = true
-       AND locked_at IS NULL
-       AND last_verified_at < now() - ($1 || ' days')::interval`,
+    `SELECT u.id, u.email, u.first_name
+     FROM public.users u
+     JOIN public.role r ON r.role_id = COALESCE(u.role_id, (
+       SELECT role_id FROM public.role WHERE tenant_id IS NULL AND code = 'rep'
+     ))
+     WHERE r.code = 'rep'
+       AND u.approved = true
+       AND u.locked_at IS NULL
+       AND u.last_verified_at < now() - ($1 || ' days')::interval`,
     [LOCK_AFTER_DAYS],
     'lockStaleReps:select'
   );

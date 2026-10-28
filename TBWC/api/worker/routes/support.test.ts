@@ -169,16 +169,18 @@ describe('GET /analytics', () => {
     expect(res.status).toBe(403);
   });
 
-  it('shapes totals and by_status from the two queries', async () => {
+  it('shapes totals, by_status and by_type from the three queries', async () => {
     mockExecQuery
       .mockResolvedValueOnce({ rows: [{ total: '5', last_7d: '2', last_30d: '5', avg_resolution_hours: '3.5', avg_csat: '4.2', csat_count: '2' }] })
-      .mockResolvedValueOnce({ rows: [{ status: 'open', count: '3' }, { status: 'closed', count: '2' }] });
+      .mockResolvedValueOnce({ rows: [{ status: 'open', count: '3' }, { status: 'closed', count: '2' }] })
+      .mockResolvedValueOnce({ rows: [{ type: 'general', count: '4' }, { type: 'rma', count: '1' }] });
     const res = await req('/analytics');
     const data = await res.json();
     expect(data.data).toEqual({
       total: 5, last_7_days: 2, last_30_days: 5,
       avg_resolution_hours: 3.5, avg_csat: 4.2, csat_count: 2,
       by_status: { open: 3, closed: 2 },
+      by_type: { general: 4, rma: 1 },
     });
   });
 });

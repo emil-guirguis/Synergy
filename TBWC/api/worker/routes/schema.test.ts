@@ -16,13 +16,10 @@ describe('dashboard schema (roles tree: Dashboard > Cards)', () => {
   // The ids DashboardPage checks with isFieldVisible('dashboard:read', ...).
   it('carries one card:<id> field per dashboard card', () => {
     expect(Object.keys(json.formFields).sort()).toEqual([
-      'card:orderAlerts',
-      'card:receivables',
+      'card:orderStatus',
       'card:repInquiries',
       'card:repStats',
-      'card:revenueBacklog',
-      'card:userDataGaps',
-      'card:yearlyOrderTotal',
+      'card:supportTickets',
     ]);
   });
 

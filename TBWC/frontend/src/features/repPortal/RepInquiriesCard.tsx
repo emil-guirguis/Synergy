@@ -76,9 +76,27 @@ export default function RepInquiriesCard() {
               </Typography>
             ) : hasOutstanding ? (
               <>
-                <Chip label={`${formatNumber(outstanding)} outstanding`} color="warning" size="small" />
+                <Chip
+                  label={`${formatNumber(outstanding)} outstanding`}
+                  color="warning"
+                  size="small"
+                  clickable
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate('/rep-portal?filter=outstanding');
+                  }}
+                />
                 {readyToApprove > 0 && (
-                  <Chip label={`${formatNumber(readyToApprove)} ready to approve`} color="success" size="small" />
+                  <Chip
+                    label={`${formatNumber(readyToApprove)} ready to approve`}
+                    color="success"
+                    size="small"
+                    clickable
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate('/rep-portal?filter=ready');
+                    }}
+                  />
                 )}
               </>
             ) : (

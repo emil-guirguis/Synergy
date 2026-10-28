@@ -30,12 +30,9 @@ export const dashboardSchema = defineSchema({
 
   formFields: {
     'card:repInquiries': card('card:repInquiries', 1, 'Rep inquiries', 'Portal access requests, with the outstanding ones broken out. Needs repApproval:write.'),
-    'card:userDataGaps': card('card:userDataGaps', 2, 'User data gaps', 'Users missing a role or a linked QB sales rep. Needs user:read.'),
-    'card:repStats': card('card:repStats', 3, 'Your quotes and orders', 'Counts and totals for the viewer\'s own records. Own-scoped roles only.'),
-    'card:yearlyOrderTotal': card('card:yearlyOrderTotal', 4, 'Order total this year', 'Company-wide. Needs order:read at All records.'),
-    'card:revenueBacklog': card('card:revenueBacklog', 5, 'Revenue backlog', 'Company-wide. Needs order:read at All records.'),
-    'card:receivables': card('card:receivables', 6, 'Receivables', 'Company-wide AR. Needs invoice:read at All records.'),
-    'card:orderAlerts': card('card:orderAlerts', 7, 'Order alerts', 'Not shipped / open sales orders. Needs order:read at All records.'),
+    'card:repStats': card('card:repStats', 2, 'Your quotes and orders', 'Counts and totals for the viewer\'s own records. Own-scoped roles only.'),
+    'card:orderStatus': card('card:orderStatus', 3, 'Order statuses', 'Not Invoiced / Missing Financials / Not Shipped / YTD Open Sales Orders counts. Needs order:read at All records.'),
+    'card:supportTickets': card('card:supportTickets', 4, 'Support tickets', 'Outstanding count and breakdown by type. Needs support:write at All records.'),
   },
   entityFields: {},
   validation: {},

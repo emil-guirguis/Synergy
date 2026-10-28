@@ -125,7 +125,22 @@ app.post('/', async (c) => {
           ?? (rid ? rid.charAt(0).toUpperCase() + rid.slice(1) : 'Connection');
         await logError(c.env, ticket, objectType, `${hresult}: ${errMsg}`);
       } else {
-        await dispatchResponse(c.env, response);
+        try {
+          await dispatchResponse(c.env, response);
+        } catch (e) {
+          // app.onError's own console.error gets silently truncated here: a
+          // large page (e.g. Invoice's ~500-row full reload) already fills the
+          // Worker's 256KB-per-request tail budget with execQuery's "Executing:"
+          // debug dumps before the real exception is ever logged, so `wrangler
+          // tail` shows nothing past "Log size limit exceeded". Durable row in
+          // qbwc_sync_run instead — survives the log cap, queryable directly.
+          const rid = s.queue[s.cursor]?.match(/requestID="([A-Za-z]+)/)?.[1];
+          const objectType = registry.find((o) => o.requestID === rid)?.name
+            ?? (rid ? rid.charAt(0).toUpperCase() + rid.slice(1) : 'Connection');
+          const err = e instanceof Error ? e : new Error(String(e));
+          await logError(c.env, ticket, objectType, err.message, err.stack?.slice(0, 4000) ?? null);
+          throw e;
+        }
         await logResponse(c.env, ticket, response);
         // QB caps a single un-iterated Query response; if it says more rows are
         // waiting, queue a Continue request right after this one so the next

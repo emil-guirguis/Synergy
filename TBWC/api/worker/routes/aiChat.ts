@@ -61,8 +61,8 @@ import {
 } from '@meterit/framework-backend/api/base/aiMemory';
 import { searchDocumentsMetadata, searchDocumentsContent } from '@meterit/framework-backend/api/base/aiSearch';
 import { createNotification, senderDisplayName } from '@meterit/framework-backend/api/base/notifications';
-import { type DocumentHeader, type DocumentLine } from '../pdf/documentPdf';
-import { dateStr, toDocumentLines, sendDocumentEmail } from '../pdf/documentEmail';
+import { type DocumentLine } from '../pdf/documentPdf';
+import { toDocumentLines, sendDocumentEmail, invoiceDocumentHeader, orderDocumentHeader, loadCompanySettings } from '../pdf/documentEmail';
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.use('*', authenticateToken);
@@ -612,17 +612,10 @@ function describeCaller(user: any): string {
 }
 
 // --- email_order / email_invoice helpers ----------------------------------
-// escapeHtml/dateStr/toDocumentLines/uint8ToBase64/sendDocumentEmail moved to
-// ../pdf/documentEmail.ts so orders.ts's POST /:id/email can reuse them too.
-
-/** Invoices have no bill_address_block column (unlike orders) — build one
- *  from qb_customer.bill_addr (migration 001's {addr1,addr2,city,state,postal}). */
-function formatInvoiceBillTo(customerName: string | null, billAddr: any): string | null {
-  if (!billAddr) return customerName ?? null;
-  const cityLine = [billAddr.city, billAddr.state, billAddr.postal].filter(Boolean).join(', ');
-  const lines = [customerName, billAddr.addr1, billAddr.addr2, cityLine].filter(Boolean);
-  return lines.length ? lines.join('\n') : customerName ?? null;
-}
+// escapeHtml/dateStr/toDocumentLines/uint8ToBase64/sendDocumentEmail/
+// formatInvoiceBillTo/invoiceDocumentHeader moved to ../pdf/documentEmail.ts
+// so orders.ts's POST /:id/email and this file's own email_invoice tool share
+// one PDF-build + header-mapping implementation instead of two.
 
 // --- Permission gating ----------------------------------------------------
 //
@@ -1092,8 +1085,9 @@ ${guard.statement}
         const ownClause = ownScopeClause(permissions, user, 'order:write', 'o.sales_rep_list_id', params);
         const result = await execQuery(
           env,
-          `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.total,
-                  o.bill_address_block, o.lines, c.email AS customer_email
+          `SELECT o.ref_number, o.customer_name, o.job_name, o.po_number, o.txn_date, o.due_date,
+                  o.shipped_date AS ship_date, o.total, o.bill_address_block, o.ship_address_block,
+                  o.freight_terms, o.ship_via, o.sales_rep, o.lines, c.email AS customer_email
              FROM public.qb_sales_order o
              LEFT JOIN public.qb_customer c ON c.list_id = o.customer_list_id AND c.qb_deleted_at IS NULL
             WHERE o.qb_sales_order_id = $1 AND o.qb_deleted_at IS NULL
@@ -1108,17 +1102,8 @@ ${guard.statement}
           return JSON.stringify({ error: 'No email on file for this customer — ask the caller for an address to send it to.' });
         }
 
-        const header: DocumentHeader = {
-          kind: 'Order',
-          refNumber: row.ref_number,
-          customerName: row.customer_name,
-          billTo: row.bill_address_block,
-          date: dateStr(row.txn_date),
-          poNumber: row.po_number,
-          jobName: row.job_name,
-          total: row.total != null ? Number(row.total) : null,
-        };
-        return sendDocumentEmail(env, header, toDocumentLines(row.lines), recipientEmail);
+        const company = await loadCompanySettings(env);
+        return sendDocumentEmail(env, orderDocumentHeader(row, company), toDocumentLines(row.lines), recipientEmail);
       }
 
       case 'email_invoice': {
@@ -1130,10 +1115,30 @@ ${guard.statement}
         const ownClause = ownScopeClause(permissions, user, 'invoice:read', 'i.sales_rep_list_id', params);
         const result = await execQuery(
           env,
-          `SELECT i.ref_number, i.customer_name, i.txn_date, i.due_date, i.total, i.lines,
-                  c.email AS customer_email, c.bill_addr
+          `SELECT i.ref_number, i.customer_name, i.txn_date, i.due_date, i.ship_date, i.total, i.subtotal,
+                  i.balance_remaining, i.lines, i.po_number, i.terms, i.ship_via, i.fob, i.bill_address_block,
+                  i.ship_address_block, i.sales_tax_total, i.sales_tax_percent,
+                  c.email AS customer_email, c.bill_addr,
+                  qb_sales_rep.name AS sales_rep, so_link.ref_number AS so_ref_number, so_link.job_name
              FROM public.qb_invoice i
              LEFT JOIN public.qb_customer c ON c.list_id = i.customer_list_id AND c.qb_deleted_at IS NULL
+             LEFT JOIN public.qb_sales_rep ON qb_sales_rep.list_id = i.sales_rep_list_id
+             LEFT JOIN LATERAL (
+                  SELECT so.ref_number, so.job_name
+                    FROM public.qb_sales_order so
+                   WHERE so.txn_id = (
+                           SELECT elem->>'txn_id' FROM jsonb_array_elements(COALESCE(i.linked_txn, '[]'::jsonb)) elem
+                            WHERE elem->>'txn_type' = 'SalesOrder' LIMIT 1
+                         )
+                      OR (nullif(btrim(i.po_number), '') IS NOT NULL
+                          AND so.customer_list_id = i.customer_list_id
+                          AND nullif(btrim(so.po_number), '') = nullif(btrim(i.po_number), ''))
+                   ORDER BY (so.txn_id = (
+                               SELECT elem->>'txn_id' FROM jsonb_array_elements(COALESCE(i.linked_txn, '[]'::jsonb)) elem
+                                WHERE elem->>'txn_type' = 'SalesOrder' LIMIT 1
+                             )) DESC
+                   LIMIT 1
+                ) so_link ON true
             WHERE i.qb_invoice_id = $1 AND i.qb_deleted_at IS NULL
               ${ownClause}`,
           params,
@@ -1146,16 +1151,8 @@ ${guard.statement}
           return JSON.stringify({ error: 'No email on file for this customer — ask the caller for an address to send it to.' });
         }
 
-        const header: DocumentHeader = {
-          kind: 'Invoice',
-          refNumber: row.ref_number,
-          customerName: row.customer_name,
-          billTo: formatInvoiceBillTo(row.customer_name, row.bill_addr),
-          date: dateStr(row.txn_date),
-          secondaryDate: { label: 'Due', value: dateStr(row.due_date) },
-          total: row.total != null ? Number(row.total) : null,
-        };
-        return sendDocumentEmail(env, header, toDocumentLines(row.lines), recipientEmail);
+        const company = await loadCompanySettings(env);
+        return sendDocumentEmail(env, invoiceDocumentHeader(row, company), toDocumentLines(row.lines), recipientEmail);
       }
 
       case 'search_support_tickets': {

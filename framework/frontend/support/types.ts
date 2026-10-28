@@ -49,6 +49,7 @@ export interface SupportAnalytics {
   avg_csat: number | null;
   csat_count: number;
   by_status: Record<string, number>;
+  by_type?: Record<string, number>;
 }
 
 export interface CreateTicketPayload {

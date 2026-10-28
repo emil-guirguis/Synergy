@@ -52,7 +52,7 @@ export async function loadProfile(env: Env, userId: string): Promise<any | null>
       // permissions at all — i.e. locked out of the whole app. The fallback
       // used to read users.is_admin / users.type; both are gone, and the
       // narrowest role is the only safe default for a row that never said
-      // what it should be (the dashboard's User data gaps card flags these).
+      // what it should be (the Users list flags these with a Missing Role chip).
       `SELECT u.id, u.email, u.first_name, u.last_name, u.agency_name, u.url, u.title, u.work_phone, u.ext, u.mobile,
               u.addr1, u.addr2, u.city, u.state, u.postal, u.about, u.approved,
               u.created_at, u.locked_at, u.last_verified_at,

@@ -18,7 +18,11 @@ interface InvoiceListProps {
   onInvoiceView?: (invoice: Invoice) => void;
 }
 
-/** Read-only QuickBooks invoice list. No create/edit/delete — qb_invoice is synced from QB. */
+/**
+ * QuickBooks invoice list. No create/delete — qb_invoice is synced from QB.
+ * Rows open a form that's read-only except for its AR tab, which a caller
+ * holding invoice:write may edit (see InvoiceManagementPage).
+ */
 export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
   const auth = useAuth();
   const { schema } = useSchema('invoice');
@@ -28,7 +32,13 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
   const columns = useMemo(() => {
     if (!schema) return [];
     return generateColumnsFromSchema<Invoice>(schema.formFields, {
-      fieldOrder: ['ref_number', 'customer_name', 'sales_rep', 'txn_date', 'due_date', 'total', 'balance_remaining', 'is_paid'],
+      fieldOrder: [
+        'ref_number', 'customer_name', 'sales_rep', 'txn_date', 'due_date',
+        'total', 'balance_remaining',
+        // No aging or notice dates here — that view is the AR Aging report's
+        // table (schema keeps those fields showOn: ['form']).
+        'late_fee_applied', 'is_paid',
+      ],
       responsive: 'hide-mobile',
     });
   }, [schema]);
@@ -68,6 +78,20 @@ export const InvoiceList: React.FC<InvoiceListProps> = ({ onInvoiceView }) => {
   useEffect(() => {
     if (!schema) return;
     if (searchParams.get('is_paid') === 'false') baseList.setFilter('is_paid', 'false');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, searchParams]);
+
+  // ?days_past_due=<min> / ?days_past_due_max=<max> are inclusive bounds on how
+  // late an invoice is (see invoices.ts). Neither has a visible control any
+  // more — aging moved off this list onto the AR Aging report — so like
+  // txn_date_from/to below they only ever arrive from a URL, which keeps old
+  // shared links working.
+  useEffect(() => {
+    if (!schema) return;
+    const minDays = searchParams.get('days_past_due');
+    const maxDays = searchParams.get('days_past_due_max');
+    if (minDays) baseList.setFilter('days_past_due', minDays);
+    if (maxDays) baseList.setFilter('days_past_due_max', maxDays);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, searchParams]);
 

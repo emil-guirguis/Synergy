@@ -26,6 +26,7 @@ registerIconMappings({
   orderToCash: 'sync_alt',
   invoiceTotals: 'trending_up',
   revenueByRegion: 'public',
+  arAging: 'hourglass_bottom',
   repPortal: 'folder_shared',
   resources: 'folder_shared',
   notifications: 'notifications',
@@ -55,6 +56,7 @@ export const NAV: MenuItem[] = [
       { id: 'orderToCash', label: 'Order-to-Cash', icon: 'orderToCash', path: '/reports/order-to-cash', requiredPermission: 'orderToCash:read' },
       { id: 'invoiceTotals', label: 'Invoice Totals', icon: 'invoiceTotals', path: '/reports/invoice-totals', requiredPermission: 'invoiceTotals:read' },
       { id: 'revenueByRegion', label: 'Revenue by Region', icon: 'revenueByRegion', path: '/reports/revenue-by-region', requiredPermission: 'revenueByRegion:read' },
+      { id: 'arAging', label: 'AR Aging', icon: 'arAging', path: '/reports/ar-aging', requiredPermission: 'arAging:read' },
     ],
   },
   {
@@ -106,6 +108,7 @@ export function getPageTitle(pathname: string): string {
   if (pathname.startsWith('/reports/order-to-cash')) return 'Order-to-Cash';
   if (pathname.startsWith('/reports/invoice-totals')) return 'Invoice Totals';
   if (pathname.startsWith('/reports/revenue-by-region')) return 'Revenue by Region';
+  if (pathname.startsWith('/reports/ar-aging')) return 'AR Aging';
   if (pathname.startsWith('/rep-portal')) return 'Rep Approvals';
   if (pathname.startsWith('/qb-sync')) return 'QB Sync';
   if (pathname.startsWith('/users')) return 'Users';

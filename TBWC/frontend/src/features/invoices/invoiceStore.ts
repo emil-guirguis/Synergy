@@ -1,6 +1,8 @@
-// Invoice entity store — read-only. qb_invoice is synced from QuickBooks, so
-// only getAll/getById hit the API; create/update/delete are never wired into the UI
-// (the list disables those features) and throw defensively if ever called.
+// Invoice entity store. qb_invoice is synced from QuickBooks, so create/delete
+// are never wired into the UI (the list disables them) and throw defensively if
+// ever called. `update` is the one write: it carries the AR tab's TBWC-owned
+// collection fields, and the API's WRITABLE allowlist drops anything else the
+// form sends back (see routes/invoices.ts).
 import { createEntityStore, createEntityHook } from '../../store/slices/createEntitySlice';
 import { tokenStorage } from '../../utils/tokenStorage';
 import { API_BASE_URL } from '../../config/api';
@@ -21,7 +23,7 @@ async function parse(res: Response) {
   return res.json();
 }
 
-const READ_ONLY = 'Invoices are synced from QuickBooks and cannot be edited here.';
+const READ_ONLY = 'Invoices are synced from QuickBooks and cannot be created or deleted here.';
 
 export const invoiceService = {
   async getAll(params?: any) {
@@ -45,18 +47,65 @@ export const invoiceService = {
     const data = await parse(await fetch(`${API_BASE_URL}/invoices/${id}`, { headers: authHeaders() }));
     return data.data;
   },
-  /** Total outstanding (balance_remaining > 0) on invoices dated in `year`
-   *  (default: current year) — server-side SUM, not a client reduce (see
-   *  invoices.ts route). `years` in the response is every year with invoice
-   *  data, for the card's dropdown. */
-  async getReceivablesSummary(year?: number): Promise<{ total: number; count: number; year: number; years: number[] }> {
-    const qs = year ? `?year=${year}` : '';
-    const data = await parse(await fetch(`${API_BASE_URL}/invoices/receivables-summary${qs}`, { headers: authHeaders() }));
+  async create(): Promise<never> { throw new Error(READ_ONLY); },
+  /** AR tab only — the API ignores every non-AR field in the payload. */
+  async update(id: string, payload: any) {
+    const data = await parse(
+      await fetch(`${API_BASE_URL}/invoices/${id}`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      })
+    );
     return data.data;
   },
-  async create(): Promise<never> { throw new Error(READ_ONLY); },
-  async update(): Promise<never> { throw new Error(READ_ONLY); },
   async delete(): Promise<never> { throw new Error(READ_ONLY); },
+  /** Generic invoice PDF — see routes/invoices.ts's GET /:id/pdf. */
+  async getPdf(id: string | number): Promise<Blob> {
+    const res = await fetch(`${API_BASE_URL}/invoices/${id}/pdf`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`Failed to load invoice PDF (${res.status})`);
+    return res.blob();
+  },
+  /**
+   * Emails one collection notice for one invoice — the AR tab's per-section
+   * Email-notice button. The Worker sends it (its own mail pipeline), locks
+   * the notice's date/method, and attaches a copy to the invoice's
+   * Documents tab; see routes/invoices.ts's sendInvoiceNoticeEmail.
+   * `sentDate` is the sender's own local date (noticeActions.ts's
+   * todayLocal()) — the Worker runs in UTC and has no business-day concept
+   * of its own. `notice` is which section (1st/2nd/3rd) the sender actually
+   * clicked; omitted, the Worker auto-picks the next never-sent slot.
+   */
+  async sendNoticeEmail(
+    id: string | number,
+    sentDate: string,
+    notice?: number
+  ): Promise<{ notice: number; recipient: string; refNumber: string | null; documented: boolean }> {
+    const data = await parse(
+      await fetch(`${API_BASE_URL}/invoices/${id}/notice-email`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ sentDate, notice }),
+      })
+    );
+    return data.data;
+  },
+  /** Same send, for however many invoices (1 or many) are selected on the
+   *  AR Aging report — one result per invoice, so one bad row (no email on
+   *  file) doesn't stop the rest from being notified. */
+  async sendNoticeEmailBulk(
+    ids: (string | number)[],
+    sentDate: string
+  ): Promise<{ id: string; success: boolean; message?: string; notice?: number; recipient?: string }[]> {
+    const data = await parse(
+      await fetch(`${API_BASE_URL}/invoices/notice-email/bulk`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ invoiceIds: ids.map(String), sentDate }),
+      })
+    );
+    return data.data?.results ?? [];
+  },
 };
 
 export const useInvoiceStore = createEntityStore<Invoice & { id: string }>(invoiceService as any, {

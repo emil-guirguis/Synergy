@@ -1,12 +1,9 @@
 import { Box, Stack, Typography } from '@mui/material';
 import { useAuth } from '../hooks/useAuth';
 import RepInquiriesCard from '../features/repPortal/RepInquiriesCard';
-import UserDataGapsCard from '../features/repPortal/UserDataGapsCard';
 import RepStatsCards from '../features/repPortal/RepStatsCards';
-import OrderAlertsCards from '../features/orders/OrderAlertsCards';
-import YearlyOrderTotalCard from '../features/orders/YearlyOrderTotalCard';
-import RevenueBacklogCard from '../features/orders/RevenueBacklogCard';
-import ReceivablesCard from '../features/invoices/ReceivablesCard';
+import OrderStatusCard from '../features/orders/OrderStatusCard';
+import SupportTicketsCard from '../features/support/SupportTicketsCard';
 
 /**
  * The landing page. Every card is shown on its own terms, and a card has to
@@ -38,29 +35,25 @@ export default function DashboardPage() {
   const cardOn = (id: string) => isFieldVisible('dashboard:read', `card:${id}`);
 
   const orderScope = scopeOf('order:read');
-  // Company-wide order figures (YTD total, backlog, not-shipped/open alerts).
+  // Company-wide order figures (not-shipped/open alerts).
   const companyOrders = orderScope === 'all';
-  // Company AR total — same reasoning, on invoices.
-  const companyReceivables = scopeOf('invoice:read') === 'all';
   // Portal access requests — every pending request, company-wide, so the same
   // 'all' rule as the figures above (the Rep Approvals page itself is gated on
   // this grant at any scope; what's company-wide is this card's total).
   const canSeeInquiries = scopeOf('repApproval:write') === 'all';
-  // Data-hygiene counts over public.users (users missing a role / QB rep) —
-  // a count of every user, so 'all' too.
-  const canSeeUserGaps = scopeOf('user:read') === 'all';
   // "Your" quotes/orders counts. Pointless at 'all' scope (it would count the
   // whole company and call it yours), so this is the own-scoped view's card.
   const ownStats = orderScope === 'own' || scopeOf('quote:read') === 'own';
+  // Ticket counts are company-wide (every filer's tickets), so this needs the
+  // same 'all' rule as the order figures above, on support's own write grant
+  // (support:write is the admin-edit permission — see routes/support.ts).
+  const canSeeTickets = scopeOf('support:write') === 'all';
 
   const show = {
     repInquiries: canSeeInquiries && cardOn('repInquiries'),
-    userDataGaps: canSeeUserGaps && cardOn('userDataGaps'),
     repStats: ownStats && cardOn('repStats'),
-    yearlyOrderTotal: companyOrders && cardOn('yearlyOrderTotal'),
-    revenueBacklog: companyOrders && cardOn('revenueBacklog'),
-    receivables: companyReceivables && cardOn('receivables'),
-    orderAlerts: companyOrders && cardOn('orderAlerts'),
+    orderStatus: companyOrders && cardOn('orderStatus'),
+    supportTickets: canSeeTickets && cardOn('supportTickets'),
   };
 
   return (
@@ -71,18 +64,9 @@ export default function DashboardPage() {
 
       <Stack spacing={3}>
         {show.repInquiries && <RepInquiriesCard />}
-        {show.userDataGaps && <UserDataGapsCard />}
         {show.repStats && <RepStatsCards />}
-        {/* One row of figures — skipped entirely when none of the three is on,
-            so the empty flex row doesn't add spacing of its own. */}
-        {(show.yearlyOrderTotal || show.revenueBacklog || show.receivables) && (
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            {show.yearlyOrderTotal && <YearlyOrderTotalCard />}
-            {show.revenueBacklog && <RevenueBacklogCard />}
-            {show.receivables && <ReceivablesCard />}
-          </Box>
-        )}
-        {show.orderAlerts && <OrderAlertsCards />}
+        {show.orderStatus && <OrderStatusCard />}
+        {show.supportTickets && <SupportTicketsCard />}
       </Stack>
     </Box>
   );

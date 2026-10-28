@@ -5,15 +5,27 @@
  * absolute top-right of CardContent (needs sx={{ position: 'relative' }} on
  * CardContent itself) — same spot InvoiceTotalsPage.tsx uses for its own
  * per-card icon button. Pass sx to reposition inline instead, for cards whose
- * top-right corner is already taken by a year Select (YearlyOrderTotalCard,
- * ReceivablesCard).
+ * top-right corner is already taken by something else (e.g. a year Select).
  */
 import { IconButton, Tooltip, type SxProps, type Theme } from '@mui/material';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 export default function CardInfoTooltip({ title, sx }: { title: string; sx?: SxProps<Theme> }) {
+  const sentences = title
+    .split(/(?<=\.)\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   return (
-    <Tooltip title={title}>
+    <Tooltip
+      title={
+        <>
+          {sentences.map((s, i) => (
+            <div key={i}>{s}</div>
+          ))}
+        </>
+      }
+    >
       <IconButton
         component="span"
         size="small"

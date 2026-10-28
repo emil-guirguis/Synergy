@@ -78,7 +78,7 @@ app.get('/', requirePermission('support:read'), async (c) => {
 
 // Registered before GET /:id so Hono doesn't route "analytics" there as an id.
 app.get('/analytics', requirePermission('support:write'), async (c) => {
-  const [totals, byStatus] = await Promise.all([
+  const [totals, byStatus, byType] = await Promise.all([
     execQuery(
       c.env,
       `SELECT
@@ -99,6 +99,12 @@ app.get('/analytics', requirePermission('support:write'), async (c) => {
       [],
       'support.analytics.byStatus'
     ),
+    execQuery(
+      c.env,
+      `SELECT type, COUNT(*) AS count FROM public.support_ticket GROUP BY type`,
+      [],
+      'support.analytics.byType'
+    ),
   ]);
   const t = totals.rows[0];
   return c.json({
@@ -111,6 +117,7 @@ app.get('/analytics', requirePermission('support:write'), async (c) => {
       avg_csat: t.avg_csat != null ? Number(t.avg_csat) : null,
       csat_count: Number(t.csat_count),
       by_status: Object.fromEntries(byStatus.rows.map((r) => [r.status, Number(r.count)])),
+      by_type: Object.fromEntries(byType.rows.map((r) => [r.type, Number(r.count)])),
     },
   });
 });

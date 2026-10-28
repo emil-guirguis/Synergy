@@ -215,6 +215,13 @@
 }
 
 /* Section Titles */
+.base-form__section-title__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
 .base-form__section-title__maps-link {
   margin-left: auto;
 }

@@ -5,7 +5,8 @@
  * than a trend chart.
  */
 import React, { useEffect, useState } from 'react';
-import { Box, Card, CardContent, CircularProgress, Grid, Rating, Typography } from '@mui/material';
+import { Box, Card, CardContent, CircularProgress, Grid, IconButton, Rating, Tooltip, Typography } from '@mui/material';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import type { SupportAnalytics, SupportTicketService } from './types';
 
 export interface SupportAnalyticsSummaryProps {
@@ -19,11 +20,23 @@ function formatHours(hours: number | null): string {
   return `${(hours / 24).toFixed(1)}d`;
 }
 
-function Tile({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
+function Tile({ label, value, sub, info }: { label: string; value: React.ReactNode; sub?: React.ReactNode; info?: string }) {
   return (
     <Grid item xs={6} sm={4} md={2}>
       <Card variant="outlined" sx={{ height: '100%' }}>
-        <CardContent>
+        <CardContent sx={info ? { position: 'relative', pr: 5 } : undefined}>
+          {info && (
+            <Tooltip title={info}>
+              <IconButton
+                component="span"
+                size="small"
+                aria-label="What this card counts"
+                sx={{ position: 'absolute', top: 4, right: 4 }}
+              >
+                <InfoOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Typography variant="caption" color="text.secondary">{label}</Typography>
           <Typography variant="h5" fontWeight="bold">{value}</Typography>
           {sub != null && <Typography variant="caption" color="text.secondary">{sub}</Typography>}
@@ -68,6 +81,7 @@ export const SupportAnalyticsSummary: React.FC<SupportAnalyticsSummaryProps> = (
       <Tile label="Avg Resolution Time" value={formatHours(data.avg_resolution_hours)} />
       <Tile
         label="CSAT"
+        info="Customer satisfaction, 1-5 stars. Customer rates a ticket once it's resolved or closed. Average and count across all rated tickets."
         value={data.avg_csat != null ? data.avg_csat.toFixed(1) : '—'}
         sub={
           data.csat_count > 0 ? (

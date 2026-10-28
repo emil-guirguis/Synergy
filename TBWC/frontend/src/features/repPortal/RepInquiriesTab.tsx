@@ -7,6 +7,7 @@
  * confirmed their email first.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -25,6 +26,19 @@ import {
 } from '@mui/material';
 import { listLeads, approveLead, deleteLead, type RepLead } from '../../services/repLeadsService';
 
+// Dashboard rep-inquiries card links here with ?filter=outstanding|ready —
+// same pending/email_verified predicate RepInquiriesCard.tsx counts with.
+type LeadFilter = 'outstanding' | 'ready' | null;
+const FILTER_LABEL: Record<Exclude<LeadFilter, null>, string> = {
+  outstanding: 'Outstanding',
+  ready: 'Ready to approve',
+};
+function matchesFilter(l: RepLead, filter: LeadFilter): boolean {
+  if (!filter) return true;
+  if (filter === 'outstanding') return !l.invited_at;
+  return !l.invited_at && l.email_verified;
+}
+
 type Msg = { text: string; severity: 'success' | 'error' } | null;
 
 function fullName(l: RepLead): string {
@@ -41,6 +55,16 @@ export default function RepInquiriesTab() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<Msg>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filter = searchParams.get('filter') as LeadFilter;
+  const visibleLeads = leads.filter((l) => matchesFilter(l, filter));
+
+  const clearFilter = () =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('filter');
+      return next;
+    });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,6 +115,15 @@ export default function RepInquiriesTab() {
         Applicants who requested rep access. Approve to email them a signup link.
       </Typography>
 
+      {filter && (
+        <Chip
+          label={`Filter: ${FILTER_LABEL[filter]}`}
+          size="small"
+          onDelete={clearFilter}
+          sx={{ mb: 2 }}
+        />
+      )}
+
       {msg && (
         <Alert severity={msg.severity} sx={{ mb: 2 }} onClose={() => setMsg(null)}>
           {msg.text}
@@ -115,14 +148,14 @@ export default function RepInquiriesTab() {
                   <CircularProgress size={22} />
                 </TableCell>
               </TableRow>
-            ) : leads.length === 0 ? (
+            ) : visibleLeads.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} sx={{ color: 'text.secondary', py: 3 }}>
-                  No inquiries yet.
+                  {leads.length === 0 ? 'No inquiries yet.' : 'No inquiries match this filter.'}
                 </TableCell>
               </TableRow>
             ) : (
-              leads.map((l) => (
+              visibleLeads.map((l) => (
                 <TableRow key={l.id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

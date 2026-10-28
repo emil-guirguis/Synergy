@@ -82,6 +82,16 @@ export const SupportTicketList: React.FC<SupportTicketListProps> = ({
     authContext: allowedAuth,
   });
 
+  // Dashboard support card links here with ?type=<ticket_type> — apply it to
+  // the existing type multiselect filter. Gated on schema loaded: same
+  // setFilter-before-first-fetch race OrderList.tsx's ?chips= handling notes.
+  useEffect(() => {
+    if (!schema) return;
+    const type = searchParams.get('type');
+    if (type) baseList.setFilter('type', [type]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, searchParams]);
+
   // Ticket-created/status-change emails link here with ?openId=<support_ticket_id>
   // (TBWC: supportNotify.ts's ticketUrl) — same deep-link convention as
   // InvoiceList.tsx's AI-chat-search ?openId= handling. Fetch that one record

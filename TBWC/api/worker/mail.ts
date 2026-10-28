@@ -26,9 +26,26 @@ export interface SendMailPayload {
   attachmentContentType?: string;
 }
 
+// Outside of production, every email this Worker sends — invites,
+// reverification, order/invoice PDFs, AR collection notices, everything —
+// goes to this address instead of whoever the caller named, so testing a
+// send feature locally (or against a staging deploy) can never actually
+// reach a real customer or rep. Not a secret, so it's fine to hardcode: it's
+// a safety rail, not a credential.
+const DEV_TEST_RECIPIENT = 'emilguirguis@yahoo.com';
+
 export async function sendMail(env: Env, payload: SendMailPayload): Promise<void> {
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured');
+
+  // env.ENVIRONMENT is "production" only for the deployed production Worker
+  // (wrangler.toml's [env.production.vars]) — local `wrangler dev` and
+  // anything else redirects. The real recipient still shows up in the
+  // subject so a tester can tell whose email they're looking at.
+  const isProd = env.ENVIRONMENT === 'production';
+  const outgoing: SendMailPayload = isProd
+    ? payload
+    : { ...payload, email: DEV_TEST_RECIPIENT, subject: payload.subject ? `[dev → ${payload.email}] ${payload.subject}` : payload.subject };
 
   const res = await fetch(`${env.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/send-mail`, {
     method: 'POST',
@@ -37,7 +54,7 @@ export async function sendMail(env: Env, payload: SendMailPayload): Promise<void
       apikey: key,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(outgoing),
   });
   if (!res.ok) {
     throw new Error(`send-mail failed (${res.status}): ${await res.text().catch(() => '')}`);

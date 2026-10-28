@@ -47,7 +47,7 @@ export function documentGridSchema(parentEntity: string, label = 'Documents') {
       }),
       file_name: field({ name: 'file_name', order: 3, type: FieldTypes.STRING, default: null, readOnly: true, label: 'File', dbField: 'file_name', showOn: ['list', 'form'] }),
       file_size: field({ name: 'file_size', order: 4, type: FieldTypes.NUMBER, default: null, readOnly: true, label: 'Size', dbField: 'file_size', showOn: ['list', 'form'] }),
-      created_at: field({ name: 'created_at', order: 5, type: FieldTypes.DATE, default: null, readOnly: true, label: 'Uploaded', dbField: 'created_at', showOn: ['list', 'form'] }),
+      created_at: field({ name: 'created_at', order: 5, type: FieldTypes.DATETIME, default: null, readOnly: true, label: 'Uploaded', dbField: 'created_at', showOn: ['list', 'form'] }),
     },
     entityFields: {
       document_id: field({ name: 'document_id', type: FieldTypes.NUMBER, default: null, readOnly: true, label: 'ID', dbField: 'document_id' }),
