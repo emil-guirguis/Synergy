@@ -107,6 +107,23 @@ describe('emailStoredFile', () => {
     expect(mockSendMail).not.toHaveBeenCalled();
   });
 
+  it('400s an extension Brevo will not accept, before downloading the bytes', async () => {
+    // Brevo infers an attachment type from the filename and 400s the whole send
+    // for anything off its allowlist. '.eml' is off it (while '.msg' is on it), and
+    // the AR collection-notice audit copies are .eml - so this path is reachable
+    // from the Documents grid, not hypothetical.
+    await expect(emailStoredFile(ENV, { ...FILE, fileName: 'AR-Notice-2.eml' }, { to: 'c@x.com' }))
+      .rejects.toMatchObject({ status: 400 });
+    expect(mockFetchDocumentBytes).not.toHaveBeenCalled();
+    expect(mockSendMail).not.toHaveBeenCalled();
+  });
+
+  it('400s a file with no extension at all', async () => {
+    await expect(emailStoredFile(ENV, { ...FILE, fileName: 'README' }, { to: 'c@x.com' }))
+      .rejects.toMatchObject({ status: 400 });
+    expect(mockSendMail).not.toHaveBeenCalled();
+  });
+
   it('413s a file over the attachment ceiling rather than base64ing it', async () => {
     mockFetchDocumentBytes.mockResolvedValue(new ArrayBuffer(MAX_EMAIL_ATTACHMENT_BYTES + 1));
     await expect(emailStoredFile(ENV, FILE, { to: 'c@x.com' })).rejects.toMatchObject({ status: 413 });

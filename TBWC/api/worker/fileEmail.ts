@@ -21,11 +21,34 @@ import { escapeHtml, uint8ToBase64 } from './pdf/documentEmail';
 import { fetchDocumentBytes } from '@meterit/framework-backend/api/base/aiSearch';
 
 /**
- * Attachment ceiling. Deliberately well under the usual 25MB receiving limit:
- * the base64 encoding this goes out as costs another third on top, and the whole
- * file is held in the Worker's ~128MB of memory while that happens.
+ * Attachment ceiling — set by Brevo now, not by the receiving mail server. Brevo
+ * caps a single attachment at 4MB and the whole message (HTML content included)
+ * at 20MB, and the base64 this goes out as costs another third on top, so ~3MB of
+ * real file is what actually fits inside the 4MB. The previous 10MB ceiling was an
+ * M365-era number and would now be rejected by Brevo with a 400.
+ *
+ * Doubles as the memory guard it always was: the whole file sits in the Worker's
+ * ~128MB while it is base64-encoded.
  */
-export const MAX_EMAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_EMAIL_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
+/**
+ * Extensions Brevo will accept on an attachment. Brevo infers an attachment's MIME
+ * type from its filename and rejects the whole send (400 invalid_parameter) for
+ * anything outside this list, so the file is screened here instead — a 400 naming
+ * the offending file beats a 502 relaying Brevo's own error.
+ *
+ * Worth knowing: `eml` is absent while `msg` is present — Brevo's list, not ours.
+ * The AR collection-notice audit copies this app stores are .eml files (see
+ * routes/invoices.ts), so those rows can be downloaded but not emailed onward.
+ */
+export const BREVO_ATTACHMENT_EXTENSIONS = new Set([
+  'aif', 'aifc', 'aiff', 'avi', 'bmp', 'cgm', 'css', 'csv', 'doc', 'docm', 'docx',
+  'eps', 'ez', 'flac', 'gif', 'htm', 'html', 'ics', 'jpeg', 'jpg', 'm4a', 'm4v',
+  'mkv', 'mobi', 'mov', 'mp3', 'mp4', 'mpeg', 'mpg', 'msg', 'ods', 'odt', 'ogg',
+  'pdf', 'pkpass', 'png', 'ppt', 'pptx', 'pub', 'rtf', 'shtml', 'tar', 'tif',
+  'tiff', 'txt', 'wav', 'wma', 'wmv', 'xls', 'xlsm', 'xlsx', 'xml', 'zip',
+]);
 
 /** Thrown for bad input or an unsendable file; routes map these to a status. */
 export class FileEmailError extends Error {
@@ -95,6 +118,20 @@ export async function emailStoredFile(env: Env, file: StoredFile, input: EmailFi
   const bodyHtml = bodyHtmlFor(asTrimmedString(input.message), file.fileName);
 
   if (!file.path) throw new FileEmailError('This document has no stored file', 404);
+  // Screened before the download, not after: Brevo would reject the send anyway,
+  // and there is no reason to pull megabytes out of Storage to find that out.
+  // dot >= 0, not > 0: Brevo reads the extension as whatever follows the last
+  // dot, so a file named '.pdf' is a pdf to it. 'README' (no dot) and a trailing
+  // dot both land on '', which the allowlist then refuses.
+  const dot = file.fileName.lastIndexOf('.');
+  const ext = dot >= 0 ? file.fileName.slice(dot + 1).toLowerCase() : '';
+  if (!BREVO_ATTACHMENT_EXTENSIONS.has(ext)) {
+    throw new FileEmailError(
+      `${file.fileName} can’t be emailed — ${ext ? `.${ext} files are` : 'files with no extension are'} ` +
+        'not an accepted attachment type. Use "Copy link" to send a link instead.',
+      400
+    );
+  }
   // file_size on the row can lie (or be null) — the byte length below is the
   // real check, this one just avoids downloading 200MB to then refuse it.
   const bytes = await fetchDocumentBytes(env, file.bucket, file.path);
