@@ -23,6 +23,7 @@ export function DataTable<T extends Record<string, any>>({
   hoverable = true,
   sortBy,
   sortOrder,
+  maxBodyHeight,
 }: DataTableProps<T>) {
   const { isMobile, isTablet } = useResponsive();
   const [selectedItems, setSelectedItems] = useState<T[]>([]);
@@ -391,7 +392,10 @@ export function DataTable<T extends Record<string, any>>({
         </div>
       )}
 
-      <div className="data-table__wrapper">
+      <div
+        className="data-table__wrapper"
+        style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}
+      >
         <table 
           className={`
             data-table__table

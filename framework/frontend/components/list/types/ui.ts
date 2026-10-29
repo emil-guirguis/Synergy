@@ -142,6 +142,12 @@ export interface DataTableProps<T> {
   /** Column key currently sorted server-side (e.g. schema's defaultSortBy) — seeds the sort-arrow indicator */
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  /**
+   * Height cap on the scrolling row area (the header row stays frozen above it).
+   * Defaults to a viewport-relative cap in DataTable.css; pass a CSS length to
+   * override, or 'none' to let the list grow and scroll with the page instead.
+   */
+  maxBodyHeight?: string;
 }
 
 export interface ColumnDefinition<T> {

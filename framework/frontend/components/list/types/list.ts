@@ -364,6 +364,12 @@ export interface BaseListReturn<T> {
   /** Column key currently sorted server-side (explicit or schema default) — feeds BaseList's sort-arrow indicator */
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+
+  // Config passthrough
+  /** features.filtersExpandedByDefault, for handing straight to BaseList's
+   *  defaultFiltersOpen — a first-visit default only, since BaseList remembers
+   *  the user's own last expand/collapse after that. */
+  filtersExpandedByDefault: boolean;
 }
 
 /**

@@ -148,6 +148,11 @@
 /* Table Wrapper */
 .data-table__wrapper {
   overflow-x: auto;
+  /* Vertical scrolling lives on this wrapper, not the page, so the header row
+     can stay sticky while rows scroll under it. max-height only caps: lists
+     shorter than this still size to their content and never scroll. */
+  overflow-y: auto;
+  max-height: calc(100vh - 270px);
   -webkit-overflow-scrolling: touch;
   /* Ensure the wrapper has a defined width */
   width: 100%;
@@ -160,6 +165,7 @@
 /* Webkit scrollbar styling */
 .data-table__wrapper::-webkit-scrollbar {
   height: 8px;
+  width: 8px;
 }
 
 .data-table__wrapper::-webkit-scrollbar-track {
@@ -277,6 +283,15 @@
   color: var(--color-text-primary, #111827);
   border-bottom: 1px solid var(--color-border, #e5e7eb);
   white-space: nowrap;
+  /* Frozen header row — pinned to the top of .data-table__wrapper's scrollport.
+     The background has to sit on the cell itself (not .data-table__head) or
+     rows show through it, and the separator is an inset shadow because
+     border-collapse drops a sticky cell's border mid-scroll. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-background-alt, #f9fafb);
+  box-shadow: inset 0 -1px 0 var(--color-border, #e5e7eb);
 }
 
 .data-table__header--sortable {

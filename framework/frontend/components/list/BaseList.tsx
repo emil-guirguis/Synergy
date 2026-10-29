@@ -5,6 +5,42 @@ import type { DataTableProps, ColumnDefinition, BulkAction } from './types/ui';
 import type { ExportFormat } from './types/list';
 import './BaseList.css';
 
+/** localStorage prefix for the remembered filter-panel state, one entry per list. */
+const FILTERS_OPEN_STORAGE_PREFIX = 'fw:list-filters-open:';
+
+function filtersOpenStorageKey(key: string | undefined): string | null {
+  if (!key) return null;
+  return FILTERS_OPEN_STORAGE_PREFIX + key.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+/**
+ * Last expand/collapse this user chose for this list, falling back to the
+ * caller's default. Storage can throw outright (Safari private mode, a browser
+ * set to block site data), so every access is guarded.
+ */
+function readFiltersOpen(key: string | undefined, fallback: boolean): boolean {
+  const storageKey = filtersOpenStorageKey(key);
+  if (!storageKey) return fallback;
+  try {
+    const stored = window.localStorage.getItem(storageKey);
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+  } catch {
+    /* storage unavailable — fall back to the default */
+  }
+  return fallback;
+}
+
+function writeFiltersOpen(key: string | undefined, open: boolean): void {
+  const storageKey = filtersOpenStorageKey(key);
+  if (!storageKey) return;
+  try {
+    window.localStorage.setItem(storageKey, open ? '1' : '0');
+  } catch {
+    /* storage unavailable — the panel still toggles, it just won't be remembered */
+  }
+}
+
 export interface BaseListProps<T> {
   // Toolbar
   title?: string;
@@ -15,8 +51,14 @@ export interface BaseListProps<T> {
 
   // Collapsible filter panel
   filters?: ReactNode;
-  /** Filter panel starts expanded instead of collapsed (default: false) */
+  /** Filter panel starts expanded instead of collapsed (default: false).
+   *  Only applies the first time a user opens this list — after that their own
+   *  last expand/collapse is remembered and wins. */
   defaultFiltersOpen?: boolean;
+  /** Identity the remembered expand/collapse is stored under. Defaults to the
+   *  title, so two lists only share a memory if they share a title; pass this
+   *  for a title-less list, or one whose title changes while mounted. */
+  filtersStorageKey?: string;
 
   // Data
   data: T[];
@@ -42,6 +84,8 @@ export interface BaseListProps<T> {
   sortOrder?: 'asc' | 'desc';
 
   // Table options
+  /** Height cap on the scrolling row area; see DataTableProps.maxBodyHeight */
+  maxBodyHeight?: string;
   responsive?: boolean;
   striped?: boolean;
   hoverable?: boolean;
@@ -70,6 +114,7 @@ export function BaseList<T extends Record<string, any>>({
   toolbarContent,
   filters,
   defaultFiltersOpen = false,
+  filtersStorageKey,
   data,
   columns,
   loading,
@@ -86,12 +131,24 @@ export function BaseList<T extends Record<string, any>>({
   pagination,
   sortBy,
   sortOrder,
+  maxBodyHeight,
   responsive = true,
   striped = true,
   hoverable = true,
   className = '',
 }: BaseListProps<T>) {
-  const [showFilters, setShowFilters] = useState(defaultFiltersOpen);
+  const storageKey = filtersStorageKey ?? title;
+  const [showFilters, setShowFilters] = useState(() =>
+    readFiltersOpen(storageKey, defaultFiltersOpen)
+  );
+
+  const toggleFilters = () => {
+    setShowFilters((open) => {
+      const next = !open;
+      writeFiltersOpen(storageKey, next);
+      return next;
+    });
+  };
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
 
@@ -120,7 +177,7 @@ export function BaseList<T extends Record<string, any>>({
             <button
               type="button"
               className={`base-list__toolbar-btn base-list__toolbar-btn--filter${showFilters ? ' base-list__toolbar-btn--active' : ''}`}
-              onClick={() => setShowFilters(!showFilters)}
+              onClick={toggleFilters}
               title={showFilters ? 'Hide filters' : 'Show filters'}
             >
               <i className="material-symbols-outlined">filter_list</i>
@@ -206,6 +263,7 @@ export function BaseList<T extends Record<string, any>>({
         responsive={responsive}
         striped={striped}
         hoverable={hoverable}
+        maxBodyHeight={maxBodyHeight}
       />
     </div>
   );
