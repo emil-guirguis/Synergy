@@ -31,6 +31,11 @@ export interface Order {
   customer_name: string | null;
   txn_date: string | null;
   due_date: string | null;
+  /** QB's own synced <ShipDate> (migration 010) — an internal ship-by/
+   *  scheduling date, NOT the date the order shipped. Never shown in the
+   *  list or the form (it isn't in orderSchema) and nothing in the UI may
+   *  read it: use actual_ship_date below, the TBWC-owned Ship Date. Kept on
+   *  the type only because the API returns the whole row. */
   shipped_date: string | null;
   po_number: string | null;
   /** Editable — an admin's edit is queued for push to QB (see qbwc_push_queue)

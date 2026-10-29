@@ -36,7 +36,12 @@ export default function RepStatsCards() {
   const quoteCount = quotes.length;
   const orderCount = orders.length;
   const orderTotal = orders.filter(isIn2026).reduce((sum: number, o: any) => sum + (Number(o.total) || 0), 0);
-  const openOrderCount = orders.filter((o: any) => !o.shipped_date).length;
+  // actual_ship_date (the date typed on the order form, migration 035), not
+  // shipped_date — that one is QB's internal ship-by/scheduling date and is
+  // deliberately hidden from reps everywhere else (see OrderList's
+  // REP_FIELD_ORDER), so counting off it contradicted the Ship Date a rep
+  // actually sees on the order.
+  const openOrderCount = orders.filter((o: any) => !o.actual_ship_date).length;
 
   return (
     <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 3 }}>
@@ -94,7 +99,7 @@ export default function RepStatsCards() {
       <Card variant="outlined" sx={{ minWidth: 240 }}>
         <CardActionArea onClick={() => navigate('/orders')}>
           <CardContent sx={{ position: 'relative', pr: 5 }}>
-            <CardInfoTooltip title="Your orders where QuickBooks' own Ship Date (shipped_date) hasn't been set yet (all-time)." />
+            <CardInfoTooltip title="Your orders with no Ship Date entered yet (all-time)." />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <LocalShippingIcon color="action" />
               <Typography variant="body2" color="text.secondary">

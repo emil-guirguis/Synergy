@@ -32,7 +32,7 @@ import { redactRow, redactRows, stripNonEditable } from '@meterit/framework-back
 import { applyEmbeddedGrid } from '@meterit/framework-backend/api/base/childRows';
 import { buildDocumentPdf } from '../pdf/documentPdf';
 import { toDocumentLines, sendDocumentEmail, orderDocumentHeader, loadCompanySettings } from '../pdf/documentEmail';
-import { findAll, findById, create, update, whereFromQuery, likeFieldsFromSchema } from '../crud';
+import { findAll, findById, create, update, whereFromQuery, likeFieldsFromSchema, nullWhenEmptyFromSchema, emptyToNull } from '../crud';
 import { orderSchema } from './orderSchema';
 import { queueFieldPush } from '../qbwc/pushQueue';
 import { extractOrderSerials, type OrderSerials } from './orderSerials';
@@ -90,6 +90,11 @@ const SELECT_WITH_REP_NAME =
 // QB-owned (overwritten by sync) or maintained by refreshOrderInvoiceStatus().
 // commission_total is a Postgres GENERATED column (commission + overage) —
 // deliberately excluded here; the DB itself rejects a direct write to it.
+// A cleared date/number input reports '' — never a legal value for those
+// columns (Postgres: invalid input syntax for type date: ""), so every write
+// below passes through emptyToNull() and stores null instead of 500ing.
+const NULL_WHEN_EMPTY = nullWhenEmptyFromSchema(orderSchema);
+
 const WRITABLE = new Set([
   'build_notes',
   'notes',
@@ -259,7 +264,12 @@ app.get('/', requirePermission('order:read'), async (c) => {
     qb_deleted_at: null,
   };
   if (q.missingPo === 'true') where.po_number = null;
-  if (q.notShipped === 'true') where.shipped_date = null;
+  // actual_ship_date, not shipped_date: the latter is QB's own internal
+  // ship-by/scheduling date (SalesOrderRet ShipDate, migration 010), while
+  // actual_ship_date is the TBWC-owned date typed on the order form
+  // (migration 035) — the same field CHIP_CONDITIONS.notShipped reads, so
+  // this legacy ?notShipped=true link can't disagree with the chip.
+  if (q.notShipped === 'true') where.actual_ship_date = null;
   // A packing slip is a zero-total QB invoice linked to the order — a real
   // $0 invoice is NOT a packing slip, so total>0 is the wrong test for this;
   // has_packing_slip is the actual flag (migration 048, kept in sync by
@@ -468,13 +478,13 @@ app.put('/:id', requirePermission('order:write'), async (c) => {
   }
   for (const [k, v] of Object.entries(body)) {
     if (k === 'customer_list_id' || k === 'lines') continue; // handled separately (lines needs its own ::jsonb cast)
-    if (WRITABLE.has(k) || (isPlaceholder && HOLD_WRITABLE.has(k))) { data[k] = v; continue; }
+    if (WRITABLE.has(k) || (isPlaceholder && HOLD_WRITABLE.has(k))) { data[k] = emptyToNull(NULL_WHEN_EMPTY, k, v); continue; }
     if (k in PUSHABLE) {
       // A placeholder row never reaches QuickBooks — write pushable fields
       // (memo) directly to the column instead of staging them in
       // qbwc_push_queue, which is keyed by txn_id and would just sit there
       // forever against this row's synthetic one.
-      if (isPlaceholder) data[k] = v;
+      if (isPlaceholder) data[k] = emptyToNull(NULL_WHEN_EMPTY, k, v);
       else pushes.push([k, v]);
     }
   }
@@ -556,7 +566,7 @@ app.post('/', requirePermission('order:write'), async (c) => {
   };
   for (const [k, v] of Object.entries(body)) {
     if (k === 'customer_list_id' || k === 'txn_date' || k === 'lines' || k === 'total') continue; // handled above
-    if (HOLD_WRITABLE.has(k)) data[k] = v;
+    if (HOLD_WRITABLE.has(k)) data[k] = emptyToNull(NULL_WHEN_EMPTY, k, v);
   }
   const row = await create(c.env, TABLE, data);
   if (lines.length > 0) {

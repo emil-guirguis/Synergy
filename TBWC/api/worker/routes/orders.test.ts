@@ -197,6 +197,18 @@ describe('GET / status chip filter', () => {
   });
 });
 
+describe('GET / ?notShipped=true', () => {
+  // The legacy dashboard-card link. Must test the TBWC-owned ship date typed on
+  // the order form, never QB's internal shipped_date scheduling column.
+  it('filters on actual_ship_date, not QB shipped_date', async () => {
+    mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
+    await req('/?notShipped=true');
+    const opts = mockFindAll.mock.calls[0][1];
+    expect(opts.where).toEqual({ qb_deleted_at: null, actual_ship_date: null });
+    expect(opts.where).not.toHaveProperty('shipped_date');
+  });
+});
+
 describe('GET / default date floor', () => {
   it('excludes orders on/before 2022-06-30 by default, except hold-for-release rows', async () => {
     mockFindAll.mockResolvedValue({ rows: [], pagination: { total: 0 } });
@@ -283,6 +295,20 @@ describe('PUT /:id', () => {
     await req('/9', json('PUT', { notes: 'ok', qb_sales_order_id: 999, sales_rep: 'hacked' }));
     expect(mockUpdate).toHaveBeenCalledWith(
       ENV, 'qb_sales_order', 'qb_sales_order_id', '9', { notes: 'ok' }, { touchUpdatedAt: false }
+    );
+  });
+
+  // A cleared date input posts '' — never a legal date to Postgres, which
+  // rejected the whole UPDATE with `invalid input syntax for type date: ""`
+  // (the PUT 500'd and the date stayed put). Clearing one stores null.
+  it('stores a cleared date as null, not an empty string', async () => {
+    mockUpdate.mockResolvedValue({ qb_sales_order_id: 9, txn_id: 't1' });
+    mockFindById.mockResolvedValue({ qb_sales_order_id: 9 });
+    await req('/9', json('PUT', { actual_ship_date: '', notes: '' }));
+    expect(mockUpdate).toHaveBeenCalledWith(
+      ENV, 'qb_sales_order', 'qb_sales_order_id', '9',
+      // notes is text — '' is a real value there and stays as typed.
+      { actual_ship_date: null, notes: '' }, { touchUpdatedAt: false }
     );
   });
 

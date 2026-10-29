@@ -377,8 +377,10 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
   // Order money is per-field the same way: no total column here, and
   // OrderLinesGrid drops the rate/amount columns (and the totals footer) off
   // orderGridLine:read's own column grant.
-  // No shipped_date here: QB's own ship-by date is an internal scheduling date,
-  // so reps see only actual_ship_date (the date it really shipped).
+  // Ship Date is always actual_ship_date (migration 035, typed on the order
+  // form) for every view, rep and admin alike. QB's own shipped_date is an
+  // internal ship-by/scheduling date and is deliberately not in orderSchema
+  // at all, so neither this list nor the form can surface it.
   // A managing rep sees orders across several reps, so they need the Sales
   // Rep column to tell them apart — a plain rep (list always 1 rep: themselves)
   // doesn't.
@@ -394,7 +396,7 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     if (!schema) return [];
     const cols = generateColumnsFromSchema<Order>(schema.formFields, {
       fieldOrder: canSeeAll
-        ? ['customer_name', 'build_notes', 'ref_number', 'txn_date', 'ship_no_later_than', 'actual_ship_date', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'shipped_date', 'expedite', 'service']
+        ? ['customer_name', 'build_notes', 'ref_number', 'txn_date', 'ship_no_later_than', 'actual_ship_date', 'po_number', 'job_name', 'sales_rep', 'total', 'is_fully_invoiced', 'expedite', 'service']
         : REP_FIELD_ORDER,
       responsive: 'hide-mobile',
     });
@@ -408,10 +410,8 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
     // the Statuses column's "Not Invoiced" chip and the Invoiced filter.
     const visible = (canSeeAll ? cols : cols.filter((col) => REP_FIELD_ORDER.includes(col.key as string)))
       .filter((col) => col.key !== 'order_type' && col.key !== 'invoice_number');
-    // Admin-only: the chip rules read shipped_date, which is QB's internal
-    // ship-by scheduling field — reps only ever see actual_ship_date (see
-    // REP_FIELD_ORDER comment above), so don't derive a rep-facing status
-    // off a field they're deliberately not shown.
+    // Admin-only: the chip rules key off internal state reps aren't shown
+    // (build/invoice status, money), so don't derive a rep-facing status here.
     if (canSeeAll) {
       const poIdx = visible.findIndex((col) => col.key === 'po_number');
       visible.splice(poIdx === -1 ? 0 : poIdx + 1, 0, STATUS_CHIPS_COLUMN);
@@ -537,7 +537,6 @@ export const OrderList: React.FC<OrderListProps> = ({ onOrderEdit, onOrderCreate
       allowImport: false,
       allowSearch: true,
       allowFilters: true,
-      filtersExpandedByDefault: true,
       allowStats: false,
     },
     permissions: {
