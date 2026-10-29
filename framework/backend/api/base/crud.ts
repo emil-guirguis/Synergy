@@ -179,6 +179,35 @@ export function likeFieldsFromSchema(
     .map(([name]) => name);
 }
 
+/**
+ * Derive which of a defineSchema() entity's fields must never be written as an
+ * empty string: a date/time or numeric column, where '' isn't a value at all
+ * (Postgres answers `invalid input syntax for type date: ""` and the PUT 500s).
+ * A cleared input always reports '', so a route pipes writes through
+ * emptyToNull() with this set and stores null — "no value" — instead.
+ * Covers both formFields and entityFields, so a column that's only in one
+ * still counts.
+ */
+export function nullWhenEmptyFromSchema(
+  schema: { formFields?: Record<string, any>; entityFields?: Record<string, any> } | { schema: any }
+): Set<string> {
+  const inner = (schema as any).schema ?? schema;
+  const all: Record<string, any> = { ...(inner.formFields ?? {}), ...(inner.entityFields ?? {}) };
+  const nonText = new Set(['date', 'datetime', 'time', 'number', 'currency']);
+  const names = new Set<string>();
+  for (const [name, def] of Object.entries(all) as [string, any][]) {
+    if (!def?.type || !nonText.has(def.type)) continue;
+    names.add(name);
+    if (def.dbField) names.add(def.dbField);
+  }
+  return names;
+}
+
+/** '' -> null for a column named in `nullWhenEmpty`; every other value passes through. */
+export function emptyToNull(nullWhenEmpty: Set<string>, column: string, value: any): any {
+  return value === '' && nullWhenEmpty.has(column) ? null : value;
+}
+
 export interface DeleteRestriction {
   table: string; // child table holding the FK
   fk: string; // FK column in the child table

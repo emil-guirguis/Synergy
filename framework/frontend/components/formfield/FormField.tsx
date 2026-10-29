@@ -18,6 +18,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import ClearIcon from '@mui/icons-material/Clear';
 import { NumberSpinner } from './NumberSpinner';
 import { URLLink } from './URLLink';
 import { CronField } from './CronField';
@@ -599,6 +600,19 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
             return strValue;
           }, [value, type]);
 
+          // A native date/time input clears only one segment per keypress
+          // (month, then day, then year), so wiping a date meant three
+          // deletes — and a partially cleared input reports '' while still
+          // looking filled in. One clear button empties the whole field in a
+          // single click; BaseForm maps that '' to null for the save.
+          const clearable = !disabled && !required && !!displayValue;
+          const clearValue = () => {
+            if (!onChange) return;
+            onChange({
+              target: { name, value: '' },
+            } as React.ChangeEvent<HTMLInputElement>);
+          };
+
           return (
             <TextField
               id={fieldId}
@@ -618,6 +632,29 @@ export const FormField = forwardRef<HTMLInputElement | HTMLTextAreaElement | HTM
               InputLabelProps={{
                 shrink: true,
               }}
+              onKeyDown={(e) => {
+                // Delete/Backspace anywhere in the field wipes all of it,
+                // rather than the single segment the browser would clear.
+                if (clearable && (e.key === 'Delete' || e.key === 'Backspace')) {
+                  e.preventDefault();
+                  clearValue();
+                }
+              }}
+              InputProps={clearable ? {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      tabIndex={-1}
+                      aria-label={`Clear ${label || name}`}
+                      data-testid={`clear-${name}`}
+                      onClick={clearValue}
+                    >
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              } : undefined}
               data-field={name}
               data-component={type}
               {...(showError && { 'aria-invalid': true })}

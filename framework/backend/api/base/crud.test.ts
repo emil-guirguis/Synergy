@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createCrud, whereFromQuery, likeFieldsFromSchema, fieldMapFromSchema } from './crud';
+import { createCrud, whereFromQuery, likeFieldsFromSchema, fieldMapFromSchema, nullWhenEmptyFromSchema, emptyToNull } from './crud';
 
 // Capture every execQuery call so we can assert on the generated SQL + params.
 const calls: { sql: string; params: any[] }[] = [];
@@ -393,5 +393,42 @@ describe('likeFieldsFromSchema', () => {
 
   it('unwraps a defineSchema() return value (schema.schema.formFields)', () => {
     expect(likeFieldsFromSchema({ schema } as any).sort()).toEqual(['full_name', 'moq', 'phone']);
+  });
+});
+
+describe('nullWhenEmptyFromSchema / emptyToNull', () => {
+  const schema = {
+    formFields: {
+      ship_date: { type: 'date' },
+      notes: { type: 'string' },
+      qty: { type: 'number' },
+      sold_for: { type: 'currency' },
+      is_active: { type: 'boolean' }, // a checkbox never posts '' — left alone
+    },
+    entityFields: {
+      // Entity-only, and stored under a different column name than the field.
+      shipped_at: { type: 'datetime', dbField: 'shipped_at_utc' },
+    },
+  };
+
+  it('names every date/time and numeric field, plus its dbField alias', () => {
+    expect([...nullWhenEmptyFromSchema(schema)].sort()).toEqual(
+      ['qty', 'ship_date', 'shipped_at', 'shipped_at_utc', 'sold_for'].sort()
+    );
+  });
+
+  it('unwraps a defineSchema() return value (schema.schema)', () => {
+    expect(nullWhenEmptyFromSchema({ schema } as any).has('ship_date')).toBe(true);
+  });
+
+  it("turns '' into null for those columns only", () => {
+    const set = nullWhenEmptyFromSchema(schema);
+    expect(emptyToNull(set, 'ship_date', '')).toBeNull();
+    expect(emptyToNull(set, 'qty', '')).toBeNull();
+    // '' is a real value in a text column, and a non-empty date is untouched.
+    expect(emptyToNull(set, 'notes', '')).toBe('');
+    expect(emptyToNull(set, 'ship_date', '2026-10-29')).toBe('2026-10-29');
+    expect(emptyToNull(set, 'ship_date', null)).toBeNull();
+    expect(emptyToNull(set, 'qty', 0)).toBe(0);
   });
 });

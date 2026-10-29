@@ -139,6 +139,16 @@ export interface BaseFormProps {
   fieldPermission?: string;
 }
 
+// An emptied input always reports '' — fine for a text column, but '' is not
+// a date or a number, and sending it is what made a cleared date field fail
+// the save with a 500 (Postgres: invalid input syntax for type date: "").
+// Clearing one of these types means "no value", so it goes on the wire as null.
+const NULL_WHEN_EMPTY_TYPES = new Set(['date', 'datetime', 'time', 'number', 'currency']);
+
+function normalizeEmpty(fieldType: string, value: any): any {
+  return value === '' && NULL_WHEN_EMPTY_TYPES.has(fieldType) ? null : value;
+}
+
 /**
  * Base Form Component
  * 
@@ -443,7 +453,7 @@ export const BaseForm: React.FC<BaseFormProps> = ({
         if (fieldType === 'checkbox') {
           handleInputChange(fieldName, e.target.checked);
         } else {
-          handleInputChange(fieldName, e.target.value);
+          handleInputChange(fieldName, normalizeEmpty(fieldType, e.target.value));
         }
       },
       onBlur: () => {},

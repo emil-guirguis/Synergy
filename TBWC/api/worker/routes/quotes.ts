@@ -239,14 +239,16 @@ app.put('/:id', requirePermission('quote:write'), async (c) => {
     cols.customer_list_id = body.customer_list_id;
     cols.customer_name = customer.full_name;
   }
-  if ('txn_date' in body) cols.txn_date = body.txn_date;
+  // '' (a cleared date input) is not a date — store null, or Postgres rejects
+  // the UPDATE outright with `invalid input syntax for type date: ""`.
+  if ('txn_date' in body) cols.txn_date = body.txn_date === '' ? null : body.txn_date;
   if ('memo' in body) cols.memo = body.memo;
   if ('status' in body) cols.status = body.status;
   if ('sales_rep_list_id' in body) cols.sales_rep_list_id = body.sales_rep_list_id;
   if ('ref_number' in body) cols.ref_number = body.ref_number;
   if ('job_name' in body) cols.job_name = body.job_name;
   if ('engineer_name' in body) cols.engineer_name = body.engineer_name;
-  if ('po_date' in body) cols.po_date = body.po_date;
+  if ('po_date' in body) cols.po_date = body.po_date === '' ? null : body.po_date;
   const keys = Object.keys(cols);
   if (keys.length === 0) {
     return c.json({ success: false, message: 'No editable fields in request' }, 400);
