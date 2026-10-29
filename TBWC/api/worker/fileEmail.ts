@@ -11,7 +11,7 @@
  * picker. Sending server-side skips all of that: no file ever lands on the
  * sender's disk and the attachment is always there.
  *
- * Envelope From is the fixed system account (SMTP_FROM, inside the tbwc-site
+ * Envelope From is the fixed system sender (configured in the tbwc-site
  * `send-mail` edge fn), so Reply-To carries whoever actually pressed Send — the
  * same arrangement orders/invoices use (pdf/documentEmail.ts).
  */
@@ -24,8 +24,8 @@ import { fetchDocumentBytes } from '@meterit/framework-backend/api/base/aiSearch
  * Attachment ceiling — set by Brevo now, not by the receiving mail server. Brevo
  * caps a single attachment at 4MB and the whole message (HTML content included)
  * at 20MB, and the base64 this goes out as costs another third on top, so ~3MB of
- * real file is what actually fits inside the 4MB. The previous 10MB ceiling was an
- * M365-era number and would now be rejected by Brevo with a 400.
+ * real file is what actually fits inside the 4MB. The previous 10MB ceiling came
+ * from the old transport and would now be rejected by Brevo with a 400.
  *
  * Doubles as the memory guard it always was: the whole file sits in the Worker's
  * ~128MB while it is base64-encoded.

@@ -295,7 +295,7 @@ export interface SendDocumentEmailOptions {
    *  Number suffix, when there is one, is still appended on top of this). */
   subject?: string | null;
   /** Where a reply should go — e.g. the order's assigned sales rep — since
-   *  the envelope From is always the fixed system account (SMTP_FROM). */
+   *  the envelope From is always the fixed system sender. */
   replyTo?: string | null;
   /** Extra recipient on the actual send — e.g. the AR collection-notice Cc
    *  to accounting@tbwcinc.com (routes/invoices.ts's sendInvoiceNoticeEmail).
@@ -448,8 +448,8 @@ function base64Wrapped(bytes: Uint8Array): string {
 
 /**
  * Raw RFC 2822 message (multipart/mixed: HTML body + the PDF as a named
- * attachment) — a real .eml file. Not what actually goes out over SMTP
- * (tbwc-site's send-mail edge fn builds its own nodemailer message,
+ * attachment) — a real .eml file. Not the message that actually goes out
+ * (tbwc-site's send-mail edge fn builds its own outgoing message,
  * independently, from the same subject/bodyHtml/attachment this Worker
  * handed it), but byte-for-byte the same content, so double-clicking the
  * stored copy in Outlook shows the same email the customer got, PDF attached.

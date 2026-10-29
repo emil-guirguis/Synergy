@@ -18,8 +18,7 @@ export interface SendMailPayload {
   subject?: string;
   bodyHtml?: string;
   /** 'document' type only — where a reply should go, when it shouldn't be
-   *  SMTP_FROM (the fixed system account). Requires the send-mail edge
-   *  function to read body.replyTo — see tbwc-site's _shared/mailer.ts. */
+   *  the fixed system sender. Threaded through to Brevo by tbwc-site's _shared/mailer.ts. */
   replyTo?: string;
   /** 'document' type only — extra recipient on the actual send (e.g. the AR
    *  collection-notice Cc to accounting@tbwcinc.com). Dropped in non-prod —

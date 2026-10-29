@@ -4,7 +4,7 @@
  * sendMail failures (same pattern as reverification.ts's lockStaleReps) so a
  * dead mail path never fails the ticket CRUD request — callers in
  * routes/support.ts run these via `c.executionCtx.waitUntil(...)` so the
- * response doesn't wait on the SMTP round trip either.
+ * response doesn't wait on the mail round trip either.
  */
 import { Env } from './db';
 import { sendMail } from './mail';

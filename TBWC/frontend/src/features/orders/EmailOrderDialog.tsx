@@ -36,7 +36,7 @@ function defaultMessage(refNumber: string | null, jobName: string | null, sender
  * see api/worker/pdf/) and sends it via the same TBWC mail pipeline AI
  * Chat's email_order tool already uses (routes/orders.ts's POST /:id/email).
  * From/Subject/Message all prefill with sensible defaults and are editable;
- * the envelope sender itself is always the fixed system account (SMTP_FROM)
+ * the envelope sender itself is always the fixed system account
  * — From here drives Reply-To instead, so a customer's reply reaches the rep.
  */
 export const EmailOrderDialog: React.FC<EmailOrderDialogProps> = ({ open, onClose, orderId }) => {

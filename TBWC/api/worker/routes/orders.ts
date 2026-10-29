@@ -649,7 +649,7 @@ app.post('/:id/email', requirePermission('order:write'), async (c) => {
   }
   const message = typeof body.message === 'string' ? body.message : undefined;
   const subject = typeof body.subject === 'string' ? body.subject : undefined;
-  // Reply-To, not the envelope From (SMTP_FROM is fixed) — defaults to
+  // Reply-To, not the envelope From (the system sender is fixed) — defaults to
   // whoever is actually sending this (the logged-in caller), not the order's
   // assigned rep, since an admin/employee can send on a rep's behalf. See
   // documentEmail.ts's SendDocumentEmailOptions.
