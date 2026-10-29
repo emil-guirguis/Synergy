@@ -11,6 +11,7 @@
  * every write is wrapped in try/catch that only console.errors.
  */
 import { Env, execQuery } from '../db';
+import { unescapeXml } from './qbxml';
 import { RET_TYPES as ITEM_RET_TYPES } from './objects/item';
 
 export interface SyncRunRow {
@@ -67,7 +68,10 @@ export function parseRsBlocks(responseXml: string): SyncRunRow[] {
     if (rsName === 'TxnDeletedQueryRs' || rsName === 'ListDeletedQueryRs' || rsName === 'SalesOrderModRs') continue;
 
     const statusCode = attrs.match(/statusCode="([^"]*)"/)?.[1] ?? null;
-    const statusMessage = attrs.match(/statusMessage="([^"]*)"/)?.[1] ?? null;
+    // QB's message arrives XML-escaped in the attribute (&quot;, &amp;) —
+    // decode it so the sync log shows the sentence QB actually wrote.
+    const rawMessage = attrs.match(/statusMessage="([^"]*)"/)?.[1] ?? null;
+    const statusMessage = rawMessage === null ? null : unescapeXml(rawMessage);
 
     let rows = 0;
     if (!selfClose) {

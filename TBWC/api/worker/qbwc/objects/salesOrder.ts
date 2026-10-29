@@ -7,7 +7,7 @@ import { QbObject } from './types';
 import {
   qbxmlDoc, tag, blocks, statusCode, refField, lineItems,
   qbTimeToTs, qbDate, num, txnModifiedFilter, QB_MAX_RETURNED,
-  addrBlockText, dataExtBlocks, escapeXml,
+  addrBlockText, dataExtBlocks, escapeXml, unescapeXml,
 } from '../qbxml';
 import { multiRowValues, chunk, BATCH_SIZE } from '../batchSql';
 import { refreshOrderInvoiceStatus } from '../orderInvoiceStatus';
@@ -23,6 +23,66 @@ const REQUEST_ID = 'salesorder';
 const FIELD_TO_QB_TAG: Record<string, string> = {
   memo: 'Memo',
 };
+
+// Column index of ref_number in the row rowFromRet() builds (txn_id,
+// edit_sequence, ref_number, ...) -- lets a log line name the order without a
+// second query when this same response already carried it.
+const REF_NUMBER_COL = 2;
+
+/**
+ * The order number ("TBWC 5769") for a txn_id, for log lines a human reads.
+ * Prefers rows already parsed out of this response; falls back to one lookup,
+ * then to the raw TxnID if the order isn't synced locally yet.
+ */
+async function orderLabel(env: Env, txnId: string, parsed: Map<string, any[]>): Promise<string> {
+  const fromResponse = parsed.get(txnId)?.[REF_NUMBER_COL];
+  if (fromResponse) return String(fromResponse);
+  const r = await execQuery(
+    env,
+    `SELECT ref_number FROM public.qb_sales_order WHERE txn_id = $1`,
+    [txnId],
+    'qbwc.so.refNumberForPush'
+  );
+  return r.rows[0]?.ref_number || txnId;
+}
+
+/**
+ * Plain-English version of a failed *ModRq, for the sync log and the push
+ * queue's error column. QB's own statusMessage is jargon ("The provided edit
+ * sequence ... is out-of-date") and arrives XML-escaped.
+ *
+ * 3200 is the expected, self-healing case: the whole session's qbXML is built
+ * up front (buildWorkQueue), so a Mod carries the EditSequence the *previous*
+ * session's pull stored. Anything touching the order in QB in between --
+ * including QB re-stamping it after our own last push -- makes that sequence
+ * stale. This session's pull refreshes it and the queued edit goes out next
+ * session, so it is only a real problem once it survives a retry.
+ */
+function pushFailure(
+  statusCode: string,
+  statusMessage: string | undefined,
+  fieldLabel: string,
+  label: string,
+  retried: boolean
+): { detail: string; error: string | null } {
+  const qb = statusMessage ? unescapeXml(statusMessage) : '';
+  if (statusCode === '3200' && !retried) {
+    return {
+      detail: `Order ${label} changed in QuickBooks -- ${fieldLabel} will be sent on the next sync`,
+      error: null, // expected and self-healing; don't mark the run failed
+    };
+  }
+  if (statusCode === '3200') {
+    return {
+      detail: `Could not send ${fieldLabel} to order ${label}`,
+      error: `Order ${label} keeps changing in QuickBooks between syncs, so the ${fieldLabel} edit never applied (QuickBooks code 3200: ${qb})`,
+    };
+  }
+  return {
+    detail: `Could not send ${fieldLabel} to order ${label}`,
+    error: `Order ${label}: QuickBooks rejected the ${fieldLabel} edit -- ${qb || 'no message'} (QuickBooks code ${statusCode})`,
+  };
+}
 
 /** Group queued edits by txn_id, fetch each's current EditSequence, and build one SalesOrderModRq per record. */
 async function pendingModRqs(env: Env): Promise<string[]> {
@@ -159,11 +219,11 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   //     SalesOrderRet, same shape as Query's — folded into the same upsert;
   //     the pushed fields are cleared from qbwc_push_queue once it lands.
   const pending = await pendingPushes(env, 'SalesOrder');
-  const queuedFieldsByTxn = new Map<string, string[]>();
+  const queuedByTxn = new Map<string, PendingPush[]>();
   for (const p of pending) {
-    const arr = queuedFieldsByTxn.get(p.txn_id) ?? [];
-    arr.push(p.field_name);
-    queuedFieldsByTxn.set(p.txn_id, arr);
+    const arr = queuedByTxn.get(p.txn_id) ?? [];
+    arr.push(p);
+    queuedByTxn.set(p.txn_id, arr);
   }
 
   const modRe = /<SalesOrderModRs\b([^>]*)>([\s\S]*?)<\/SalesOrderModRs>/g;
@@ -174,14 +234,19 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
     const rid = attrs.match(/\brequestID="([^"]*)"/)?.[1];
     const txnId = rid?.startsWith(`${REQUEST_ID}:mod:`) ? rid.slice(`${REQUEST_ID}:mod:`.length) : undefined;
     if (!txnId) continue;
-    const fieldNames = queuedFieldsByTxn.get(txnId) ?? [];
+    const queued = queuedByTxn.get(txnId) ?? [];
+    const fieldNames = queued.map((q) => q.field_name);
     const fieldLabel = fieldNames.join(', ') || 'field';
     const sc = attrs.match(/\bstatusCode="([^"]*)"/)?.[1];
     if (sc && sc !== '0') {
       const msg = attrs.match(/\bstatusMessage="([^"]*)"/)?.[1];
-      console.error(`[QBWC] SalesOrderMod (push) failed for ${txnId}: ${sc} ${msg}`);
-      if (fieldNames.length) await markFailed(env, 'SalesOrder', txnId, fieldNames, `${sc} ${msg ?? ''}`.trim());
-      await logDetail(env, 'SalesOrder', 'push', `Failed to push ${fieldLabel} for order ${txnId}`, `${sc} ${msg ?? ''}`.trim());
+      const label = await orderLabel(env, txnId, byId);
+      // Already 'failed' = an earlier session tried this same edit and lost too.
+      const retried = queued.some((q) => q.status === 'failed');
+      const { detail, error } = pushFailure(sc, msg, fieldLabel, label, retried);
+      console.error(`[QBWC] SalesOrderMod (push) failed for order ${label} (${txnId}): ${sc} ${msg}`);
+      if (fieldNames.length) await markFailed(env, 'SalesOrder', txnId, fieldNames, error ?? detail);
+      await logDetail(env, 'SalesOrder', 'push', detail, error);
       continue; // retried next session with the current edit_sequence
     }
     const ret = blocks(inner, 'SalesOrderRet')[0];

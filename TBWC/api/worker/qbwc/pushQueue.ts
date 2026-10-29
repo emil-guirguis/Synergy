@@ -16,6 +16,8 @@ export interface PendingPush {
   txn_id: string;
   field_name: string;
   new_value: string | null;
+  /** 'failed' means an earlier session already tried this edit and QB rejected it. */
+  status: 'pending' | 'failed';
 }
 
 /** Queue (or replace) an edit awaiting push — sent next QBWC session (the SalesOrder/memo flow). */
@@ -41,7 +43,7 @@ export async function queueFieldPush(
 export async function pendingPushes(env: Env, objectType: string): Promise<PendingPush[]> {
   const r = await execQuery(
     env,
-    `SELECT txn_id, field_name, new_value
+    `SELECT txn_id, field_name, new_value, status
        FROM public.qbwc_push_queue
       WHERE object_type = $1 AND status IN ('pending', 'failed')`,
     [objectType],
