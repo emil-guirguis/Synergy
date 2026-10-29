@@ -72,20 +72,19 @@ async function buildRequest(env: Env): Promise<string> {
   // qbXML schema order for SalesOrderQueryRq: MaxReturned before
   // ModifiedDateRangeFilter, IncludeLineItems last — QB rejects the whole
   // request (0x80040400) if out of order.
-  // OwnerID filter is GUIDTYPE, not the INTTYPE sentinel we first assumed —
-  // "-1" is not a valid GUID and made QB fail the entire request ("error
-  // converting GUID value \"-1\" in field \"OwnerID\""), same bug as Customer.
-  // Without it, only OwnerID-0 (public) DataExt custom fields come back.
-  // EXPERIMENT (2026-10-28, invoice #10522's "Job Name" field): requesting
-  // our own registered OwnerID (tbwc.qwc) alongside 0, on the chance a past
-  // version of this integration created the field under it. Revert if the
-  // next sync still doesn't surface it in data_ext.
+  // No OwnerID element. Two failed attempts at one: "-1" is not a valid
+  // GUID (OwnerID is GUIDTYPE) and QB answered "error converting GUID value
+  // \"-1\" in field \"OwnerID\""; then 2026-10-28's experiment with our own
+  // registered OwnerID (tbwc.qwc, hunting invoice #10522's "Job Name")
+  // failed the whole query with 3121 "Data Extension Definitions specified
+  // by OwnerID {BE0BBCB0-...} not found for this object type" -- no sales
+  // order synced for a day. QB treats an OwnerID with no DataExt definition
+  // on the object as a request error. Public (OwnerID 0) custom fields come
+  // back as DataExtRet without being asked for.
   const query =
     `    <SalesOrderQueryRq requestID="${REQUEST_ID}" iterator="Start">\n` +
     `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>${filter}\n` +
     `      <IncludeLineItems>true</IncludeLineItems>\n` +
-    `      <OwnerID>0</OwnerID>\n` +
-    `      <OwnerID>{BE0BBCB0-85E3-431A-8248-B818B948814A}</OwnerID>\n` +
     `    </SalesOrderQueryRq>`;
   const mods = await pendingModRqs(env);
   return qbxmlDoc([query, ...mods].join('\n'));

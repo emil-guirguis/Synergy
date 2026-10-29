@@ -47,15 +47,14 @@ async function buildRequest(env: Env): Promise<string> {
     `      <MaxReturned>${QB_MAX_RETURNED}</MaxReturned>${filter}\n` +
     `      <IncludeLineItems>true</IncludeLineItems>\n` +
     `      <IncludeLinkedTxns>true</IncludeLinkedTxns>\n` +
-    // EXPERIMENT (2026-10-28, invoice #10522's "Job Name" field): DataExtRet
-    // only comes back for OwnerID-0 (public) custom fields unless the owning
-    // app's own OwnerID is explicitly requested too (see customer.ts/
-    // salesOrder.ts's comment on the GUID-vs-"-1" mistake that broke this
-    // before). Trying our own registered OwnerID (tbwc.qwc) on the chance a
-    // past version of this integration created the field under it. If this
-    // doesn't surface it on the next sync, revert -- it's not the answer.
-    `      <OwnerID>0</OwnerID>\n` +
-    `      <OwnerID>{BE0BBCB0-85E3-431A-8248-B818B948814A}</OwnerID>\n` +
+    // No OwnerID element: the 2026-10-28 experiment that requested our own
+    // registered OwnerID (tbwc.qwc, hunting invoice #10522's "Job Name"
+    // field) made QB fail the WHOLE query with 3121 "Data Extension
+    // Definitions specified by OwnerID {BE0BBCB0-...} not found for this
+    // object type" -- no invoice synced for a day. This app has never
+    // defined a DataExt on Invoice, and QB treats an unknown OwnerID as a
+    // request error, not an empty result. Public (OwnerID 0) custom fields
+    // still arrive as DataExtRet without being asked for, as in customer.ts.
     `    </InvoiceQueryRq>`
   );
 }
