@@ -14,6 +14,17 @@ export { formatSqlForDebug };
 // host's UTC offset. Force UTC interpretation to match how the data is actually stored.
 types.setTypeParser(types.builtins.TIMESTAMP, (val: string) => new Date(val + 'Z'));
 
+// A `date` column is a calendar date: no time, no zone. pg's default parser for it
+// (OID 1082) builds the Date with the LOCAL-time constructor, so the value silently
+// picks up the timezone of whatever host ran the query — a dev laptop at -07:00, the
+// Workers runtime at UTC — and JSON.stringify then freezes that into an instant.
+// Rendering that instant in the org's timezone moved every date column a day early in
+// production while dev looked correct, because the laptop's offset happened to cancel
+// the display one (Orders list "Ship Date", 2026-10-30). Hand back the wire text
+// instead ('2026-10-29'): a date stays a date all the way to the browser, which
+// formats the digits and converts nothing (framework dateHelpers.formatDate).
+types.setTypeParser(types.builtins.DATE, (val: string) => val);
+
 export interface Env {
   DATABASE_URL?: string;
   HYPERDRIVE: any;

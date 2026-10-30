@@ -5,9 +5,24 @@
  * to avoid double-pooling and connection exhaustion.
  */
 
-import { Client } from 'pg';
+import { Client, types } from 'pg';
 import { formatSqlForDebug } from '@meterit/framework-backend/shared/helpers/worker-logger';
 export { formatSqlForDebug };
+
+// Both parsers keep the host's timezone out of values that don't carry one (TBWC's
+// worker db.ts has the same pair — keep them in step).
+//
+// `timestamp without time zone` is stored as UTC wall-clock, but the wire text has no
+// offset, so pg's default parser (OID 1114) builds the Date in the LOCAL time of
+// whatever host ran the query: every timestamp comes out shifted by that host's offset.
+types.setTypeParser(types.builtins.TIMESTAMP, (val: string) => new Date(val + 'Z'));
+// A `date` column is a calendar date — no time, no zone — and pg's parser (OID 1082)
+// turns it into a local-midnight Date, which JSON.stringify freezes into an instant.
+// Rendering that in the org's timezone drops a day for anyone west of UTC (the bug
+// behind TBWC's Orders list showing the day before the ship date in production, while
+// dev was right only because the laptop's -07:00 cancelled the display conversion).
+// Return the wire text ('2026-10-29') and let the browser format the digits.
+types.setTypeParser(types.builtins.DATE, (val: string) => val);
 
 export interface Env {
   DATABASE_URL?: string;

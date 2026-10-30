@@ -18,9 +18,12 @@ import type { OrderToCashSummary, UninvoicedOrder } from '../../types/orderToCas
 const currency = (n: number) => formatCurrency(n, { maximumFractionDigits: 0 });
 
 function fmtDate(iso: string | null): string {
+  // Hand formatDate the raw value: order/invoice dates are `date` columns, which it
+  // renders as the day they say. Wrapping one in a Date first would push it back onto
+  // the instant path and shift it a day for anyone west of UTC.
   if (!iso) return '—';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : formatDate(d);
+  const formatted = formatDate(iso);
+  return formatted === 'Invalid Date' ? '—' : formatted;
 }
 
 function daysOpenColor(days: number | null): 'default' | 'warning' | 'error' {

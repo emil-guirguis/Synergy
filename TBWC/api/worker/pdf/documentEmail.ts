@@ -12,7 +12,8 @@ export function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 }
 
-/** pg returns `date` columns as JS Date objects — PDFs/emails need plain text. */
+/** `date` columns arrive as plain 'YYYY-MM-DD' text (db.ts's OID 1082 parser); older
+ *  callers can still pass a Date, so accept both and emit text either way. */
 export function dateStr(v: unknown): string | null {
   if (v == null) return null;
   return v instanceof Date ? v.toISOString().split('T')[0] : String(v);

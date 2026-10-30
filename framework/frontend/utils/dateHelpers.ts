@@ -5,26 +5,22 @@
  */
 import { getSystemConfig, type SystemConfigFields } from './systemConfig';
 
-/** Renders Date parts in `timeZone` (default: browser-local) as a dateFormat-pattern string.
- *  Tokens: yyyy/yy, mmmm (full month name)/mmm (abbreviated)/mm/m, dd/d — case-insensitive,
- *  since stored dateFormat values vary ("MM/DD/YYYY" vs "mm/dd/yyyy"). Longer tokens are
- *  matched first so e.g. "mmmm" isn't partially consumed by the "mm" replacement. */
-function formatDatePattern(dateObj: Date, pattern: string, timeZone?: string | null): string {
-  const tz = timeZone || undefined;
-  const parts = new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: tz,
-  }).formatToParts(dateObj);
-  const map: Record<string, string> = {};
-  parts.forEach((p) => { map[p.type] = p.value; });
+/** A calendar date — no time, no zone. Matches both wire formats a `date` column
+ *  can arrive in: the bare '2026-10-29' the APIs now send, and the zero-time instant
+ *  ('2026-10-29T00:00:00.000Z') older builds produced by letting pg turn the column
+ *  into a Date first. */
+const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.0+)?Z)?$/;
 
-  const yyyy = map.year;
-  const mm = map.month;
-  const dd = map.day;
-  const monthLong = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: tz }).format(dateObj);
-  const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: tz }).format(dateObj);
+/** Renders y/m/d (already resolved to the zone they should display in) as a
+ *  dateFormat-pattern string. Tokens: yyyy/yy, mmmm (full month name)/mmm
+ *  (abbreviated)/mm/m, dd/d — case-insensitive, since stored dateFormat values vary
+ *  ("MM/DD/YYYY" vs "mm/dd/yyyy"). Longer tokens are matched first so e.g. "mmmm"
+ *  isn't partially consumed by the "mm" replacement. */
+function renderPattern(yyyy: string, mm: string, dd: string, pattern: string): string {
+  // Month names come off the same y/m/d read back in UTC, so this adds no zone of its own.
+  const utc = new Date(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)));
+  const monthLong = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(utc);
+  const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' }).format(utc);
 
   return pattern
     .replace(/yyyy/gi, yyyy)
@@ -37,20 +33,46 @@ function formatDatePattern(dateObj: Date, pattern: string, timeZone?: string | n
     .replace(/d(?!d)/gi, String(Number(dd)));
 }
 
+/** An instant (timestamp) resolved into `timeZone` (default: browser-local), then rendered. */
+function formatInstant(dateObj: Date, pattern: string, timeZone?: string | null): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: timeZone || undefined,
+  }).formatToParts(dateObj);
+  const map: Record<string, string> = {};
+  parts.forEach((p) => { map[p.type] = p.value; });
+  return renderPattern(map.year, map.month, map.day, pattern);
+}
+
 /**
  * Format a date using System Config's dateFormat + timezone (Settings > System Config).
  * Pass `config` to override (e.g. in a context not yet wired to the live settings);
  * otherwise reads the current org settings.
+ *
+ * A calendar date (a Postgres `date` column: ship dates, order dates, due dates) is
+ * rendered as the day it says, with no timezone applied. Converting one into the org's
+ * timezone is what shifted every date column a day early for anyone west of UTC:
+ * the day the order shipped is the same day in every zone, so there is nothing to
+ * convert. Timestamps — an actual instant — still resolve into the configured zone.
  */
 export function formatDate(date: Date | string | number, config?: SystemConfigFields): string {
+  const { date_format, timezone } = config ?? getSystemConfig();
+  const pattern = date_format || 'MM/DD/YYYY';
+
+  if (typeof date === 'string') {
+    const m = CALENDAR_DATE.exec(date.trim());
+    if (m) return renderPattern(m[1], m[2], m[3], pattern);
+  }
+
   const dateObj = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
 
   if (isNaN(dateObj.getTime())) {
     return 'Invalid Date';
   }
 
-  const { date_format, timezone } = config ?? getSystemConfig();
-  return formatDatePattern(dateObj, date_format || 'MM/DD/YYYY', timezone);
+  return formatInstant(dateObj, pattern, timezone);
 }
 
 /**
@@ -63,6 +85,8 @@ export function formatDateTime(date: Date | string | number, config?: SystemConf
     return 'Invalid Date';
   }
 
+  // formatDate(dateObj) — a Date, never the calendar-date string branch — so the
+  // date half always resolves in the same zone as the time half beside it.
   return `${formatDate(dateObj, config)} ${formatTime(dateObj, config)}`;
 }
 
