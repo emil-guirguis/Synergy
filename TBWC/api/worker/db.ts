@@ -26,6 +26,12 @@ types.setTypeParser(types.builtins.TIMESTAMP, (val: string) => new Date(val + 'Z
 types.setTypeParser(types.builtins.DATE, (val: string) => val);
 
 export interface Env {
+  // Turns SQL query logging on. Off unless set, so a normal deployment keeps
+  // statements and bound parameters out of the Worker log. Set it to "1" or
+  // "true" — in local dev via .dev.vars, in production via
+  // `wrangler secret put LOG_SQL --env production` (and delete it to go quiet
+  // again). Query FAILURES are always logged regardless.
+  LOG_SQL?: string;
   DATABASE_URL?: string;
   HYPERDRIVE: any;
   FRONTEND_URL?: string;
@@ -86,6 +92,17 @@ export interface Env {
   ENVIRONMENT?: string;
 }
 
+/**
+ * Whether to print SQL. Gated behind LOG_SQL because the statement log
+ * includes bound parameter values, which in this schema means customer and
+ * order data sitting in the Worker log. Failures are logged either way —
+ * only the per-query success chatter is optional.
+ */
+export function sqlLoggingEnabled(env: Env): boolean {
+  const flag = env?.LOG_SQL;
+  return flag === '1' || flag === 'true';
+}
+
 export async function query(env: Env, text: string, params: any[] = []) {
   // Prefer an explicit DATABASE_URL (local dev / direct connection, needs SSL to
   // the Supabase pooler); otherwise use the Hyperdrive-provided string (prod,
@@ -126,8 +143,11 @@ export async function withTransaction<T>(
     directUrl ? { connectionString, ssl: false } : { connectionString }
   );
   await client.connect();
+  const logSql = sqlLoggingEnabled(env);
   const q = async (text: string, params: any[] = []) => {
-    console.log(`[withTransaction] Executing:\n${formatSqlForDebug(text, params)}`);
+    if (logSql) {
+      console.log(`[withTransaction] Executing:\n${formatSqlForDebug(text, params)}`);
+    }
     return client.query(text, params);
   };
   try {
@@ -150,11 +170,16 @@ export async function execQuery(
   logMessage?: string
 ): Promise<{ rows: any[]; rowCount: number | null }> {
   const label = logMessage ? `[execQuery] ${logMessage}` : '[execQuery]';
-  console.log(`${label} Executing:\n${formatSqlForDebug(sql, params || [])}`);
+  const logSql = sqlLoggingEnabled(env);
+  if (logSql) {
+    console.log(`${label} Executing:\n${formatSqlForDebug(sql, params || [])}`);
+  }
   const start = Date.now();
   try {
     const result = await query(env, sql, params);
-    console.log(`${label} Rows: ${result.rows?.length ?? result.rowCount ?? 0} | Time: ${Date.now() - start}ms`);
+    if (logSql) {
+      console.log(`${label} Rows: ${result.rows?.length ?? result.rowCount ?? 0} | Time: ${Date.now() - start}ms`);
+    }
     return result;
   } catch (error) {
     console.error(`${label} Failed: ${error}`);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { EditableDataGrid, type GridColumn, useGridToast, useUnsavedRow } from '@meterit/framework-frontend/components/datagrid/';
 import apiClient from '../../services/apiClient';
 import './ElementsGrid.css';
@@ -57,11 +57,6 @@ export const ElementsGrid: React.FC<ElementsGridProps> = ({ meterId, onError, on
     getActualRowId,
   } = useUnsavedRow(elements, { name: '', element: '' });
 
-  console.log('🔄 [ElementsGrid] Refs updated:', {
-    elementsCount: elements.length,
-    elements: elements.map(e => e.element),
-    unsavedElement: unsavedRow?.element,
-  });
 
   const columns: GridColumn[] = useMemo(() => {
     if (!schema) return [];
@@ -72,13 +67,6 @@ export const ElementsGrid: React.FC<ElementsGridProps> = ({ meterId, onError, on
       const usedLetters = new Set<string>(elementsRef.current.map(el => el.element.trim().toUpperCase()));
       if (unsavedRef.current?.element) usedLetters.add(unsavedRef.current.element.trim().toUpperCase());
       const available = allElementOptions.filter(opt => !usedLetters.has(opt.toUpperCase()));
-      console.log('📊 [ElementsGrid] getAvailableOptions called:', {
-        usedLetters: Array.from(usedLetters),
-        available,
-        elementsCount: elementsRef.current.length,
-        elements: elementsRef.current.map(e => `"${e.element}"`),
-        unsavedElement: `"${unsavedRef.current?.element}"`,
-      });
       return available;
     };
 

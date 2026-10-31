@@ -80,7 +80,6 @@ const metersService = {
         throw new Error(data.message || 'Failed to fetch meters');
       }
 
-      console.log('[metersStore] Fetched meters data:', JSON.stringify(data.data.items, null, 2));
 
       return {
         items: data.data.items || [],

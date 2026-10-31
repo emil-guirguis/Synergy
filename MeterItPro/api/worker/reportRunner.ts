@@ -910,7 +910,6 @@ async function sendEmail(
   attachments?: EmailAttachment[]
 ): Promise<void> {
   const apiKey = env.RESEND_API_KEY;
-  console.log('[sendEmail] RESEND_API_KEY present:', !!apiKey);
   if (!apiKey) throw new Error('RESEND_API_KEY is not configured — run: npx wrangler secret put RESEND_API_KEY');
 
   const from = fromOverride || (env as any).RESEND_FROM || 'MeterItPro <noreply@meteritpro.com>';
@@ -1060,19 +1059,15 @@ export async function runReport(env: Env, reportId: number): Promise<void> {
   }
 
   const report = reportResult.rows[0];
-  console.log('[runReport] report fetched:', report.report_id, 'type:', report.type, 'recipients:', JSON.stringify(report.recipients));
   const executedAt = new Date();
   let historyId: number | null = null;
 
   try {
-    console.log('[runReport] calling generateReportData...');
     const [reportData, chartData] = await Promise.all([
       generateReportData(env, report),
       fetchChartSeriesData(env, report, report.tenant_id),
     ]);
-    console.log('[runReport] generateReportData ok, rows:', reportData.data.length);
     historyId = await createHistoryEntry(env, report.report_id, executedAt, 'pending', null);
-    console.log('[runReport] history entry created:', historyId);
 
     const isCsv = (report.attach_as || 'html') === 'csv';
     let html: string;
@@ -1093,7 +1088,6 @@ export async function runReport(env: Env, reportId: number): Promise<void> {
 
     const toList = report.recipients?.to ?? [];
     const fromOverride = report.recipients?.from;
-    console.log('[runReport] sending to', toList.length, 'recipients, attach_as:', report.attach_as || 'html');
     for (const recipient of toList) {
       try {
         await sendEmail(env, recipient, subject, html, fromOverride, attachments);
@@ -1133,13 +1127,11 @@ export async function runAllActiveReports(env: Env, now: Date = new Date()): Pro
 
   for (const row of result.rows) {
     if (!matchesCronSchedule(row.cron, now)) {
-      console.log(`[cron] Report ${row.report_id} skipped � schedule "${row.cron}" does not match ${now.toISOString()}`);
       continue;
     }
 
     try {
       await runReport(env, row.report_id);
-      console.log(`[cron] Report ${row.report_id} executed successfully`);
     } catch (err) {
       console.error(`[cron] Report ${row.report_id} failed:`, err instanceof Error ? err.message : err);
     }

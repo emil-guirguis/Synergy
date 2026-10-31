@@ -143,8 +143,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const initializeAuth = async () => {
       const t0 = performance.now();
+      // Named tracer for the auth-init path: 14 call sites below record how
+      // long each step took, which is how token-vs-backend-verify timing gets
+      // diagnosed. Deliberate, not stray chatter.
       const log = (msg: string) => {
         const ms = (performance.now() - t0).toFixed(0);
+        // eslint-disable-next-line no-console
         console.log(`[AUTH +${ms}ms] ${msg}`);
       };
 
@@ -291,11 +295,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Login function
   const login = async (credentials: LoginCredentials): Promise<AuthResponse> => {
     try {
-      console.log('🚀 Starting login process in AuthContext...');
       dispatch({ type: 'LOGIN_START' });
 
       const authResponse = await authService.login(credentials);
-      console.log('📦 Auth response received in AuthContext');
 
       // If 2FA is required, don't dispatch LOGIN_SUCCESS yet - return early
       if (authResponse.requires_2fa) {
@@ -341,7 +343,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       // Clear logout flag since user successfully logged in
       authService.clearLogoutFlag();
-      console.log('✅ Login completed successfully in AuthContext');
       return authResponse;
     } catch (error) {
       console.error('❌ Login failed in context:', error);
@@ -354,21 +355,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Logout function
   const logout = (): void => {
     try {
-      console.log('🚪 Logging out user...');
 
       // Capture token BEFORE clearing so the API call can still authenticate
       const currentToken = authService.getStoredToken();
 
       authService.clearStoredToken();
-      console.log('🗑️ Tokens cleared');
 
       // Set logout flag to prevent auto-login
       authService.setLogoutFlag();
-      console.log('🚩 Logout flag set');
 
       // Dispatch logout to clear state
       dispatch({ type: 'LOGOUT' });
-      console.log('✅ Logout state updated');
 
       // Call logout API with captured token (token already cleared from storage)
       authService.logout(currentToken).catch((error: unknown) => {
@@ -493,7 +490,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         const rolePerms = ROLE_PERMISSIONS[(state.user as any).role as UserRole];
         if (rolePerms && Array.isArray(rolePerms) && rolePerms.includes(permission as any)) {
-          console.log('[AUTH] checkPermission: Permission granted via role mapping', { permission, userRole: state.user.role });
           return true;
         }
       } catch (e) {
@@ -513,7 +509,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         for (const alt of altCandidates) {
           if (state.user.permissions.includes(alt)) {
-            console.log('[AUTH] checkPermission: Permission granted via alternative match', { permission, alt, userRole: state.user.role });
             return true;
           }
         }
@@ -529,10 +524,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     
     // Handle permissions as nested object: { module: { action: boolean } }
     if (typeof state.user.permissions === 'object' && state.user.permissions !== null) {
-      console.log('[AUTH] checkPermission: Permissions is nested object, checking format', {
-        permission,
-        permissionsKeys: Object.keys(state.user.permissions)
-      });
       
       // Parse permission string: "module:action"
       const [module, action] = permission.split(':');
@@ -564,12 +555,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           actionValue: permissionsObj[module]?.[action],
           userRole: state.user.role
         });
-      } else {
-        console.log('[AUTH] checkPermission: Permission granted', {
-          permission,
-          module,
-          action
-        });
       }
       return hasPermission;
     }
@@ -590,37 +575,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Get locations for a specific tenant
   const getLocationsByTenant = (tenantId: string | number): any[] => {
-    console.log(`[AUTH] getLocationsByTenant(${tenantId}): state.locations.length=${state.locations?.length}`);
     
     if (!state.locations || state.locations.length === 0) {
-      console.log('[AUTH] getLocationsByTenant: No locations in state');
-      console.log('[AUTH] Full state:', { 
-        user: state.user?.email, 
-        isAuthenticated: state.isAuthenticated,
-        locationsCount: state.locations?.length,
-        locationsArray: state.locations
-      });
       return [];
     }
     
-    console.log(`[AUTH] getLocationsByTenant(${tenantId}): Checking ${state.locations.length} locations`);
-    console.log('[AUTH] Location objects:', state.locations.map((loc: any) => ({
-      location_id: loc.location_id,
-      name: loc.name,
-      tenant_id: loc.tenant_id,
-      keys: Object.keys(loc)
-    })));
     
     // Filter locations by tenant_id (handle both string and number comparisons)
     const filtered = state.locations.filter((location: any) => {
       const locationTenantId = String(location.tenant_id);
       const searchTenantId = String(tenantId);
       const matches = locationTenantId === searchTenantId;
-      console.log(`[AUTH]   Location ${location.id}: tenant_id=${location.tenant_id} vs search=${tenantId} => ${matches}`);
       return matches;
     });
     
-    console.log(`[AUTH] getLocationsByTenant(${tenantId}): Found ${filtered.length} locations out of ${state.locations.length}`);
     return filtered;
   };
 
@@ -635,19 +603,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     hasRole,
     getLocationsByTenant,
   };
-
-  // Log locations in memory whenever they change
-  React.useEffect(() => {
-    if (state.locations && state.locations.length > 0) {
-      console.log('📍 LOCATIONS IN MEMORY:', state.locations);
-      console.log('📍 LOCATIONS COUNT:', state.locations.length);
-      state.locations.forEach((loc: any, idx: number) => {
-        console.log(`  [${idx}] ID: ${loc.id}, Name: ${loc.name}, Tenant: ${loc.tenant_id}`);
-      });
-    } else {
-      console.log('📍 NO LOCATIONS IN MEMORY');
-    }
-  }, [state.locations]);
 
   return (
     <AuthContext.Provider value={contextValue}>

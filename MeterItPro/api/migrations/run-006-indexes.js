@@ -20,7 +20,6 @@ async function runMigration() {
   });
 
   try {
-    console.log('Starting migration 006: Add relationship indexes...');
     
     // Read the migration SQL file
     const sqlPath = path.join(__dirname, '006_add_relationship_indexes.sql');
@@ -29,9 +28,6 @@ async function runMigration() {
     // Execute the migration
     await pool.query(sql);
     
-    console.log('✓ Migration 006 completed successfully');
-    console.log('✓ Added indexes for foreign keys');
-    console.log('✓ Added composite indexes for common query patterns');
     
     // Verify indexes were created
     const result = await pool.query(`
@@ -46,8 +42,6 @@ async function runMigration() {
       ORDER BY tablename, indexname;
     `);
     
-    console.log(`\n✓ Total indexes created: ${result.rows.length}`);
-    console.log('\nIndexes by table:');
     
     const indexesByTable = {};
     result.rows.forEach(row => {
@@ -58,7 +52,6 @@ async function runMigration() {
     });
     
     Object.entries(indexesByTable).forEach(([table, indexes]) => {
-      console.log(`  ${table}: ${indexes.length} indexes`);
     });
     
   } catch (error) {
@@ -72,7 +65,6 @@ async function runMigration() {
 // Run the migration
 runMigration()
   .then(() => {
-    console.log('\n✓ Migration completed successfully');
     process.exit(0);
   })
   .catch(error => {

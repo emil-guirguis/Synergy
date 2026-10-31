@@ -19,8 +19,6 @@ import './App.css';
 
 setupDebugConsole();
 
-const appStartTime = performance.now();
-
 function App() {
   const { isAuthenticated, user, isLoading } = useAuth();
   const location = useLocation();
@@ -31,13 +29,11 @@ function App() {
   const isImpersonating = user?.isAdminView === true;
 
   useEffect(() => {
-    console.log(`[App +${(performance.now() - appStartTime).toFixed(0)}ms] isAuthenticated=${isAuthenticated} isLoading=${isLoading}`);
   }, [isAuthenticated, isLoading]);
 
   // Prefetch schemas for the client portal (not needed in admin or support section)
   useEffect(() => {
     if (isAuthenticated && !isLoading && !isAdminSection && !isSupportSection) {
-      console.log(`[App +${(performance.now() - appStartTime).toFixed(0)}ms] Auth resolved — layout mounting, starting prefetch`);
       prefetchAppRoutes();
       prefetchAppSchemas().catch((error) => {
         console.error('[App] Schema prefetch failed:', error);
@@ -48,10 +44,7 @@ function App() {
   // Periodically clean up expired schema cache entries
   useEffect(() => {
     const interval = setInterval(() => {
-      const removed = invalidateExpiredCache();
-      if (removed > 0) {
-        console.log(`[Schema Cache] Cleaned up ${removed} expired cache entries`);
-      }
+      invalidateExpiredCache();
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);

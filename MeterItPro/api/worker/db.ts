@@ -25,6 +25,12 @@ types.setTypeParser(types.builtins.TIMESTAMP, (val: string) => new Date(val + 'Z
 types.setTypeParser(types.builtins.DATE, (val: string) => val);
 
 export interface Env {
+  // Turns SQL query logging on. Off unless set, so a normal deployment keeps
+  // statements and bound parameters out of the Worker log. Set it to "1" or
+  // "true" — in local dev via .dev.vars, in production via
+  // `wrangler secret put LOG_SQL` (and delete it to go quiet again).
+  // Query FAILURES are always logged regardless.
+  LOG_SQL?: string;
   DATABASE_URL?: string;
   JWT_SECRET: string;
   JWT_EXPIRES_IN?: string;
@@ -44,6 +50,17 @@ export interface Env {
   REMOTE_DB_USER?: string;
   REMOTE_DB_PASSWORD?: string;
   TURNSTILE_SECRET?: string;
+}
+
+/**
+ * Whether to print SQL. Gated behind LOG_SQL because the statement log
+ * includes bound parameter values, which means tenant and meter data sitting
+ * in the Worker log. Failures are logged either way — only the per-query
+ * success chatter is optional.
+ */
+export function sqlLoggingEnabled(env: Env): boolean {
+  const flag = env?.LOG_SQL;
+  return flag === '1' || flag === 'true';
 }
 
 export async function query(env: Env, text: string, params: any[] = []) {
@@ -68,11 +85,16 @@ export async function execQuery(
   logMessage?: string
 ): Promise<{ rows: any[]; rowCount: number | null }> {
   const label = logMessage ? `[execQuery] ${logMessage}` : '[execQuery]';
-  console.log(`${label} Executing:\n${formatSqlForDebug(sql, params || [])}`);
+  const logSql = sqlLoggingEnabled(env);
+  if (logSql) {
+    console.log(`${label} Executing:\n${formatSqlForDebug(sql, params || [])}`);
+  }
   const start = Date.now();
   try {
     const result = await query(env, sql, params);
-    console.log(`${label} Rows: ${result.rows?.length ?? result.rowCount ?? 0} | Time: ${Date.now() - start}ms`);
+    if (logSql) {
+      console.log(`${label} Rows: ${result.rows?.length ?? result.rowCount ?? 0} | Time: ${Date.now() - start}ms`);
+    }
     return result;
   } catch (error) {
     console.error(`${label} Failed: ${error}`);
@@ -93,12 +115,17 @@ export async function withConnection<T>(
   const client = new Client({ connectionString });
   await client.connect();
   try {
+    const logSql = sqlLoggingEnabled(env);
     const q = async (sql: string, params: any[] = [], logMessage?: string) => {
       const label = logMessage ? `[withConnection] ${logMessage}` : '[withConnection]';
-      console.log(`${label} Executing:\n${formatSqlForDebug(sql, params)}`);
+      if (logSql) {
+        console.log(`${label} Executing:\n${formatSqlForDebug(sql, params)}`);
+      }
       const start = Date.now();
       const result = await client.query(sql, params);
-      console.log(`${label} Rows: ${result.rows?.length ?? result.rowCount ?? 0} | Time: ${Date.now() - start}ms`);
+      if (logSql) {
+        console.log(`${label} Rows: ${result.rows?.length ?? result.rowCount ?? 0} | Time: ${Date.now() - start}ms`);
+      }
       return { rows: result.rows, rowCount: result.rowCount };
     };
     return await callback(q);
@@ -111,11 +138,14 @@ export async function transaction<T>(env: Env, callback: (client: Client) => Pro
   const connectionString = env.DATABASE_URL || env.HYPERDRIVE?.connectionString;
   const client = new Client({ connectionString });
   await client.connect();
+  const logSql = sqlLoggingEnabled(env);
   const loggingClient = new Proxy(client, {
     get(target, prop) {
       if (prop === 'query') {
         return (text: string, params?: any[]) => {
-          console.log('[SQL]\n' + formatSqlForDebug(text, params));
+          if (logSql) {
+            console.log('[SQL]\n' + formatSqlForDebug(text, params));
+          }
           return target.query(text, params as any);
         };
       }

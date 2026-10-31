@@ -11,17 +11,14 @@ async function runMigration() {
   let wasAlreadyConnected = false;
   
   try {
-    console.log('🔄 Starting reporting module migration...');
     
     // Check if database is already connected
     wasAlreadyConnected = db.isConnected;
     
     // Only connect if not already connected
     if (!wasAlreadyConnected) {
-      console.log('🔄 Connecting to database...');
       await db.connect();
     } else {
-      console.log('✅ Using existing database connection');
     }
     
     // Define all SQL statements to execute
@@ -110,9 +107,7 @@ async function runMigration() {
       const statementNum = i + 1;
       
       try {
-        console.log(`\n📄 Executing statement ${statementNum}/${statements.length}...`);
         await db.query(statement);
-        console.log(`✅ Statement ${statementNum} completed`);
       } catch (error) {
         console.error(`❌ Statement ${statementNum} failed`);
         console.error(`Error: ${error.message}`);
@@ -120,7 +115,6 @@ async function runMigration() {
       }
     }
     
-    console.log('\n✅ All reporting module tables and indexes created successfully');
     
   } catch (error) {
     console.error('\n❌ Migration process failed:', error.message);
@@ -128,10 +122,8 @@ async function runMigration() {
   } finally {
     // Only disconnect if we connected in this function
     if (!wasAlreadyConnected && db.isConnected) {
-      console.log('🔄 Disconnecting from database...');
       await db.disconnect();
     } else if (wasAlreadyConnected) {
-      console.log('✅ Keeping database connection open (called from server.js)');
     }
   }
 }

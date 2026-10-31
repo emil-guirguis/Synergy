@@ -73,7 +73,6 @@ class RegisterMappingService {
         });
         
         this.initialized = true;
-        console.log(`✅ RegisterMappingService initialized with ${this.mappings.size} registers`);
       } else {
         console.warn('⚠️ RegisterMappingService: Invalid response format from API');
         this.initialized = true; // Mark as initialized even if empty

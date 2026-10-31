@@ -37,10 +37,7 @@ export const Dashboard: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const t0 = performance.now();
-      console.log('[Dashboard] Fetching stats...');
       const data = await meterReadingService.getMeterStats();
-      console.log(`[Dashboard] Stats done in ${(performance.now() - t0).toFixed(0)}ms`);
       setStats(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch statistics');

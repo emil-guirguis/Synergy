@@ -91,7 +91,6 @@ async function walkAll(prefix) {
 
 async function main() {
   const files = await walkAll('');
-  console.log(`Found ${files.length} file(s) in ${BUCKET}.\n`);
 
   if (!COMMIT) {
     for (const f of files) console.log(`- ${f.path} (${f.size ?? '?'} bytes, ${f.mimeType ?? 'unknown mime'})`);
@@ -122,7 +121,6 @@ async function main() {
   } finally {
     await client.end();
   }
-  console.log(`Inserted ${inserted} new document row(s) (${files.length - inserted} already existed).`);
 }
 
 main().catch((e) => {

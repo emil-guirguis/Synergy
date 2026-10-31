@@ -208,9 +208,7 @@ export const meterDeviceApi = {
 export const tenantApi = {
   getTenantInfo: async (): Promise<TenantInfo | null> => {
     try {
-      console.log('🔍 [Tenant] Fetching tenant info from local database...');
       const response = await apiClient.get<TenantInfo | null>('/api/local/tenant');
-      console.log('✅ [Tenant] Successfully fetched tenant info:', response.data);
       return response.data;
     } catch (error) {
       // Log detailed error information for debugging
@@ -248,7 +246,6 @@ export const tenantApi = {
    */
   syncTenantFromRemote: async (tenantId: number): Promise<TenantInfo | null> => {
     try {
-      console.log(`🔄 [Tenant] Triggering tenant sync from remote to local database for tenant ${tenantId}...`);
       const response = await apiClient.post<{
         success: boolean;
         message: string;
@@ -265,8 +262,6 @@ export const tenantApi = {
         throw new Error(response.data.message || 'Tenant sync failed');
       }
 
-      console.log('✅ [Tenant] Tenant sync completed:', response.data.sync_result);
-      console.log('✅ [Tenant] Synced tenant data:', response.data.tenant_data);
       return response.data.tenant_data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -292,9 +287,6 @@ export const tenantApi = {
    */
   fetchTenantFromClientApi: async (token: string): Promise<TenantInfo | null> => {
     try {
-      console.log('📡 [Tenant] Fetching tenant data from client API...');
-      console.log('📡 [Tenant] Client API URL:', CLIENT_API_URL);
-      console.log('📡 [Tenant] Token:', token ? `${token.substring(0, 20)}...` : 'missing');
       
       const clientApiClient = axios.create({
         baseURL: CLIENT_API_URL,
@@ -305,11 +297,8 @@ export const tenantApi = {
         },
       });
 
-      console.log('📡 [Tenant] Sending request to /users/me...');
       const response = await clientApiClient.get<any>('/users/me');
       
-      console.log('📡 [Tenant] Response status:', response.status);
-      console.log('📡 [Tenant] Response data keys:', Object.keys(response.data));
       
       if (!response.data || !response.data.tenant) {
         console.warn('⚠️ [Tenant] No tenant data in response');
@@ -330,7 +319,6 @@ export const tenantApi = {
         active: response.data.tenant.active,
       };
 
-      console.log('✅ [Tenant] Successfully fetched tenant data:', tenantData);
       return tenantData;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -355,9 +343,6 @@ export const tenantApi = {
    */
   syncTenantToLocal: async (tenantData: TenantInfo): Promise<TenantInfo> => {
     try {
-      console.log('💾 [Tenant] Syncing tenant data to local database...');
-      console.log('💾 [Tenant] Tenant data:', tenantData);
-      console.log('💾 [Tenant] API base URL:', apiClient.defaults.baseURL);
 
       // Call the local API to upsert tenant data
       const payload = {
@@ -373,11 +358,8 @@ export const tenantApi = {
         api_key: tenantData.api_key,
       };
 
-      console.log('💾 [Tenant] Sending payload:', payload);
       const response = await apiClient.post<TenantInfo>('/api/local/tenant', payload);
 
-      console.log('✅ [Tenant] Sync response status:', response.status);
-      console.log('✅ [Tenant] Successfully synced tenant to local database:', response.data);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -404,9 +386,7 @@ export const tenantApi = {
    */
   logout: async (): Promise<void> => {
     try {
-      console.log('🔐 [Tenant] Logging out - deleting tenant data...');
       await apiClient.delete('/api/local/tenant');
-      console.log('✅ [Tenant] Successfully logged out');
     } catch (error) {
       if (axios.isAxiosError(error)) {
         console.error('❌ [Tenant] Failed to logout:', {

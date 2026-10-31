@@ -35,7 +35,6 @@ const settingsService = {
   async getSettings() {
     return withTokenRefresh(async () => {
       const token = authService.getStoredToken();
-      console.log('Fetching settings with token:', token ? 'Present' : 'Missing');
 
       const response = await fetch('/api/settings/company', {
         headers: {
@@ -44,7 +43,6 @@ const settingsService = {
         }
       });
 
-      console.log('Settings response status:', response.status);
 
       let result;
       try {
@@ -54,7 +52,6 @@ const settingsService = {
         throw new Error(`Failed to fetch settings: ${response.status} ${response.statusText}`);
       }
 
-      console.log('Settings response:', result);
 
       if (!response.ok) {
         throw new Error(result?.message || `Failed to fetch settings: ${response.status}`);

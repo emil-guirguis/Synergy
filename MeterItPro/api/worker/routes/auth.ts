@@ -362,7 +362,6 @@ async function verifyTurnstile(env: Env, token: string | undefined, ip: string):
     body: JSON.stringify({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip }),
   });
   const data: any = await res.json();
-  console.log('[Turnstile] siteverify response:', JSON.stringify(data));
   return { ok: data.success === true, errorCodes: data['error-codes'] ?? [] };
 }
 
@@ -423,7 +422,6 @@ auth.post('/signup', ipRateLimit(5, 60 * 60 * 1000), async (c) => {
         );
 
         const tenantId = tenantResult.rows[0].tenant_id;
-        console.log('[SIGNUP] Created tenant:', tenantId);
 
         // Hash password
         const passwordHash = await bcrypt.hash(user.password, await bcrypt.genSalt(10));
@@ -438,7 +436,6 @@ auth.post('/signup', ipRateLimit(5, 60 * 60 * 1000), async (c) => {
         );
 
         const createdUserRow = createUserResult.rows[0];
-        console.log('[SIGNUP] Created user (direct SQL):', createdUserRow.users_id);
 
         const createdUser = {
           id: createdUserRow.users_id,
@@ -451,9 +448,6 @@ auth.post('/signup', ipRateLimit(5, 60 * 60 * 1000), async (c) => {
         return { tenantId, user: createdUser };
       });
 
-      // Log payment information (for future processing)
-      console.log('[SIGNUP] Payment method:', payment?.method);
-      console.log('[SIGNUP] Plan type:', payment?.planType);
 
       return c.json({
         success: true,
@@ -487,7 +481,6 @@ auth.post('/login', ipRateLimit(10, 60 * 1000), async (c) => {
     const body = await c.req.json();
     const { email, password, turnstileToken } = body;
 
-    console.log('[DEBUG] Login endpoint hit - email:', email);
 
     const tsResult = await verifyTurnstile(c.env, turnstileToken, c.req.header('cf-connecting-ip') || '');
     if (!tsResult.ok) {
@@ -670,7 +663,6 @@ auth.post('/login', ipRateLimit(10, 60 * 1000), async (c) => {
       },
     };
 
-    console.log('[DEBUG] Sending response - user.active:', user.active, '-> status:', responseData.data.user.status);
     return c.json(responseData);
   } catch (error: any) {
     logError('[LOGIN] Unhandled error:', error);
@@ -901,7 +893,6 @@ auth.post('/forgot-password', async (c) => {
       // Build reset link (email sending would need a separate service in Workers)
       const frontendUrl = c.env.FRONTEND_URL || 'http://localhost:3000';
       const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
-      console.log('[AUTH] Password reset link generated for:', email, '- Link:', resetLink);
 
       // Log the request
       try {
@@ -1711,11 +1702,8 @@ auth.post('/refresh', async (c) => {
     // Verify refresh token
     let decoded: any;
     try {
-      console.log('[REFRESH] Verifying refresh token, length:', refreshTokenValue.length);
       decoded = await verify(refreshTokenValue, c.env.JWT_SECRET, 'HS256');
-      console.log('[REFRESH] Token verified, decoded:', JSON.stringify(decoded));
       if (!decoded.isRefresh) {
-        console.log('[REFRESH] Token missing isRefresh claim');
         return c.json({ success: false, message: 'Invalid refresh token' }, 401);
       }
     } catch (err: any) {

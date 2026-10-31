@@ -40,10 +40,8 @@ export const ValidationFieldSelect: React.FC<ValidationFieldSelectProps> = ({
 
   // Load options from validation data provider
   useEffect(() => {
-    console.log(`🔄 [ValidationFieldSelect] ${fieldName}: useEffect triggered, validate=${fieldDef?.validate}, hasProvider=${!!validationDataProvider}`);
     
     if (!fieldDef?.validate) {
-      console.log(`[ValidationFieldSelect] ${fieldName}: validate is not true, skipping`);
       return;
     }
 
@@ -60,17 +58,10 @@ export const ValidationFieldSelect: React.FC<ValidationFieldSelectProps> = ({
         // Map field names to entity names (e.g., 'location_id' -> 'location')
         const entityName = fieldName.replace('_id', '');
 
-        console.log(`[ValidationFieldSelect] ${fieldName}: Calling validationDataProvider for entityName=${entityName}`);
 
         // Call the provider to get validation data
         const data = await validationDataProvider(entityName, fieldDef);
         
-        console.log(`✅ [ValidationFieldSelect] ${fieldName}: Retrieved ${data?.length || 0} options`);
-        if (data && data.length > 0) {
-          data.forEach((item: any, idx: number) => {
-            console.log(`  [${idx}] ID: ${item.id}, Label: ${item.label}`);
-          });
-        }
         setOptions(data || []);
       } catch (err) {
         console.error(`[ValidationFieldSelect] ${fieldName}: Error fetching validation data:`, err);
@@ -83,15 +74,6 @@ export const ValidationFieldSelect: React.FC<ValidationFieldSelectProps> = ({
     loadOptions();
   }, [fieldName, fieldDef?.validate, validationDataProvider]);
 
-  console.log(`[ValidationFieldSelect] ${fieldName}:`, { 
-    value, 
-    valueType: typeof value,
-    valueAsString: String(value),
-    optionsCount: options.length, 
-    loading,
-    isDisabled,
-    error 
-  });
 
   // Determine placeholder text
   let placeholderText = `Select ${fieldDef.label}`;
@@ -105,7 +87,6 @@ export const ValidationFieldSelect: React.FC<ValidationFieldSelectProps> = ({
   // MUI Select requires string values, so we convert IDs to strings
   const formFieldOptions = options.map((option) => {
     const stringValue = String(option.id);
-    console.log(`[ValidationFieldSelect] ${fieldName} option:`, { id: option.id, stringValue, label: option.label });
     return {
       value: stringValue,
       label: option.label,
@@ -115,14 +96,6 @@ export const ValidationFieldSelect: React.FC<ValidationFieldSelectProps> = ({
   // Ensure value is a string for MUI Select comparison
   // Handle null, undefined, 0, and other falsy values properly
   const selectValue = value !== null && value !== undefined ? String(value) : '';
-
-  // Debug: Check if current value matches any option
-  const matchingOption = formFieldOptions.find(opt => opt.value === selectValue);
-  console.log(`[ValidationFieldSelect] ${fieldName} value matching:`, {
-    selectValue,
-    matchingOption,
-    allOptions: formFieldOptions,
-  });
 
   return (
     <div className={`${className}__field`}>
@@ -140,11 +113,6 @@ export const ValidationFieldSelect: React.FC<ValidationFieldSelectProps> = ({
         options={formFieldOptions}
         onChange={(e: any) => {
           const rawValue = e.target.value;
-          console.log(`[ValidationFieldSelect] ${fieldName} onChange fired:`, {
-            rawValue,
-            rawValueType: typeof rawValue,
-            isUndefinedString: rawValue === 'undefined',
-          });
           
           // Handle the case where value is the string 'undefined'
           let selectedValue: number | null = null;
@@ -156,11 +124,6 @@ export const ValidationFieldSelect: React.FC<ValidationFieldSelectProps> = ({
             }
           }
           
-          console.log(`[ValidationFieldSelect] ${fieldName} onChange result:`, {
-            rawValue,
-            parsedValue: selectedValue,
-            currentValue: value,
-          });
           onChange(selectedValue);
         }}
         onBlur={() => {}}

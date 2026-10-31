@@ -98,4 +98,3 @@ await sharp(Buffer.from(svgContent))
   .png({ quality: 95, compressionLevel: 8 })
   .toFile(resolve(outDir, 'og-image.png'));
 
-console.log('✓ public/og-image.png generated (1200x630)');

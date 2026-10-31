@@ -22,7 +22,6 @@ app.post('/readings/batch', authenticateSyncServer, async (c) => {
       return c.json({ success: false, message: 'No readings provided' }, 400);
     }
 
-    console.log(`[Sync] Received batch upload with ${readings.length} readings for tenant ${tenantId}`);
 
     const result = await transaction(c.env, async (client) => {
       let insertedCount = 0;
@@ -125,7 +124,6 @@ app.post('/readings/batch', authenticateSyncServer, async (c) => {
             flags.length > 0 ? flags : null
           ];
 
-          console.log(`[Sync] INSERT params[${i}]:`, JSON.stringify(readingParams));
           const insertResult = await client.query(readingQuery, readingParams);
 
           await client.query(`RELEASE SAVEPOINT ${savepointName}`);

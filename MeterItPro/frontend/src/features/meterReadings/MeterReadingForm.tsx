@@ -30,7 +30,6 @@ import './ReadingDataTable.css';
  * @param onNavigateToList - Optional callback when navigating to the reading list
  */
 export const MeterReadingForm: React.FC<MeterReadingFormProps> = ({
-  meterElementId,
   onNavigateToList,
 }) => {
   // Get data from stores
@@ -61,11 +60,9 @@ export const MeterReadingForm: React.FC<MeterReadingFormProps> = ({
    * Fetch last reading when store data changes or store finishes loading
    */
   useEffect(() => {
-    console.log('[MeterReadingForm] useEffect triggered - store.loading:', meterReadingsStore.loading, 'items.length:', meterReadingsStore.items?.length);
     
     // If store is still loading, wait
     if (meterReadingsStore.loading) {
-      console.log('[MeterReadingForm] Store still loading, setting isLoading to true');
       setState((prev) => ({ ...prev, isLoading: true }));
       return;
     }
@@ -73,7 +70,6 @@ export const MeterReadingForm: React.FC<MeterReadingFormProps> = ({
     // Store finished loading, process the reading
     try {
       const readings = meterReadingsStore.items;
-      console.log('[MeterReadingForm] Processing readings, count:', readings?.length);
       
       if (readings && readings.length > 0) {
         // Sort by created_at descending and get the first one
@@ -84,7 +80,6 @@ export const MeterReadingForm: React.FC<MeterReadingFormProps> = ({
         });
         
         const lastReading = sortedReadings[0] as any;
-        console.log('[MeterReadingForm] Last reading:', lastReading);
         
         // Build sections from flat data
         const sections: { [key: string]: any } = {
@@ -139,7 +134,6 @@ export const MeterReadingForm: React.FC<MeterReadingFormProps> = ({
           sections: sections,
         };
         
-        console.log('[MeterReadingForm] Converted reading:', convertedReading);
         setState((prev) => ({ ...prev, lastReading: convertedReading, isLoading: false }));
       } else {
         setState((prev) => ({ ...prev, isLoading: false }));

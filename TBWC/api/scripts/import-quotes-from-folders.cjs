@@ -175,7 +175,6 @@ async function pickPrimaryByParsing(candidates, maxParsePages) {
     try {
       lines = await extractQuoteLines(doc.fullPath, maxParsePages);
     } catch (e) {
-      console.log(`  ! PDF parse failed for "${doc.relPath}": ${e.message}`);
     }
     if (!best || lines.length > bestLines.length || (lines.length === bestLines.length && doc.size > best.size)) {
       best = doc;
@@ -409,7 +408,6 @@ async function uploadToBucket(objectPath, buf, mime, attempts = 3) {
 async function main() {
   let folders = listJobFolders(OPTS.dir);
   if (OPTS.only) folders = folders.filter((f) => f.jobName.toLowerCase().includes(OPTS.only.toLowerCase()));
-  console.log(`${folders.length} local job folder(s) found under ${OPTS.dir}.\n`);
 
   // query_timeout matches the upload Agent's timeout below: a run has hit
   // stalls where the pg connection itself goes silent (established, zero
@@ -419,7 +417,6 @@ async function main() {
   await client.connect();
   const existing = await client.query('SELECT DISTINCT job_name FROM public.quote WHERE job_name IS NOT NULL');
   const existingNormalized = new Set(existing.rows.map((r) => normalize(r.job_name)));
-  console.log(`${existingNormalized.size} job_name(s) already in DB — exact-normalized matches will be skipped.\n`);
   const repIndex = await loadRepIndex(client);
 
   let imported = 0;
@@ -431,7 +428,6 @@ async function main() {
     if (imported >= OPTS.limit) break;
     if (existingNormalized.has(normalize(jobName))) {
       skipped++;
-      console.log(`- ${jobName}  SKIP (already imported)\n`);
       continue;
     }
 
@@ -445,7 +441,6 @@ async function main() {
         const [page1] = await extractPdfPages(doc.fullPath, 1);
         if (page1) headerParts.push(parseHeaderBlock(page1));
       } catch (e) {
-        console.log(`  ! header parse failed for "${doc.relPath}": ${e.message}`);
       }
     }
     const header = mergeHeaders(headerParts);
@@ -454,19 +449,9 @@ async function main() {
     const salesRepListId = repMatch ? repMatch.list_id : null;
     const memo = buildMemo(header) + (salesRep && !repMatch ? `  |  ${UNMATCHED_FLAG}` : '');
 
-    console.log(`- ${jobName}`);
-    console.log(
-      `  txn_date=${header.txnDate || '-'}  total=${header.total ?? '-'}  rep=${salesRep || '-'}` +
-        `  rep_match=${repMatch ? `${repMatch.name} (${repMatch.list_id})` : 'none'}  poc=${header.poc || '-'}`
-    );
-    console.log(`  docs: ${docs.map((d) => `${d.relPath} (${d.docType})`).join(', ') || 'none'}`);
-    console.log(`  primary for line parse: ${primary ? primary.relPath : 'none'}`);
-    console.log(`  parsed ${parsedLines.length} line(s)${parsedLines.length ? ':' : ''}`);
     for (const l of parsedLines.slice(0, 5)) {
-      console.log(`    qty=${l.quantity}  item=${l.itemName}  rate=${l.rate ?? '-'}  amount=${l.amount ?? '-'}  desc=${l.description.slice(0, 70)}`);
     }
     if (parsedLines.length > 5) console.log(`    ...(${parsedLines.length - 5} more)`);
-    console.log('');
 
     totalDocs += docs.length;
     totalLines += parsedLines.length;
@@ -514,16 +499,12 @@ async function main() {
         imported++;
       } catch (e) {
         await client.query('ROLLBACK');
-        console.log(`  ! COMMIT FAILED for "${jobName}": ${e.message}`);
       }
     } else {
       imported++;
     }
   }
 
-  console.log(
-    `\n${OPTS.commit ? 'Imported' : 'Would import'} ${imported} quote(s). ${skipped} skipped as already-imported. ${totalDocs} document(s), ${totalLines} line item(s) total.`
-  );
 
   await client.end();
 }

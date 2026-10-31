@@ -161,7 +161,6 @@ app.post('/voice-match', requirePermission('inventory:read'), async (c) => {
       },
     });
 
-    console.log(`[inventory.voice-match] text="${text}" model response: ${response}`);
 
     let qty = 1;
     let matchIds: number[] = [];

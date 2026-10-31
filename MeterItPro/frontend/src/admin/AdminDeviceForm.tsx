@@ -25,7 +25,6 @@ export const AdminDeviceForm: React.FC<AdminDeviceFormProps> = ({ device, onCanc
         <RegistersGrid
           deviceId={Number(device.device_id)}
           onError={(err) => console.error('RegistersGrid error:', err)}
-          onSuccess={(msg) => console.log('RegistersGrid success:', msg)}
         />
       );
     }

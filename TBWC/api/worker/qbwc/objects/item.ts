@@ -80,7 +80,6 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
       ]);
     }
   }
-  console.log(`[QBWC] ItemQueryRs: ${byId.size} item(s)`);
 
   // Batched multi-row upserts: execQuery opens a connection per call, so a page
   // must be a handful of statements, not two per record.

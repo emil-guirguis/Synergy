@@ -111,7 +111,6 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   for (const [delType, txnIds] of byType) {
     const marked = await markDeleted(env, delType, txnIds);
     if (delType === 'Invoice') invoicesMarked += marked;
-    console.log(`[QBWC] TxnDeletedQueryRs: ${txnIds.length} deleted ${delType}(s) from QB, ${marked} newly marked`);
   }
   // An order's invoice_number/invoice_status is denormalised off qb_invoice, so
   // a deleted invoice has to be recomputed out of the orders that quote it.

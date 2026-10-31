@@ -189,7 +189,6 @@ async function pickPrimaryByParsing(candidates, maxParsePages) {
     try {
       lines = await extractQuoteLines(doc.fullPath, maxParsePages);
     } catch (e) {
-      console.log(`  ! PDF parse failed for "${doc.fileName}": ${e.message}`);
     }
     if (!best || lines.length > bestLines.length || (lines.length === bestLines.length && doc.size > best.size)) {
       best = doc;
@@ -281,7 +280,6 @@ async function uploadToBucket(objectPath, buf) {
 async function main() {
   const rows = readRows().filter((r) => !OPTS.only || r.jobName.toLowerCase().includes(OPTS.only.toLowerCase()));
   const folderIndex = loadFolderIndex(OPTS.folders);
-  console.log(`${rows.length} spreadsheet rows, ${folderIndex.size} local folders found.\n`);
 
   let client = null;
   let alreadyImported = new Set();
@@ -290,7 +288,6 @@ async function main() {
     await client.connect();
     const existing = await client.query('SELECT DISTINCT job_name FROM public.quote WHERE job_name IS NOT NULL');
     alreadyImported = new Set(existing.rows.map((r) => r.job_name));
-    console.log(`Resuming: ${alreadyImported.size} job_name(s) already in DB, will be skipped.\n`);
   }
 
   let imported = 0;
@@ -301,7 +298,6 @@ async function main() {
   for (const row of rows) {
     if (imported >= OPTS.limit) break;
     if (OPTS.commit && alreadyImported.has(row.jobName)) {
-      console.log(`- ${row.jobName}  SKIP (already imported)\n`);
       continue;
     }
     const folder = findFolder(row.jobName, folderIndex);
@@ -315,21 +311,12 @@ async function main() {
       ({ primary, lines: parsedLines } = await pickPrimaryByParsing(candidates, OPTS.maxParsePages));
     }
 
-    console.log(`- ${row.jobName}  [${row.rep || 'no rep'}]  $${row.amount}  ${row.txnDate || 'no date'}`);
-    console.log(`  engineer=${row.engineer || '-'}  po_date=${row.poDate || '-'}`);
     if (folder) {
-      console.log(`  folder: ${folder}`);
-      console.log(`  docs: ${docs.map((d) => `${d.fileName} (${d.docType})`).join(', ') || 'none'}`);
-      console.log(`  primary for line parse: ${primary ? primary.fileName : 'none'}`);
-      console.log(`  parsed ${parsedLines.length} line(s)${parsedLines.length ? ':' : ''}`);
       for (const l of parsedLines.slice(0, 5)) {
-        console.log(`    qty=${l.quantity}  item=${l.itemName}  rate=${l.rate ?? '-'}  amount=${l.amount ?? '-'}  desc=${l.description.slice(0, 70)}`);
       }
       if (parsedLines.length > 5) console.log(`    ...(${parsedLines.length - 5} more)`);
     } else {
-      console.log(`  folder: NOT FOUND (header-only import)`);
     }
-    console.log('');
 
     totalDocs += docs.length;
     totalLines += parsedLines.length;
@@ -371,14 +358,12 @@ async function main() {
         imported++;
       } catch (e) {
         await client.query('ROLLBACK');
-        console.log(`  ! COMMIT FAILED for "${row.jobName}": ${e.message}`);
       }
     } else {
       imported++;
     }
   }
 
-  console.log(`\n${OPTS.commit ? 'Imported' : 'Would import'} ${imported} quote(s). ${matchedFolders} matched a local folder. ${totalDocs} document(s), ${totalLines} line item(s) total.`);
 
   if (client) await client.end();
 }

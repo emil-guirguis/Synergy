@@ -196,7 +196,6 @@ export async function runScheduledNotifications(
         [rule.scheduled_notification_rule_id],
         'scheduledNotifications.touch'
       );
-      console.log(`[cron] Scheduled notification rule ${rule.scheduled_notification_rule_id} (${rule.name}) fired`);
     } catch (err) {
       console.error(
         `[scheduledNotifications] rule ${rule.scheduled_notification_rule_id} (${rule.name}) failed:`,

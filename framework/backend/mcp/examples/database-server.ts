@@ -51,10 +51,8 @@ const server = new MCPServer(
   },
   {
     onStart: async () => {
-      console.log('Database server starting...');
     },
     onStop: async () => {
-      console.log('Database server stopping...');
     },
   }
 );

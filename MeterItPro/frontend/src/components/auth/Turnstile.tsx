@@ -4,7 +4,6 @@ import { Box } from '@mui/material';
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
 const IS_DEV = import.meta.env.DEV;
 
-console.log('[Turnstile] SITE_KEY:', SITE_KEY || '(undefined — check VITE_TURNSTILE_SITE_KEY)');
 
 interface TurnstileProps {
   onVerify: (token: string) => void;

@@ -151,7 +151,6 @@ export class SyncManager {
   // Sync all pending operations
   async syncPendingOperations(): Promise<void> {
     if (!this.isOnline) {
-      console.log('Cannot sync: offline');
       return;
     }
 
@@ -162,7 +161,6 @@ export class SyncManager {
       return;
     }
 
-    console.log(`Syncing ${pendingOperations.length} pending operations`);
 
     // Process operations in batches
     const batches = this.chunkArray(pendingOperations, this.config.batchSize);
@@ -195,7 +193,6 @@ export class SyncManager {
         error: undefined,
       });
 
-      console.log(`Sync completed for operation ${operation.id}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
@@ -325,7 +322,6 @@ export class SyncManager {
 
   // Handle online event
   private handleOnline(): void {
-    console.log('Connection restored, syncing pending operations');
     this.isOnline = true;
     this.syncPendingOperations();
     this.notifyListeners();
@@ -333,7 +329,6 @@ export class SyncManager {
 
   // Handle offline event
   private handleOffline(): void {
-    console.log('Connection lost, operations will be queued for sync');
     this.isOnline = false;
     this.notifyListeners();
   }

@@ -19,7 +19,7 @@ export const MeterReadingList: React.FC<MeterReadingListProps> = ({
 }) => {
   const meterReadings = useMeterReadingsEnhanced();
   const auth = useAuth();
-  const { selectedMeter, selectedElement, selectedMeterName, selectedElementName, selectedElementNumber } = useMeterSelection();
+  const { selectedMeter, selectedElement, selectedMeterName, selectedElementName } = useMeterSelection();
 
   /**
    * Initialize register mapping service on component mount
@@ -65,13 +65,6 @@ export const MeterReadingList: React.FC<MeterReadingListProps> = ({
       return meterMatch && readingElementId === selectedElement;
     });
 
-    console.log('[MeterReadingList] Filtering with selectedMeter:', selectedMeter, 'selectedElement:', selectedElement);
-    console.log('[MeterReadingList] Total items:', meterReadings.items.length);
-    console.log('[MeterReadingList] Filtered items:', filtered.length);
-    if (meterReadings.items.length > 0) {
-      console.log('[MeterReadingList] First item:', meterReadings.items[0]);
-    }
-
     return filtered;
   }, [meterReadings.items, meterReadings.loading, selectedMeter, selectedElement]);
 
@@ -79,13 +72,6 @@ export const MeterReadingList: React.FC<MeterReadingListProps> = ({
    * Memoized title - display favorite caption if available, otherwise just "Meter Readings"
    */
   const title = React.useMemo(() => {
-    console.log('[MeterReadingList] Title calculation:', {
-      selectedMeter,
-      selectedElement,
-      selectedMeterName,
-      selectedElementName,
-      selectedElementNumber,
-    });
 
     if (!selectedMeter) {
       return 'Meter Readings';

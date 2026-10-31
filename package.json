@@ -46,6 +46,8 @@
     "test:framework:backend": "cd framework/backend && npm run test:run",
     "test:framework:frontend": "cd framework/frontend && npm run test:run",
     "lint": "concurrently -n client-fe,sync-fe -c \"cyan,green\" \"cd MeterItPro/frontend && npm run lint\" \"cd MeterItProSync/frontend && npm run lint\"",
+    "lint:no-console": "node ./scripts/check-no-console.cjs",
+    "lint:no-console:list": "node ./scripts/check-no-console.cjs --list",
     "typecheck": "concurrently -n client-api,client-fe,sync-api,sync-mcp,sync-fe,tbwc-api,tbwc-fe -c \"yellow,cyan,blue,magenta,green,red,redBright\" \"cd MeterItPro/api && npm run type-check\" \"cd MeterItPro/frontend && npm run type-check\" \"cd MeterItProSync/api && npm run type-check\" \"cd MeterItProSync/mcp && npm run type-check\" \"cd MeterItProSync/frontend && npm run type-check\" \"cd TBWC/api && npm run type-check\" \"cd TBWC/frontend && npm run type-check\""
   },
   "devDependencies": {

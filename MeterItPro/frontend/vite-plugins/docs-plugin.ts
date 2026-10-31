@@ -52,7 +52,6 @@ export function docsPlugin(): Plugin {
           fs.copyFileSync(src, path.join(outDir, name));
         }
       }
-      console.log(`📄 docs-plugin: copied ${DOCS_SRC} -> dist/docs`);
     },
   };
 }

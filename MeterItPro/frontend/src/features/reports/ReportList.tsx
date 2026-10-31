@@ -69,12 +69,9 @@ export const ReportList: React.FC<ReportListProps> = ({
 
   const reportFilters = useMemo(() => {
     if (!schema?.formFields) {
-      console.log('[ReportList] No schema.formFields available', { schema });
       return [];
     }
-    console.log('[ReportList] Generating filters from schema.formFields:', schema.formFields);
     const filters = generateFiltersFromSchema(schema.formFields);
-    console.log('[ReportList] Generated filters:', filters);
     return filters;
   }, [schema]);
 

@@ -201,13 +201,11 @@ export const AppLayoutWrapper: React.FC<LayoutProps> = (props) => {
   }, [location.pathname]);
 
   const logout = () => {
-    console.log('🚪 Logout button clicked');
 
     // Call logout which clears tokens and sets logout flag
     authLogout();
 
     // Redirect to login page
-    console.log('🔄 Redirecting to login page');
     redirectTo('/login');
   };
 

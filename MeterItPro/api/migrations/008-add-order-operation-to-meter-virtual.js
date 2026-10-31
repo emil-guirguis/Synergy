@@ -15,14 +15,11 @@ async function runMigration() {
   let wasAlreadyConnected = false;
 
   try {
-    console.log('🔄 Starting migration: add order_by and operation to meter_virtual...');
 
     wasAlreadyConnected = db.isConnected;
     if (!wasAlreadyConnected) {
-      console.log('🔄 Connecting to database...');
       await db.connect();
     } else {
-      console.log('✅ Using existing database connection');
     }
 
     const statements = [
@@ -46,16 +43,13 @@ async function runMigration() {
 
     for (let i = 0; i < statements.length; i++) {
       try {
-        console.log(`\n📄 Executing statement ${i + 1}/${statements.length}...`);
         await db.query(statements[i]);
-        console.log(`✅ Statement ${i + 1} completed`);
       } catch (error) {
         console.error(`❌ Statement ${i + 1} failed: ${error.message}`);
         throw error;
       }
     }
 
-    console.log('\n✅ Migration 008 completed successfully\n');
   } catch (error) {
     console.error('\n❌ Migration failed:', error.message);
     process.exit(1);

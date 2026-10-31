@@ -33,7 +33,6 @@ const errorLoggerPlugin = () => {
       return null;
     },
     handleHotUpdate({ file }: any) {
-      console.log(`\n🔄 Hot update: ${path.relative(process.cwd(), file)}`);
     },
   };
 };

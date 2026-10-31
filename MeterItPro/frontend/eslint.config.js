@@ -22,6 +22,11 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
+      // Browser console noise was swept out 2026-10-30; this keeps it out.
+      // warn/error stay allowed — they report problems rather than trace flow.
+      // Need diagnostics? Put them behind an explicit flag (see LOG_SQL in
+      // api/worker/db.ts) or a named debug helper, not a bare console.log.
+      'no-console': ['error', { allow: ['warn', 'error'] }],
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_' },
@@ -31,5 +36,12 @@ export default defineConfig([
         { allowConstantExport: true },
       ],
     },
+  },
+  {
+    // This file's entire purpose is printing to the console — it registers
+    // window.mip.* helpers for inspecting auth state from devtools, and only
+    // activates in dev or behind ?debug.
+    files: ['src/utils/debugConsole.ts'],
+    rules: { 'no-console': 'off' },
   },
 ]);

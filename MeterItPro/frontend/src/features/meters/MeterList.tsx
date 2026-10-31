@@ -123,12 +123,9 @@ export const MeterList: React.FC<MeterListProps> = ({
 
   const meterFilters = useMemo(() => {
     if (!schema?.formFields) {
-      console.log('[MeterList] No schema.formFields available', { schema });
       return [];
     }
-    console.log('[MeterList] Generating filters from schema.formFields:', schema.formFields);
     const filters = generateFiltersFromSchema(schema.formFields);
-    console.log('[MeterList] Generated filters:', filters);
     return filters;
   }, [schema]);
 

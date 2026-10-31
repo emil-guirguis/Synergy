@@ -79,7 +79,8 @@ export const DetailedMeterReadingView: React.FC<DetailedMeterReadingViewProps> =
   const [checkedComponents, setCheckedComponents] = useState<Set<string>>(new Set());
   const [overrideOperations, setOverrideOperations] = useState<Map<string, '+' | '-'>>(new Map());
   const [componentKwh, setComponentKwh] = useState<Map<number, number>>(new Map());
-  const [componentKwhLoaded, setComponentKwhLoaded] = useState(false);
+  // Only the setter is read; the flag itself was used by a removed debug log.
+  const [, setComponentKwhLoaded] = useState(false);
 
   const { selectedMeter, selectedElement } = useMeterSelection();
 
@@ -102,10 +103,8 @@ export const DetailedMeterReadingView: React.FC<DetailedMeterReadingViewProps> =
     setComponentKwhLoaded(false);
     meterReadingService.getVirtualComponentsLast(selectedMeter)
       .then((rows) => {
-        console.log('[VirtualMeter] virtual-components-last rows:', rows);
         const map = new Map<number, number>();
         rows.forEach((r) => map.set(Number(r.select_meter_element_id), Number(r.kwh)));
-        console.log('[VirtualMeter] componentKwh map:', [...map.entries()]);
         setComponentKwh(map);
         setComponentKwhLoaded(true);
       })

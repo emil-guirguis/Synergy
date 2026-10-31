@@ -67,7 +67,6 @@ app.get('/cards', requirePermission('dashboard:read'), async (c) => {
       sortOrder: qs.sortOrder,
     });
 
-    console.log('[Dashboard] GET /cards - Raw database rows:', result.rows.map((c: any) => ({ id: c.dashboard_id, grid_x: c.grid_x, grid_y: c.grid_y })));
 
     const items = result.rows.map((card: any, index: number) => {
       const cardIndex = (page - 1) * limit + index;
@@ -107,10 +106,6 @@ app.get('/cards/:id', requirePermission('dashboard:read'), async (c) => {
     const card = await findById(c.env, 'dashboard', 'dashboard_id', c.req.param('id'), tenantId);
     if (!card) return c.json({ success: false, message: 'Dashboard card not found' }, 404);
 
-    console.log('[Dashboard] GET /cards/:id - Card data:', {
-      card_id: card.dashboard_id,
-      meter_selections: parseMeterSelections(card.meter_selections),
-    });
 
     return c.json({
       success: true,
@@ -146,10 +141,6 @@ app.get('/cards/:id/data', requirePermission('dashboard:read'), async (c) => {
     // Parse meter_selections JSONB
     const rawMs = parseMeterSelections(card.meter_selections);
 
-    console.log('[Dashboard] GET /cards/:id/data - Card loaded:', {
-      card_name: card.card_name,
-      meter_selections: rawMs,
-    });
 
     // Derive selected columns and meter/element IDs from meter_selections
     let rawColumns: string[] = [];
@@ -181,19 +172,12 @@ app.get('/cards/:id/data', requirePermission('dashboard:read'), async (c) => {
       // Use first meter_element_id if available (or could use IN clause for multiple)
       meter_element_id = meter_element_ids.length > 0 ? meter_element_ids[0] : null;
 
-      console.log('[Dashboard] GET /cards/:id/data - Extracted from meter_selections:', {
-        meter_selections_raw: rawMs,
-        extracted_meter_id: meter_id,
-        extracted_meter_element_ids: meter_element_ids,
-        using_meter_element_id: meter_element_id,
-      });
     } else {
       // Legacy fallback
       let legacy = card.selected_columns;
       if (typeof legacy === 'string') { try { legacy = JSON.parse(legacy); } catch { legacy = []; } }
       if (Array.isArray(legacy)) rawColumns = legacy;
 
-      console.log('[Dashboard] GET /cards/:id/data - Using legacy selected_columns:', legacy);
     }
 
     const selectedColumns: string[] = rawColumns
@@ -382,10 +366,6 @@ app.post('/cards', requirePermission('dashboard:create'), async (c) => {
     if (!tenantId) return c.json({ success: false, message: 'User must have a valid tenant_id' }, 400);
 
     const body = await c.req.json();
-    console.log('[Dashboard] POST /cards - Request body:', {
-      card_name: body.card_name,
-      meter_selections: body.meter_selections,
-    });
 
     // Validate meter belongs to tenant
     if (body.meter_id) {
@@ -486,10 +466,6 @@ app.put('/cards/:id', requirePermission('dashboard:update'), async (c) => {
 
     const body = await c.req.json();
 
-    console.log('[Dashboard] PUT /cards/:id - Request body:', {
-      card_name: body.card_name,
-      meter_selections: body.meter_selections,
-    });
 
     const updateData: Record<string, any> = {};
     if (body.card_name !== undefined)          updateData.card_name = body.card_name;
@@ -510,9 +486,7 @@ app.put('/cards/:id', requirePermission('dashboard:update'), async (c) => {
         : JSON.stringify(body.meter_selections);
     }
 
-    console.log('[Dashboard] PUT /cards/:id - updateData:', updateData);
     const updated = await update(c.env, 'dashboard', 'dashboard_id', c.req.param('id'), updateData);
-    console.log('[Dashboard] PUT /cards/:id - Updated result:', updated);
 
     if (!updated) {
       return c.json({ success: false, message: 'Dashboard card not found or no changes applied' }, 404);
@@ -616,12 +590,6 @@ app.get('/cards/:id/readings', requirePermission('dashboard:read'), async (c) =>
     // Use first meter_element_id if available
     const readingsMeterElementId = readingsMeterElementIds.length > 0 ? readingsMeterElementIds[0] : null;
 
-    console.log('[Dashboard] GET /cards/:id/readings - Extracted from meter_selections:', {
-      meter_selections_raw: readingsRawMs,
-      extracted_meter_id: readingsMeterIdVal,
-      extracted_meter_element_ids: readingsMeterElementIds,
-      using_meter_element_id: readingsMeterElementId,
-    });
 
     // Build WHERE clause and params based on what's set in meter_selections
     // Always join with meter_element and meter to ensure only active meters are included
@@ -737,12 +705,6 @@ app.get('/cards/:id/readings/export', requirePermission('dashboard:read'), async
     // Use first meter_element_id if available
     const exportMeterElementId = exportMeterElementIds.length > 0 ? exportMeterElementIds[0] : null;
 
-    console.log('[Dashboard] GET /cards/:id/readings/export - Extracted from meter_selections:', {
-      meter_selections_raw: exportRawMs,
-      extracted_meter_id: exportMeterIdVal,
-      extracted_meter_element_ids: exportMeterElementIds,
-      using_meter_element_id: exportMeterElementId,
-    });
 
     // Build WHERE clause and params based on what's set in meter_selections
     // Always join with meter_element and meter to ensure only active meters are included
@@ -847,13 +809,11 @@ app.get('/meters/:meterId/elements', authenticateToken, async (c) => {
     const meterId = parseInt(c.req.param('meterId'));
     if (isNaN(meterId)) return c.json({ success: false, message: 'Invalid meter ID' }, 400);
 
-    console.log('[DASHBOARD] GET /meters/:meterId/elements - meterId:', meterId, 'tenantId from context:', tenantId, 'type:', typeof tenantId);
 
     // Verify meter belongs to tenant
     const meterResult = await execQuery(c.env, 'SELECT meter_id, tenant_id FROM meter WHERE meter_id = $1', [meterId]);
     if (meterResult.rows.length === 0) return c.json({ success: false, message: 'Meter not found' }, 404);
 
-    console.log('[DASHBOARD] Meter found - meterResult.tenant_id:', meterResult.rows[0].tenant_id, 'type:', typeof meterResult.rows[0].tenant_id, 'user tenantId:', tenantId, 'type:', typeof tenantId);
 
     if (Number(meterResult.rows[0].tenant_id) !== Number(tenantId)) return c.json({ success: false, message: 'You do not have permission to access this meter' }, 403);
 

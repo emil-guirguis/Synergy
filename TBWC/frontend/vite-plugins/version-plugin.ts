@@ -24,12 +24,10 @@ export function versionPlugin(): Plugin {
       if (fs.existsSync(versionFilePath)) {
         try {
           versionData = JSON.parse(fs.readFileSync(versionFilePath, 'utf-8'));
-          console.log(`📦 Building with version: ${versionData.version}`);
         } catch (error) {
           console.warn('⚠️  Could not read version file, using development version');
         }
       } else {
-        console.log('📦 Building in development mode');
       }
 
       // Inject version into environment variables

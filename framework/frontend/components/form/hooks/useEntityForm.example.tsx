@@ -276,7 +276,6 @@ export const ProductFormWithCallback: React.FC<ProductFormProps> = ({
       category: '',
     }),
     onInitialize: (formData, mode) => {
-      console.log(`[ProductForm] Initialized in ${mode} mode with data:`, formData);
     },
   });
 

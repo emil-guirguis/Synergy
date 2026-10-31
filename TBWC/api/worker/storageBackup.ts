@@ -305,7 +305,6 @@ export async function backupStorageToSupabase(env: Env): Promise<StorageBackupRu
   // "back up now" path and a tick that was already dispatched when the
   // switch was flipped.
   if (await isJobPaused(env, BACKUP_JOB_NAME)) {
-    console.log('[storageBackup] paused — nothing copied');
     return { copied: 0, failed: 0, stopped: true };
   }
   const deadline = Date.now() + MAX_TICK_MILLIS;
@@ -321,11 +320,9 @@ export async function backupStorageToSupabase(env: Env): Promise<StorageBackupRu
     // tick's time budget) is not a job failure, so cron_run_log (via runJob)
     // keeps recording the run as 'ok' — a short one.
     if (cancelled) {
-      console.log(`[storageBackup] stopped mid-run, remaining buckets skipped | ${results.join(' | ')}`);
       return { copied: totalCopied, failed: totalFailed, stopped: true };
     }
   }
-  console.log(`[storageBackup] ${results.join(' | ')}`);
   return { copied: totalCopied, failed: totalFailed, stopped: false };
 }
 

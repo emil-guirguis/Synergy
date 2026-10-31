@@ -44,7 +44,6 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   const wasFullPull = (await pullSince(env, 'SalesRep', 'qb_sales_rep', 'qbwc.salesrep.since')) === null;
 
   const rets = blocks(xml, 'SalesRepRet');
-  console.log(`[QBWC] SalesRepQueryRs: ${rets.length} sales rep(s)`);
   const seenListIds: string[] = [];
 
   for (const ret of rets) {
@@ -120,7 +119,6 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
         `Removed ${stale.rows.length} sales rep(s) no longer in QuickBooks (full reload reconcile)`,
         null, stale.rows.length
       );
-      console.log(`[QBWC] SalesRep reconcile: ${stale.rows.length} row(s) marked deleted (not in full pull)`);
     }
   }
 }

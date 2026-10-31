@@ -552,7 +552,6 @@ export async function runAllActiveNotificationRules(env: Env, now: Date = new Da
     const shouldFire = matchesCronSchedule(rule.schedule_cron, now);
     try {
       await executeRule(env, rule, shouldFire);
-      console.log(`[cron] Notification rule ${rule.notification_rule_id} (${rule.name}) evaluated (fire=${shouldFire})`);
     } catch (err) {
       console.error(`[cron] Notification rule ${rule.notification_rule_id} failed:`, err instanceof Error ? err.message : err);
     }

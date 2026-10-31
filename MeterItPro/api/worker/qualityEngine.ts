@@ -250,7 +250,4 @@ export async function runQualityEngine(env: Env): Promise<void> {
   const spikes = await detectSpikes(env);
   await updateWatermarks(env);
   const tails = await openTailGaps(env);
-  console.log(
-    `[qualityEngine] gaps: +${interior} interior, ${resolved} tail resolved, ${closed} backfill-closed, +${tails} tail opened; anomalies: +${spikes}`
-  );
 }

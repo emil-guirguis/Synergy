@@ -156,7 +156,6 @@ export function useEntityFormWithStore<TEntity extends { id?: string | number },
               (store as any).updateItemInList(savedEntity);
             } else if (mode === 'create') {
               // createItem already handled adding to list, nothing more needed
-              console.log('[useEntityFormWithStore] Create optimistic update already handled by createItem');
             } else {
               // Fallback if methods not available
               console.warn(
@@ -196,7 +195,6 @@ export function useEntityFormWithStore<TEntity extends { id?: string | number },
         const response = (err as any).response;
         if (response?.data?.errors) {
           apiErrors = response.data.errors;
-          console.log('[STORE SUBMIT] API validation errors:', apiErrors);
         }
       }
       

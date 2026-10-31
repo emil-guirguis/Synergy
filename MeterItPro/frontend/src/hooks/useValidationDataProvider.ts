@@ -9,17 +9,9 @@ export const useValidationDataProvider = () => {
   const auth = useAuth();
 
   return async (entityName: string, fieldDef: any): Promise<Array<{ id: any; label: string }>> => {
-    console.log(`[ValidationDataProvider] Fetching data for entity: ${entityName}`);
-    console.log(`[ValidationDataProvider] Auth state:`, {
-      isAuthenticated: auth.isAuthenticated,
-      userTenant: auth.user?.client,
-      locationsCount: auth.locations?.length || 0,
-      locationsArray: auth.locations,
-    });
 
     // Handle location entity
     if (entityName === 'location') {
-      console.log(`[ValidationDataProvider] Getting locations from auth context`);
 
       // Get locations directly from auth context (backend already filters by tenant)
       let locations = auth.locations || [];
@@ -31,11 +23,9 @@ export const useValidationDataProvider = () => {
         // Fallback: fetch locations from API if not in auth context
         try {
           const response = await (authService as any).apiClient.get('/location');
-          console.log(`[ValidationDataProvider] Location API response:`, response.data);
           
           if (response.data.success && response.data.data?.items) {
             locations = response.data.data.items;
-            console.log(`[ValidationDataProvider] Fetched ${locations.length} locations from API`);
           } else {
             console.warn(`[ValidationDataProvider] Location API response missing items`);
             return [];
@@ -46,35 +36,27 @@ export const useValidationDataProvider = () => {
         }
       }
 
-      console.log(`[ValidationDataProvider] Found ${locations.length} locations`);
 
       // Map locations to options using labelField from fieldDef
       const labelField = fieldDef.validationFields?.[0] || 'name';
       const options = locations.map((location: any) => {
-        console.log(`[ValidationDataProvider] Location object:`, location);
         return {
           id: location.location_id || location.id,
           label: location[labelField] || `${entityName} ${location.location_id || location.id}`,
         };
       });
 
-      console.log(`[ValidationDataProvider] Mapped ${options.length} location options`);
-      options.forEach((opt: any, idx: number) => {
-        console.log(`  [${idx}] ID: ${opt.id}, Label: ${opt.label}`);
-      });
       return options;
     }
 
     // Handle device entity
     if (entityName === 'device') {
-      console.log(`[ValidationDataProvider] Fetching devices from API`);
 
       try {
         // Use authService's axios client which has proper interceptors and token handling
         // Fetch all devices (override default pagination limit)
         const response = await (authService as any).apiClient.get('/device', { params: { limit: 1000 } });
 
-        console.log(`[ValidationDataProvider] Device response:`, response.data);
 
         // Handle both response formats: { success, data: { items } } and direct array
         let devices = [];
@@ -91,13 +73,11 @@ export const useValidationDataProvider = () => {
           return [];
         }
 
-        console.log(`[ValidationDataProvider] Fetched ${devices.length} devices`);
 
         // Map devices to options using multiple validation fields
         const validationFields = fieldDef.validationFields || ['manufacturer', 'model_number'];
         
         const options = devices.map((device: any) => {
-          console.log(`[ValidationDataProvider] Device object:`, device);
           
           // Combine multiple fields for the label
           const labelParts = validationFields
@@ -113,7 +93,6 @@ export const useValidationDataProvider = () => {
           };
         });
 
-        console.log(`[ValidationDataProvider] Mapped ${options.length} device options`);
         return options;
       } catch (error) {
         console.error(`[ValidationDataProvider] Error fetching devices:`, error);
@@ -123,7 +102,6 @@ export const useValidationDataProvider = () => {
 
     // Handle meter_element entity
     if (entityName === 'meter_element') {
-      console.log(`[ValidationDataProvider] Fetching meter elements from API`);
 
       try {
         // Get the meter_id from fieldDef if available (for filtering)
@@ -137,7 +115,6 @@ export const useValidationDataProvider = () => {
         // Use authService's axios client which has proper interceptors and token handling
         const response = await (authService as any).apiClient.get(`/dashboard/meters/${meterId}/elements`);
 
-        console.log(`[ValidationDataProvider] Meter elements response:`, response.data);
 
         // Handle response format: { success, data: Array }
         let elements = [];
@@ -154,11 +131,9 @@ export const useValidationDataProvider = () => {
           return [];
         }
 
-        console.log(`[ValidationDataProvider] Fetched ${elements.length} meter elements`);
 
         // Map meter elements to options, combining element and name for display
         const options = elements.map((element: any) => {
-          console.log(`[ValidationDataProvider] Meter element object:`, element);
           
           // Combine element designation and name for the label
           const label = element.element && element.name 
@@ -171,7 +146,6 @@ export const useValidationDataProvider = () => {
           };
         });
 
-        console.log(`[ValidationDataProvider] Mapped ${options.length} meter element options`);
         return options;
       } catch (error) {
         console.error(`[ValidationDataProvider] Error fetching meter elements:`, error);

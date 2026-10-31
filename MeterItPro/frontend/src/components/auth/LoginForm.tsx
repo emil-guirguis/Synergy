@@ -18,7 +18,6 @@ interface LoginFormProps {
 
 export const LoginForm: React.FC<LoginFormProps> = ({
   onSuccess,
-  redirectTo = '/dashboard',
   prefilledEmail = '',
   prefilledPassword = '',
   successMessage = '',
@@ -49,7 +48,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       return;
     }
 
-    console.log('✅ Login successful, redirecting to:', redirectTo);
     onSuccess?.(response);
   };
 

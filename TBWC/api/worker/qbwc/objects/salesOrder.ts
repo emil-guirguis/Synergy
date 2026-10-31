@@ -208,7 +208,6 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   // (handled separately below) isn't double-counted here.
   const queryBlock = xml.match(/<SalesOrderQueryRs\b[^>]*>([\s\S]*?)<\/SalesOrderQueryRs>/);
   const queryRets = queryBlock ? blocks(queryBlock[1], 'SalesOrderRet') : [];
-  console.log(`[QBWC] SalesOrderQueryRs: ${queryRets.length} sales order(s)`);
   for (const ret of queryRets) {
     const parsed = rowFromRet(ret);
     if (parsed) byId.set(parsed.txnId, parsed.row);

@@ -81,13 +81,11 @@ class FavoritesService {
         id2: meterElementId ? (typeof meterElementId === 'string' ? parseInt(meterElementId, 10) : meterElementId) : 0,
       };
 
-      console.log('[favoritesService.addFavorite] Payload being sent:', payload);
 
       const response: AxiosResponse<{ success: boolean; data: Favorite }> = await this.apiClient.post(
         `/favorites`,
         payload
       );
-      console.log('[favoritesService.addFavorite] Response:', response.data.data);
       return response.data.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -119,7 +117,6 @@ class FavoritesService {
         // Handle 404 gracefully - if favorite is not found, it's already deleted
         // so we treat it as a success
         if (error.response?.status === 404) {
-          console.log(`[favoritesService.removeFavoriteById] Favorite ${favoriteId} not found (already deleted)`);
           return;
         }
         const message = error.response?.data?.message || 'Failed to remove favorite';

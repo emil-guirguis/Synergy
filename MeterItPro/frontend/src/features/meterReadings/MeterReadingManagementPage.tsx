@@ -5,7 +5,6 @@
  * Uses EntityManagementPage but without form/create/edit functionality
  */
 
-console.log('[MeterReadingManagementPage.tsx] Module loaded at', new Date().toISOString());
 
 import React from 'react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
@@ -19,7 +18,6 @@ import { meterReadingService } from '../../services/meterReadingService';
 import { adaptMeterReading, type MeterInfo, type MeterReadingData } from './meterReadingAdapter';
 
 export const MeterReadingManagementPage: React.FC = () => {
-  console.log('[MeterReadingManagementPage] RENDERING');
   const store = useMeterReadingsEnhanced();
   const { setSelectedMeter, setSelectedElement } = useMeterSelection();
   const auth = useAuth();
@@ -43,17 +41,11 @@ export const MeterReadingManagementPage: React.FC = () => {
   const urlGridType = searchParams.get('gridType') as 'simple' | 'baselist' | null;
   const isVirtual = searchParams.get('virtual') === 'true';
 
-  console.log('[MeterReadingManagementPage] URL params - meterId:', meterId, 'elementId:', elementId, 'elementName:', elementName, 'elementNumber:', elementNumber, 'gridType:', urlGridType);
-  console.log('[MeterReadingManagementPage] auth.user?.client:', auth.user?.client);
 
   // Set context values from URL params and fetch readings
   React.useEffect(() => {
-    console.log('[MeterReadingManagementPage] ===== EFFECT TRIGGERED =====');
-    console.log('[MeterReadingManagementPage] meterId:', meterId, 'elementId:', elementId, 'tenantId:', auth.user?.client);
-    console.log('[MeterReadingManagementPage] meterId type:', typeof meterId, 'elementId type:', typeof elementId);
     
     if (meterId && auth.user?.client) {
-      console.log('[MeterReadingManagementPage] Conditions met, setting context and fetching');
       setSelectedMeter(meterId);
       if (elementId) {
         const parsedElementNumber = elementNumber ? parseInt(elementNumber) : undefined;
@@ -62,7 +54,6 @@ export const MeterReadingManagementPage: React.FC = () => {
       
       // Set gridType from URL if provided
       if (urlGridType) {
-        console.log('[MeterReadingManagementPage] Setting gridType from URL:', urlGridType);
         setGridType(urlGridType);
       }
       
@@ -75,11 +66,7 @@ export const MeterReadingManagementPage: React.FC = () => {
         meterId: meterId,
         meterElementId: elementId || undefined,
       };
-      console.log('[MeterReadingManagementPage] Calling fetchItems with:', fetchParams);
       store.fetchItems(fetchParams);
-      console.log('[MeterReadingManagementPage] ===== EFFECT COMPLETE =====');
-    } else {
-      console.log('[MeterReadingManagementPage] Conditions NOT met - meterId:', meterId, 'tenantId:', auth.user?.client);
     }
   }, [meterId, elementId, elementName, elementNumber, auth.user?.client, urlGridType]);
 
@@ -87,12 +74,9 @@ export const MeterReadingManagementPage: React.FC = () => {
    * Fetch last meter reading when showing detailed view (favorite clicked)
    */
   React.useEffect(() => {
-    console.log('[MeterReadingManagementPage] ===== DETAILED VIEW EFFECT TRIGGERED =====');
-    console.log('[MeterReadingManagementPage] urlGridType:', urlGridType, 'meterId:', meterId, 'elementId:', elementId, 'tenantId:', auth.user?.client);
     
     const fetchLastReading = async () => {
       if (urlGridType === 'simple' && meterId && elementId && auth.user?.client) {
-        console.log('[MeterReadingManagementPage] Conditions met for detailed view, fetching...');
         setShowDetailedView(true);
 
         // Use pre-fetched data from router state (set by favorites click handler)
@@ -108,16 +92,13 @@ export const MeterReadingManagementPage: React.FC = () => {
         setDetailedViewError(null);
 
         try {
-          console.log('[MeterReadingManagementPage] Fetching last reading for:', { meterId, elementId, tenantId: auth.user.client });
           const rawReading = await meterReadingService.getLastMeterReading(
             auth.user.client,
             meterId,
             elementId
           );
 
-          console.log('[MeterReadingManagementPage] Raw reading received:', rawReading);
           const adaptedData = adaptMeterReading(rawReading, elementName || undefined);
-          console.log('[MeterReadingManagementPage] Adapted reading:', adaptedData);
 
           setDetailedReading(adaptedData);
           setDetailedViewLoading(false);
@@ -127,11 +108,6 @@ export const MeterReadingManagementPage: React.FC = () => {
           setDetailedViewLoading(false);
         }
       } else {
-        console.log('[MeterReadingManagementPage] Conditions NOT met for detailed view');
-        console.log('[MeterReadingManagementPage] urlGridType === simple?', urlGridType === 'simple');
-        console.log('[MeterReadingManagementPage] meterId?', !!meterId);
-        console.log('[MeterReadingManagementPage] elementId?', !!elementId);
-        console.log('[MeterReadingManagementPage] tenantId?', !!auth.user?.client);
         setShowDetailedView(false);
         setDetailedReading(null);
       }
@@ -187,13 +163,6 @@ export const MeterReadingManagementPage: React.FC = () => {
     navigate(`/meter-readings?${params.toString()}`);
   }, [meterId, elementId, elementName, elementNumber, navigate]);
 
-  console.log('[MeterReadingManagementPage] ===== RENDER DECISION =====');
-  console.log('[MeterReadingManagementPage] showDetailedView:', showDetailedView);
-  console.log('[MeterReadingManagementPage] showForm:', showForm);
-  console.log('[MeterReadingManagementPage] elementId:', elementId);
-  console.log('[MeterReadingManagementPage] detailedReading:', !!detailedReading);
-  console.log('[MeterReadingManagementPage] detailedViewLoading:', detailedViewLoading);
-  console.log('[MeterReadingManagementPage] detailedViewError:', detailedViewError);
 
   return (
     <div className="meter-reading-management-page">
@@ -224,10 +193,8 @@ export const MeterReadingManagementPage: React.FC = () => {
         />
       ) : showDetailedView && elementId ? (
         <>
-          {console.log('[MeterReadingManagementPage] Rendering detailed view branch')}
           {detailedReading ? (
             <>
-              {console.log('[MeterReadingManagementPage] Rendering DetailedMeterReadingView component')}
               <DetailedMeterReadingView
                 meterInfo={detailedReading.meterInfo}
                 reading={detailedReading.reading}
@@ -238,7 +205,6 @@ export const MeterReadingManagementPage: React.FC = () => {
             </>
           ) : (
             <>
-              {console.log('[MeterReadingManagementPage] Rendering loading/error state')}
               <div className="detailed-view-loading">
                 {detailedViewLoading ? (
                   <p>Loading meter reading...</p>
@@ -256,7 +222,6 @@ export const MeterReadingManagementPage: React.FC = () => {
         </>
       ) : showForm && elementId ? (
         <>
-          {console.log('[MeterReadingManagementPage] Rendering MeterReadingForm')}
           <MeterReadingForm 
             meterElementId={elementId}
             onNavigateToList={handleNavigateToList}
@@ -264,7 +229,6 @@ export const MeterReadingManagementPage: React.FC = () => {
         </>
       ) : (
         <>
-          {console.log('[MeterReadingManagementPage] Rendering MeterReadingList')}
           <MeterReadingList gridType={gridType} onGridTypeChange={setGridType} />
         </>
       )}

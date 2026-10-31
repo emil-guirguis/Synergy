@@ -43,7 +43,6 @@ async function prerenderRoute(browser, route) {
 }
 
 async function main() {
-  console.log('🔍 Prerendering public routes for SEO...');
   let server;
   let browser;
   try {
@@ -60,10 +59,8 @@ async function main() {
       mkdirSync(outDir, { recursive: true });
       const outFile = resolve(outDir, 'index.html');
       writeFileSync(outFile, html, 'utf-8');
-      console.log('✓');
     }
 
-    console.log('✅ Prerender complete.');
   } finally {
     if (browser) await browser.close();
     if (server) server.close();

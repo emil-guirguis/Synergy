@@ -124,7 +124,6 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
 
   for (const [target, listIds] of byTable) {
     const marked = await markDeleted(env, target, listIds);
-    console.log(`[QBWC] ListDeletedQueryRs: ${listIds.length} deleted ${target.objectType}(s) from QB, ${marked} newly marked`);
   }
 }
 

@@ -37,9 +37,6 @@ class ContactAPI {
     // Get token from tokenStorage (which is synced by authService)
     const token = tokenStorage.getToken();
     
-    console.log('[ContactAPI] Making request to:', endpoint);
-    console.log('[ContactAPI] Token available:', !!token);
-    console.log('[ContactAPI] Token value:', token ? `${token.substring(0, 20)}...` : 'null');
     
     if (!token) {
       console.error('[ContactAPI] No authentication token available');
@@ -55,11 +52,9 @@ class ContactAPI {
       ...options,
     };
 
-    console.log('[ContactAPI] Request headers:', config.headers);
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
     
-    console.log('[ContactAPI] Response status:', response.status);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -93,14 +88,12 @@ class ContactAPI {
       Object.entries(params.filters).forEach(([key, value]) => {
         // Skip empty, null, or undefined values
         if (value !== '' && value !== null && value !== undefined) {
-          console.log(`[ContactAPI] Adding filter: ${key}=${value}`);
           queryParams.append(key, String(value));
         }
       });
     }
     
     const queryString = queryParams.toString();
-    console.log('[ContactAPI] Full query string:', queryString);
     
     const response = await this.request<{ data: ContactListResponse }>(`/contacts?${queryString}`);
     const data = response.data;
@@ -149,15 +142,7 @@ const api = new ContactAPI();
 
 const contactsService = {
   async getAll(params?: any) {
-    console.log('[contactsService] getAll called with params:', params);
     return withTokenRefresh(async () => {
-      console.log('[contactsService] Calling api.getAll with:', {
-        page: params?.page,
-        limit: params?.pageSize,
-        sortBy: params?.sortBy,
-        sortOrder: params?.sortOrder,
-        filters: params?.filters,
-      });
       return api.getAll({
         page: params?.page,
         limit: params?.pageSize,

@@ -55,7 +55,6 @@ async function main() {
      WHERE sales_rep_list_id IS NULL AND sales_rep IS NOT NULL AND sales_rep <> ''
      ORDER BY quote_id`
   );
-  console.log(`${rows.length} quote(s) have sales_rep set but no sales_rep_list_id.\n`);
 
   const byRaw = new Map(); // sales_rep text -> { match, count }
   let matched = 0;
@@ -107,14 +106,10 @@ async function main() {
     }
   }
 
-  console.log('Distinct sales_rep values and their resolution:\n');
   const summary = [...byRaw.entries()].sort((a, b) => b[1].count - a[1].count);
   for (const [raw, { match, count }] of summary) {
-    console.log(`  [${count}x] ${match ? `MATCH -> ${match.name} (${match.list_id})` : 'NO MATCH — flagged for manual review'}`);
-    console.log(`         raw: ${JSON.stringify(raw)}`);
   }
 
-  console.log(`\n${OPTS.commit ? 'Updated' : 'Would update'}: ${matched} matched (sales_rep_list_id set), ${unmatched} unmatched (memo flagged).`);
   await client.end();
 }
 

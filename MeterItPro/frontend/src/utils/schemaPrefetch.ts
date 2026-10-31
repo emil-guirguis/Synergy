@@ -28,12 +28,9 @@ const ENTITIES_TO_PREFETCH = [
  */
 export async function prefetchAppSchemas(): Promise<void> {
   try {
-    const t0 = performance.now();
     const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
 
-    console.log(`[SchemaPrefetch] Starting — ${ENTITIES_TO_PREFETCH.length} entities in parallel`);
     await prefetchSchemas(ENTITIES_TO_PREFETCH, { baseUrl: apiUrl });
-    console.log(`[SchemaPrefetch] ✅ Done in ${(performance.now() - t0).toFixed(0)}ms`);
   } catch (error) {
     console.error('[SchemaPrefetch] Failed:', error);
   }

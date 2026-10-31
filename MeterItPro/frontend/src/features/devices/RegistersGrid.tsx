@@ -29,7 +29,6 @@ export const RegistersGrid: React.FC<RegistersGridProps> = ({
   deviceId,
   onError,
 }) => {
-  console.log('RegistersGrid rendered with deviceId:', deviceId);
   
   const [registers, setRegisters] = useState<DeviceRegister[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,12 +44,10 @@ export const RegistersGrid: React.FC<RegistersGridProps> = ({
   ];
 
   const loadRegisters = useCallback(async () => {
-    console.log('loadRegisters called for deviceId:', deviceId);
     setLoading(true);
     setError(null);
     try {
       const response = await apiClient.get(`/devices/${deviceId}/registers`);
-      console.log('RegistersGrid API response:', response);
       setRegisters(response.data.data || []);
     } catch (err) {
       console.error('RegistersGrid API error:', err);
@@ -63,7 +60,6 @@ export const RegistersGrid: React.FC<RegistersGridProps> = ({
   }, [deviceId, onError]);
 
   useEffect(() => {
-    console.log('RegistersGrid useEffect triggered, deviceId:', deviceId);
     loadRegisters();
   }, [deviceId, loadRegisters]);
 
@@ -77,14 +73,6 @@ export const RegistersGrid: React.FC<RegistersGridProps> = ({
     description: dr.register?.description || '',
   }));
 
-  console.log('RegistersGrid render:', {
-    deviceId,
-    registersCount: registers.length,
-    gridDataCount: gridData.length,
-    loading,
-    error,
-    registers: registers.slice(0, 2) // Log first 2 for debugging
-  });
 
   return (
     <div className="registers-grid registers-grid--readonly">

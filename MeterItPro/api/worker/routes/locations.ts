@@ -28,7 +28,6 @@ app.get('/', requirePermission('location:read'), async (c) => {
     const qs = c.req.query();
     const tenantId = c.get('tenantId');
 
-    console.log('[LOCATION] GET / - tenantId:', tenantId, 'page:', qs.page, 'limit:', qs.limit);
 
     if (!tenantId) {
       console.error('[LOCATION] No tenantId in context');
@@ -51,7 +50,6 @@ app.get('/', requirePermission('location:read'), async (c) => {
       whereLike,
     });
 
-    console.log('[LOCATION] Found', result.rows.length, 'locations');
 
     return c.json({
       success: true,

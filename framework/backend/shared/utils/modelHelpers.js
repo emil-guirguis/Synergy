@@ -191,17 +191,6 @@ function buildInsertSQL(tableName, fields, data, context = {}) {
   
   const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING *`;
   
-  console.log('\n' + '█'.repeat(120));
-  console.log('█ SQL INSERT STATEMENT');
-  console.log('█'.repeat(120));
-  console.log('Table:', tableName);
-  console.log('Columns:', columns);
-  console.log('Placeholders:', placeholders);
-  console.log('SQL:', sql);
-  console.log('Values:', JSON.stringify(values, null, 2));
-  console.log('Field count:', fields.length);
-  console.log('Data keys:', Object.keys(data));
-  console.log('█'.repeat(120) + '\n');
   
   return { sql, values };
 }
@@ -267,15 +256,6 @@ function buildSelectSQL(tableName, fields, options = {}) {
   
   const sql = `SELECT ${selectClause} FROM ${tableName}${joinClause}${whereClause}${orderClause}${limitClause}${offsetClause}`;
   
-  console.log('\n' + '█'.repeat(120));
-  console.log('█ SQL SELECT STATEMENT');
-  console.log('█'.repeat(120));
-  console.log('Table:', tableName);
-  console.log('Select clause:', selectClause);
-  console.log('Where clause:', whereClause);
-  console.log('SQL:', sql);
-  console.log('Values:', JSON.stringify(values, null, 2));
-  console.log('█'.repeat(120) + '\n');
   
   return { sql, values, relationshipMap };
 }
@@ -342,15 +322,6 @@ function buildUpdateSQL(tableName, fields, data, where) {
   
   const sql = `UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE ${whereResult.clause} RETURNING *`;
   
-  console.log('\n' + '█'.repeat(120));
-  console.log('█ SQL UPDATE STATEMENT');
-  console.log('█'.repeat(120));
-  console.log('Table:', tableName);
-  console.log('Set clauses:', setClauses);
-  console.log('Where clause:', whereResult.clause);
-  console.log('SQL:', sql);
-  console.log('Values:', JSON.stringify(values, null, 2));
-  console.log('█'.repeat(120) + '\n');
   
   return { sql, values };
 }

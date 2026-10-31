@@ -57,7 +57,6 @@ export const MeterElementItem: React.FC<MeterElementItemProps> = ({
     // Clear any previous errors
     setError(null);
     
-    console.log('[MeterElementItem.handleStarClick] on_star_click:', !!on_star_click, 'id1:', id1, 'id2:', id2);
     
     if (on_star_click) {
       setIsLoading(true);
@@ -65,7 +64,6 @@ export const MeterElementItem: React.FC<MeterElementItemProps> = ({
       try {
         // on_star_click is a closure that already has meterId and elementId captured
         // Call it with just the event
-        console.log('[MeterElementItem.handleStarClick] Calling on_star_click');
         await on_star_click(e);
       } catch (err) {
         // Log error details for debugging
@@ -86,7 +84,6 @@ export const MeterElementItem: React.FC<MeterElementItemProps> = ({
       }
     } else {
       // Fall back to old callback for backward compatibility
-      console.log('[MeterElementItem.handleStarClick] Using fallback onFavoriteToggle (no on_star_click provided)');
       setIsLoading(true);
       
       try {

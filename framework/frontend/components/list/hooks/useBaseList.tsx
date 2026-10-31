@@ -186,11 +186,9 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
   // Create debounced search handler - routes through filter pipeline for unified handling
   const debouncedSetSearch = useMemo(
     () => debounceSearch((query: string) => {
-      console.log('[useBaseList] Debounced search called with query:', query);
       // Route search through filter pipeline so it triggers fetchItems like other filters
       setFiltersState(prev => {
         const updated = { ...prev, search: query };
-        console.log('[useBaseList] Search routed to filters:', updated);
         return updated;
       });
     }, 300),
@@ -259,7 +257,6 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
         filtersInitialisedRef.current = true;
         const cleanedFilters = buildFilters(filters);
         lastFetchedFiltersKeyRef.current = JSON.stringify(cleanedFilters);
-        console.log('[useBaseList] Filters set before schema resolved — issuing initial fetch:', cleanedFilters);
         if (store.setFilters) store.setFilters(cleanedFilters);
         if (store.fetchItems) (store.fetchItems as any)({ _bypassCache: true });
       }
@@ -269,7 +266,6 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     if (hasActiveFilter) {
       // Set default active=true filter. The [filters] effect will fire when this state
       // update lands and will issue the actual fetch — don't fetch here.
-      console.log('[useBaseList] Initializing default active filter to true');
       const defaultFilters = { active: 'true' };
       setFiltersState(defaultFilters);
       if (store.setFilters) {
@@ -278,7 +274,6 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     } else {
       // No active filter default — [filters] effect skips its first run (empty filters),
       // so we must trigger the initial fetch ourselves.
-      console.log('[useBaseList] No active filter, fetching all items');
       if (store.fetchItems) {
         store.fetchItems();
       }
@@ -287,12 +282,10 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
 
   // Apply filters when they change
   useEffect(() => {
-    console.log('[useBaseList] Filter effect triggered with filters:', filters);
 
     // Schema hasn't loaded yet — defer to the [memoizedFilterDefinitions, schemaLoading]
     // effect which fires once schema is ready and sets the correct default filters.
     if (schemaLoading) {
-      console.log('[useBaseList] Schema loading — deferring filter init');
       return;
     }
 
@@ -300,13 +293,11 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
       // Schema is loaded but this is the very first run of [filters].
       // The [filterDefs+schemaLoading] effect will handle the initial fetch.
       filtersInitialisedRef.current = true;
-      console.log('[useBaseList] Initial filter run — deferring fetch to filter initialisation');
       return;
     }
 
     if (store.setFilters && store.fetchItems) {
       const cleanedFilters = buildFilters(filters);
-      console.log('[useBaseList] Setting cleaned filters:', cleanedFilters);
       store.setFilters(cleanedFilters);
 
       // Only bypass cache when the filters actually changed from the last fetch.
@@ -323,10 +314,8 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
       lastFetchedFiltersKeyRef.current = filtersKey;
 
       if (filtersChanged) {
-        console.log('[useBaseList] Filters changed — bypassing cache');
         (store.fetchItems as any)({ _bypassCache: true });
       } else {
-        console.log('[useBaseList] Initial or same filters — respecting cache');
         store.fetchItems();
       }
     }
@@ -366,16 +355,13 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
   }, [getSearchHistoryKey]);
 
   const setFilter = useCallback((key: string, value: any) => {
-    console.log('[useBaseList] setFilter called with key:', key, 'value:', value);
     setFiltersState(prev => {
       const newFilters = { ...prev, [key]: value };
-      console.log('[useBaseList] Updated filters state:', newFilters);
       return newFilters;
     });
   }, []);
 
   const clearFilters = useCallback(() => {
-    console.log('[useBaseList] clearFilters called');
     setFiltersState({});
     setSearchQueryState('');
 
@@ -396,7 +382,6 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
 
   // CRUD handlers
   const handleEdit = useCallback((item: T) => {
-    console.log('[useBaseList] handleEdit called with item:', item);
     
     // Validate item has required properties
     if (!item || typeof item !== 'object') {
@@ -412,7 +397,6 @@ export function useBaseList<T extends Record<string, any>, StoreType extends Enh
     
     // Invoke callback with complete item
     if (onEdit) {
-      console.log('[useBaseList] Invoking onEdit callback');
       onEdit(item);
     } else {
       console.warn('[useBaseList] No onEdit callback provided');

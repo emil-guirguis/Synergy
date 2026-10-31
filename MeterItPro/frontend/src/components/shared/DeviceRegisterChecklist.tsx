@@ -51,21 +51,17 @@ export const DeviceRegisterChecklist: React.FC<DeviceRegisterChecklistProps> = (
   const [isOpen, setIsOpen] = useState(false);
 
   const loadRegisters = useCallback(async () => {
-    console.log('DeviceRegisterChecklist: loadRegisters - deviceId:', deviceId);
 
     if (!deviceId) {
-      console.log('DeviceRegisterChecklist: No deviceId provided');
       setRegisters([]);
       setError(null);
       return;
     }
 
-    console.log('DeviceRegisterChecklist: Fetching registers for meter:', deviceId);
     setLoading(true);
     setError(null);
     try {
       const response = await apiClient.get(`/meters/${deviceId}/registers`);
-      console.log('DeviceRegisterChecklist: Got registers:', response.data.data);
       setRegisters(response.data.data || []);
     } catch (err) {
       console.error('DeviceRegisterChecklist: API error:', err);
@@ -80,7 +76,7 @@ export const DeviceRegisterChecklist: React.FC<DeviceRegisterChecklistProps> = (
     loadRegisters();
   }, [deviceId, loadRegisters]);
 
-  const handleToggle = (registerId: number, fieldName: string) => {
+  const handleToggle = (_registerId: number, fieldName: string) => {
     const newValue = value.includes(fieldName)
       ? value.filter(v => v !== fieldName)
       : [...value, fieldName];

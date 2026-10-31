@@ -312,17 +312,12 @@ export default function CompanyInfoCard() {
           return;
         }
 
-        if (data) {
-          console.log('✅ [Auth] Auto-login successful - tenant found:', data.name);
-          console.log('✅ [Auth] User is now logged in');
-        } else {
-          console.log('ℹ️  [Auth] No tenant found in database');
-        }
-
         setTenantInfo(data);
       } catch (err) {
         // 404 and 503 are expected when no tenant is configured or service is initializing
         if (axios.isAxiosError(err) && (err.response?.status === 404 || err.response?.status === 503)) {
+          // Deliberate one-off notice for an expected branch, not trace chatter.
+          // eslint-disable-next-line no-console
           console.info('ℹ️  [Auth] No tenant configured - user needs to login');
           setTenantInfo(null);
           setError(null);
@@ -333,7 +328,6 @@ export default function CompanyInfoCard() {
         }
       } finally {
         setIsLoading(false);
-        console.log('🔐 [Auth] ========== MOUNT COMPLETE ==========');
       }
     };
 
@@ -348,7 +342,6 @@ export default function CompanyInfoCard() {
       try {
         const data = await tenantApi.getTenantInfo();
         if (data && isValidTenantInfo(data)) {
-          console.log('✅ [Auth] Tenant appeared (auto-seeded):', data.name);
           setTenantInfo(data);
           setError(null);
         }
@@ -365,7 +358,6 @@ export default function CompanyInfoCard() {
       setIsLoggingIn(true);
       setLoginError(null);
 
-      console.log('🔐 [Auth] Login started for:', loginData.email);
 
       // Call the remote /sync/connect endpoint with email, password, and API key
       const response = await authApi.login(loginData);
@@ -376,12 +368,9 @@ export default function CompanyInfoCard() {
       }
 
       const newTenant = response.data.tenant;
-      console.log('✅ [Auth] Remote login successful, tenant:', newTenant.name);
 
       // Otherwise auto-login will fetch the OLD tenant from the local database
-      console.log('💾 [Auth] Saving new tenant to local database...');
       await tenantApi.syncTenantToLocal(newTenant);
-      console.log('✅ [Auth] Tenant saved to local database');
 
 
       // Use tenant data from response
@@ -389,7 +378,6 @@ export default function CompanyInfoCard() {
       setShowLoginModal(false);
       setLoginData({ email: '', apiKey: '' });
 
-      console.log('✅ [Auth] Local state updated, reloading page...');
       // Refresh the page to load all components with new tenant data
       setTimeout(() => window.location.reload(), 500);
     } catch (err) {

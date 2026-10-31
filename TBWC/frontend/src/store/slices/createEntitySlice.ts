@@ -136,21 +136,17 @@ export const createEntityStore = <T extends { id: string }>(
       fetchItems: async (params) => {
         const state = get();
 
-        console.log('[fetchItems] Called with params:', params);
-        console.log('[fetchItems] Current state.list:', state.list);
 
         const hasRealParams = params && Object.keys(params).some(key => key !== '_bypassCache');
         const shouldBypassCache = params && (hasRealParams || params._bypassCache);
 
         if (state.lastFetch && isCacheFresh(state.lastFetch, cacheConfig.ttl) && !shouldBypassCache) {
-          console.log('[fetchItems] Using cached data - cache is fresh');
           return;
         }
 
         // If a fetch is already in flight, return the same promise so concurrent
         // callers don't each fire a separate API request.
         if (fetchingPromise && !shouldBypassCache) {
-          console.log('[fetchItems] Deduplicating in-flight request');
           return fetchingPromise;
         }
 
@@ -189,15 +185,12 @@ export const createEntityStore = <T extends { id: string }>(
                 const [field, dir] = schema.defaultSortBy.trim().split(/\s+/);
                 queryParams.sortBy = field;
                 queryParams.sortOrder = dir;
-                console.log('[fetchItems] Using default sortBy from schema:', field, dir);
               } else {
                 queryParams.sortOrder = undefined;
               }
             }
 
-            console.log('[fetchItems] Calling service.getAll with queryParams:', queryParams);
             const response = await withAuthRetry(() => service.getAll(queryParams));
-            console.log('[fetchItems] Got response:', response);
 
             // Normalise entity IDs using the schema's idFieldName
             const idField = schema?.idFieldName;
@@ -211,7 +204,6 @@ export const createEntityStore = <T extends { id: string }>(
             }
 
             if (requestId !== latestRequestId) {
-              console.log('[fetchItems] Discarding stale response for requestId', requestId);
               return;
             }
 

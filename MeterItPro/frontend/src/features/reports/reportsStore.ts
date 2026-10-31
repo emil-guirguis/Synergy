@@ -68,7 +68,6 @@ export const useReportsStore = create<ReportsStore>()(
         }));
         try {
           const response = await reportingService.getReports(state.list.page, state.list.pageSize);
-          console.log('[reportsStore] fetchItems response:', response);
           
           // Handle both direct response and wrapped response
           const data = (response as any).data || response;
@@ -131,7 +130,6 @@ export const useReportsStore = create<ReportsStore>()(
         }));
         try {
           const response = await reportingService.getReports(page, limit);
-          console.log('[reportsStore] fetchReports response:', response);
           
           // Handle both direct response and wrapped response
           const data = (response as any).data || response;

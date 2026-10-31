@@ -37,7 +37,6 @@ export function spaFallbackPlugin(): Plugin {
       // Root base = Cloudflare (uses _redirects → 200). Only GitHub Pages
       // (non-root base) needs the 404.html fallback.
       if (base === '/' || base === './') {
-        console.log('🧭 spa-fallback: root base — skipping 404.html (Cloudflare uses _redirects)');
         return;
       }
       const distDir = path.resolve(process.cwd(), 'dist');
@@ -63,7 +62,6 @@ export function spaFallbackPlugin(): Plugin {
 </script></body></html>
 `;
       fs.writeFileSync(fallback, dispatcher);
-      console.log(`🧭 spa-fallback: wrote dispatcher dist/404.html (base ${base}, tbwc prefix ${tbwcBase})`);
     },
   };
 }

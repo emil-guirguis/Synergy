@@ -33,7 +33,6 @@ export async function pullSince(
 ): Promise<string | null> {
   const cursor = await getPullCursor(env, objectType);
   if (cursor.fullReloadRequestedAt) {
-    console.log(`[QBWC] ${objectType}: full reload queued ${cursor.fullReloadRequestedAt} — pulling every record`);
     return null;
   }
   if (cursor.drainPending) return cursor.confirmedThrough;

@@ -40,5 +40,4 @@ for (const { name, size } of icons) {
     .resize(size, size)
     .png({ quality: 95, compressionLevel: 8 })
     .toFile(resolve(outDir, name));
-  console.log(`✓ public/icons/${name} (${size}x${size})`);
 }

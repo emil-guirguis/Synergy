@@ -36,7 +36,6 @@ async function deleteAuthUser(id) {
 }
 
 async function testCreateAndLink(db) {
-  console.log('\nManual create — auth.users row + linked public.users profile');
   const email = 'test-admin-create-' + Date.now() + '@example.com';
 
   const created = await createAuthUser(email);
@@ -67,7 +66,6 @@ async function testCreateAndLink(db) {
 }
 
 async function testDuplicateEmailRejected() {
-  console.log('\nDuplicate email — Admin API refuses a second account for the same address');
   const email = 'test-admin-dup-' + Date.now() + '@example.com';
 
   const first = await createAuthUser(email);
@@ -82,7 +80,6 @@ async function testDuplicateEmailRejected() {
 }
 
 async function testOrphanRollback(db) {
-  console.log('\nRollback — a failed profile insert must not leave an orphaned auth user');
   const email = 'test-admin-rollback-' + Date.now() + '@example.com';
 
   const created = await createAuthUser(email);
@@ -121,7 +118,6 @@ async function main() {
     await db.end();
   }
 
-  console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (fail > 0) process.exit(1);
 }
 

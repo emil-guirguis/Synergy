@@ -20,7 +20,6 @@ const sql = fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8');
     await client.query('BEGIN');
     await client.query(sql);
     await client.query('COMMIT');
-    console.log(`applied ${file}`);
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

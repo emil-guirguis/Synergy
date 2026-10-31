@@ -145,7 +145,6 @@ async function main() {
         LIMIT $2`,
       [MAX_FILE_SIZE, LIMIT]
     );
-    console.log(`Found ${rows.length} un-indexed document(s).\n`);
 
     let indexed = 0;
     let empty = 0;
@@ -155,19 +154,16 @@ async function main() {
       // unreliable (may reject, may hang) — stop cleanly and let a fresh
       // invocation (idempotent) pick up the rest rather than risk a hang.
       if (connectionDead) {
-        console.log(`\nConnection dropped — stopping early. Re-run to continue (${rows.length - indexed - empty - failed} left in this batch).`);
         break;
       }
       try {
         const bytes = await fetchBytes(row.storage_bucket, row.storage_path);
         if (!bytes) {
-          console.log(`- [fetch failed] ${row.file_name} (${row.storage_bucket}/${row.storage_path})`);
           failed++;
           continue;
         }
         const text = sanitizeText(await extractText(bytes, row.mime_type, row.file_name));
         if (!text) empty++;
-        console.log(`- [${text ? `${text.length} chars` : 'no text'}] ${row.file_name}`);
         if (COMMIT) {
           // DATABASE_URL is Supabase's transaction-mode pooler (port 6543) —
           // a bare top-level `SET statement_timeout` doesn't reliably survive
@@ -202,7 +198,6 @@ async function main() {
         failed++;
       }
     }
-    console.log(`\n${COMMIT ? 'Indexed' : 'Would index'} ${indexed} document(s) — ${empty} with no extractable text, ${failed} failure(s) left for the next run.`);
   } finally {
     try {
       await client.end();

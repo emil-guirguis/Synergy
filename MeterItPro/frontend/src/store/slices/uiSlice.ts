@@ -60,16 +60,10 @@ export const useUIStore = create<UIStoreSlice>()(
 
       // Sidebar actions
       toggleSidebar: () => {
-        set((state) => {
-          console.error('[uiSlice] toggleSidebar ->', !state.sidebarCollapsed);
-          console.trace();
-          return { sidebarCollapsed: !state.sidebarCollapsed };
-        });
+        set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
       },
 
       setSidebarCollapsed: (collapsed) => {
-        console.error('[uiSlice] setSidebarCollapsed ->', collapsed);
-        console.trace();
         set({ sidebarCollapsed: collapsed });
       },
 

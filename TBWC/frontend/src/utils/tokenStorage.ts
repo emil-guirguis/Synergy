@@ -127,7 +127,6 @@ class TokenStorage {
    * Clear all stored tokens
    */
   clearTokens(): void {
-    console.log('🗑️ Clearing all tokens from storage');
     // Clear from both localStorage and sessionStorage
     [localStorage, sessionStorage].forEach(storage => {
       storage.removeItem(this.TOKEN_KEY);
@@ -135,14 +134,12 @@ class TokenStorage {
       storage.removeItem(this.TOKEN_DATA_KEY);
       storage.removeItem(this.EXPIRES_AT_KEY);
     });
-    console.log('✅ All tokens cleared');
   }
 
   /**
    * Set logout flag to prevent auto-login after explicit logout (uses sessionStorage - cleared on browser close)
    */
   setLogoutFlag(): void {
-    console.log('🚩 Setting logout flag in sessionStorage');
     sessionStorage.setItem(this.LOGOUT_FLAG_KEY, 'true');
   }
 
@@ -150,7 +147,6 @@ class TokenStorage {
    * Clear logout flag (called on successful login)
    */
   clearLogoutFlag(): void {
-    console.log('🏳️ Clearing logout flag');
     sessionStorage.removeItem(this.LOGOUT_FLAG_KEY);
   }
 
@@ -159,7 +155,6 @@ class TokenStorage {
    */
   hasLogoutFlag(): boolean {
     const hasFlag = sessionStorage.getItem(this.LOGOUT_FLAG_KEY) === 'true';
-    console.log('🔍 Checking logout flag:', hasFlag);
     return hasFlag;
   }
 

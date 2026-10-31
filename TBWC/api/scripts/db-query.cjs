@@ -13,7 +13,6 @@ if (!m) throw new Error('DATABASE_URL not found in wrangler.toml');
   const client = new Client({ connectionString: m[1], ssl: false });
   await client.connect();
   const result = await client.query(process.argv[2]);
-  console.log(JSON.stringify(result.rows, null, 1));
   await client.end();
 })().catch((e) => {
   console.error('ERR', e.message);

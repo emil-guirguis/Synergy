@@ -90,7 +90,6 @@ export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
   const handleDrop = (e: React.DragEvent, dropIndex: number) => {
     e.preventDefault();
     const fromIndex = dragItemRef.current;
-    console.log('[FavoritesSection] Drop: fromIndex:', fromIndex, 'dropIndex:', dropIndex);
     if (fromIndex === null || fromIndex === dropIndex) {
       setDragIndex(null);
       setDragOverIndex(null);
@@ -106,7 +105,6 @@ export const FavoritesSection: React.FC<FavoritesSectionProps> = ({
     setDragOverIndex(null);
     dragItemRef.current = null;
 
-    console.log('[FavoritesSection] Calling onReorder with', reordered.length, 'items');
     if (onReorder) {
       onReorder(reordered);
     }

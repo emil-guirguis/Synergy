@@ -149,20 +149,16 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
   };
 
   const handleVisualizationChange = (e: any) => {
-    console.log('[DashboardCard] visualization changed - card.id:', card.id, 'value:', e.target.value);
     onVisualizationChange?.(card.id, e.target.value as VisualizationType);
   };
   const handleGroupingChange = (e: any) => {
-    console.log('[DashboardCard] grouping changed - card.id:', card.id, 'value:', e.target.value);
     onGroupingChange?.(card.id, e.target.value);
   };
   const handleTimeFrameChange = (e: any) => {
     const newTimeFrame = e.target.value;
-    console.log('[DashboardCard] timeFrame changed - card.id:', card.id, 'value:', newTimeFrame);
     onTimeFrameChange?.(card.id, newTimeFrame);
   };
   const handleAggregationChange = (e: any) => {
-    console.log('[DashboardCard] aggregation changed - card.id:', card.id, 'value:', e.target.value);
     onAggregationChange?.(card.id, e.target.value);
   };
 

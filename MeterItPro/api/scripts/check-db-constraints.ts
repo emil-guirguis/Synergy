@@ -211,7 +211,6 @@ async function main() {
   console.log(`\n${BOLD}── Schema checks (${schemas.length} schema files) ──────────────────────────────${R}`);
 
   for (const schema of schemas) {
-    console.log(`\n${BOLD}${schema.file}${R}  →  table: ${schema.tableName}`);
 
     // Table existence
     if (!dbColumns.has(schema.tableName)) {
@@ -291,7 +290,6 @@ async function main() {
   ]);
   const uncovered = [...dbConstraints.keys()].filter(k => !coveredKeys.has(k));
   if (uncovered.length > 0) {
-    console.log(`\n${BOLD}── DB CHECK constraints not covered by any schema or option array ───────────${R}\n`);
     for (const key of uncovered) {
       const c = dbConstraints.get(key)!;
       warn(`${key}  →  ${c.values.map(v => `'${v}'`).join(', ')}  (${c.conname})`);
@@ -302,13 +300,10 @@ async function main() {
   // ── Summary ───────────────────────────────────────────────────────────────
 
   console.log(`\n${'─'.repeat(70)}`);
-  console.log(`${BOLD}Results:${R}  ${GRN}${passes} passed${R}  ${YEL}${warnings} warnings${R}  ${RED}${criticals} critical${R}`);
 
   if (criticals > 0) {
-    console.log(`\n${RED}${BOLD}FAILED — fix critical issues before deploying.${R}`);
     process.exit(1);
   } else {
-    console.log(`\n${GRN}${BOLD}All critical checks passed.${R}`);
   }
 }
 

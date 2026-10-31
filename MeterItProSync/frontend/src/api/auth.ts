@@ -52,16 +52,12 @@ export const authApi = {
    */
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
     try {
-      console.log('🔐 [Auth] Attempting sync connect for:', credentials.email);
-      console.log('🔐 [Auth] API Base URL:', CLIENT_API_URL);
-      console.log('🔐 [Auth] Full URL:', `${CLIENT_API_URL}/sync/connect`);
 
       const response = await authClient.post<AuthResponse>('/sync/connect', {
         email: credentials.email,
         apiKey: credentials.apiKey,
       });
 
-      console.log('✅ [Auth] Sync connect successful');
 
       // Validate response
       if (!response.data.success) {
@@ -81,7 +77,6 @@ export const authApi = {
         };
       }
 
-      console.log('📊 [Auth] Tenant data:', response.data.data?.tenant);
 
       // The /sync/connect endpoint returns full tenant data including api_key
       return {

@@ -32,7 +32,6 @@ export const MetersList: React.FC<MetersListProps> = ({
    */
   const createStarClickHandler = (meterId: string, elementId: string) => {
     return async () => {
-      console.log('[MetersList.createStarClickHandler] Calling onFavoriteToggle with meterId:', meterId, 'elementId:', elementId);
       await onFavoriteToggle(meterId, elementId);
     };
   };
@@ -108,7 +107,6 @@ export const MetersList: React.FC<MetersListProps> = ({
                         <div className="no-elements">No elements</div>
                       ) : (
                         elements.map((element) => {
-                          console.log('[MetersList] Element object:', element);
                           
                           const elementId = String(element.meter_element_id);
                           

@@ -23,15 +23,12 @@ async function main() {
 
   const client = new Client({ connectionString });
   await client.connect();
-  console.log('✅ Connected');
 
   try {
     for (const file of files) {
       const filePath = path.join(__dirname, file);
       const sql = fs.readFileSync(filePath, 'utf8');
-      console.log(`📄 Applying ${file}...`);
       await client.query(sql);
-      console.log(`✅ Applied ${file}`);
     }
   } finally {
     await client.end();

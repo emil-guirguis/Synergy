@@ -31,8 +31,6 @@ export async function initializePools(): Promise<void> {
   // Initialize sync database (SQLite)
   const syncDbPath = resolveSyncDbPath();
 
-  console.log('\n📊 [Database] Initializing sync database (SQLite):');
-  console.log(`   Path: ${syncDbPath}`);
 
   syncPool = new SqlitePool(syncDbPath);
   ensureSyncSchema(syncPool);
@@ -46,11 +44,6 @@ export async function initializePools(): Promise<void> {
     password: process.env.POSTGRES_CLIENT_PASSWORD || '',
   };
 
-  console.log('\n📊 [Database] Initializing remote database pool:');
-  console.log(`   Host: ${remoteConfig.host}`);
-  console.log(`   Port: ${remoteConfig.port}`);
-  console.log(`   Database: ${remoteConfig.database}`);
-  console.log(`   User: ${remoteConfig.user}`);
 
   remotePool = new Pool({
     host: remoteConfig.host,
@@ -70,14 +63,12 @@ export async function initializePools(): Promise<void> {
   // Test connections
   try {
     const syncResult = await syncPool.query('SELECT NOW()');
-    console.log('✅ [Database] Sync database (SQLite) connected:', syncResult.rows[0].now);
   } catch (err) {
     console.error('❌ [Database] Failed to connect to sync database:', err);
   }
 
   try {
     const remoteResult = await remotePool.query('SELECT NOW()');
-    console.log('✅ [Database] Remote database connected:', remoteResult.rows[0].now);
   } catch (err) {
     console.warn('⚠️  [Database] Failed to connect to remote database:', err);
     // Don't throw - remote connection is optional for some operations
@@ -90,11 +81,9 @@ export async function initializePools(): Promise<void> {
 export async function closePools(): Promise<void> {
   if (syncPool) {
     await syncPool.end();
-    console.log('✅ [Database] Sync pool closed');
   }
   if (remotePool) {
     await remotePool.end();
-    console.log('✅ [Database] Remote pool closed');
   }
 }
 

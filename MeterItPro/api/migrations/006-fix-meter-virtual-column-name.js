@@ -11,7 +11,6 @@ const db = require('../src/config/database');
 
 async function fixColumnName() {
     try {
-        console.log('\n=== MIGRATION: Fix meter_virtual column name ===\n');
 
         // Check current column name
         const checkQuery = `
@@ -25,15 +24,12 @@ async function fixColumnName() {
         const checkResult = await db.query(checkQuery);
         
         if (checkResult.rows.length === 0) {
-            console.log('✅ No element column found');
             return true;
         }
 
         const currentColumnName = checkResult.rows[0].column_name;
-        console.log(`Current column name: "${currentColumnName}"`);
 
         if (currentColumnName === 'select_meter_element_id') {
-            console.log('✅ Column name is already correct');
             return true;
         }
 
@@ -43,13 +39,11 @@ async function fixColumnName() {
         // First, drop the primary key constraint
         console.log('\nDropping primary key constraint');
         await db.query('ALTER TABLE public.meter_virtual DROP CONSTRAINT meter_virtual_pkey;');
-        console.log('✅ Primary key dropped');
 
         // Rename the column
         console.log('\nRenaming column');
         const renameQuery = `ALTER TABLE public.meter_virtual RENAME COLUMN "${currentColumnName}" TO select_meter_element_id;`;
         await db.query(renameQuery);
-        console.log('✅ Column renamed');
 
         // Recreate the primary key constraint with correct column names
         console.log('\nRecreating primary key constraint');
@@ -59,7 +53,6 @@ async function fixColumnName() {
             PRIMARY KEY (meter_virtual_id, meter_id, selected_meter_id, select_meter_element_id);
         `;
         await db.query(createPkQuery);
-        console.log('✅ Primary key recreated');
 
         // Verify the fix
         console.log('\n📋 Verifying column names:');
@@ -72,10 +65,8 @@ async function fixColumnName() {
 
         const verifyResult = await db.query(verifyQuery);
         verifyResult.rows.forEach(col => {
-            console.log(`  - ${col.column_name}: ${col.data_type}`);
         });
 
-        console.log('\n✅ Migration completed successfully!\n');
         return true;
 
     } catch (error) {

@@ -49,7 +49,6 @@ async function parseResponse(env: Env, xml: string): Promise<void> {
   }
 
   const rets = blocks(xml, 'CustomerRet');
-  console.log(`[QBWC] CustomerQueryRs: ${rets.length} customer(s)`);
 
   // Collect rows, deduped by list_id (last wins) — a duplicate key inside one
   // multi-row upsert makes Postgres error with "cannot affect row a second time".

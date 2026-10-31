@@ -61,13 +61,11 @@ if (typeof window !== 'undefined') {
   initializeStore();
   
   // Initialize cache and sync on app start
-  console.log('Store initialized with cache and sync support');
 }
 
 // Store devtools (development only)
 if (typeof window !== 'undefined' && import.meta.env?.DEV) {
   // Add zustand devtools if available in development
-  console.log('Development mode: Zustand devtools available');
 }
 
 // Global error handler for store actions

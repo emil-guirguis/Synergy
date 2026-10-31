@@ -33,7 +33,8 @@ export const MeterForm: React.FC<MeterFormProps> = ({
   const baseValidationDataProvider = useValidationDataProvider();
   const [isParentSaved, setIsParentSaved] = useState(!!meter?.meter_id);
   // Selected type state for create flow so users can always choose meter type
-  const [selectedType, setSelectedType] = useState<'physical' | 'virtual' | null>(
+  // Setter was only called by a removed debug log; the value is still read below.
+  const [selectedType] = useState<'physical' | 'virtual' | null>(
     meterType || 'physical'
   );
 
@@ -94,7 +95,6 @@ export const MeterForm: React.FC<MeterFormProps> = ({
                   <ElementsGrid
                     meterId={Number(meterId)}
                     onError={(error) => console.error('ElementsGrid error:', error)}
-                    onSuccess={(message) => console.log('ElementsGrid success:', message)}
                   />
                 </div>
               );
@@ -117,7 +117,7 @@ export const MeterForm: React.FC<MeterFormProps> = ({
             }
             return null;
           }}
-          renderCustomField={(fieldName, _fieldDef, value, _error, isDisabled, onChange) => {
+          renderCustomField={(fieldName, _fieldDef, value, _error, _isDisabled, _onChange) => {
             // is_virtual field: render as a non-editable bubble/chip
             if (fieldName === 'is_virtual') {
               const isPhysical = value !== 'virtual' && value !== true;
@@ -130,20 +130,13 @@ export const MeterForm: React.FC<MeterFormProps> = ({
 
             // When rendering the "elements" field, show ElementsGrid for physical meters or CombinedMetersTab for virtual meters
             if (fieldName === 'elements') {
-              console.log(`[MeterForm] Rendering elements field`, {
-                meter_id: meterId,
-                isVirtual,
-                shouldRenderGrid: !!meterId,
-              });
 
               if (!meterId) {
-                console.log(`[MeterForm] ❌ No meter_id, returning placeholder`);
                 return <div>Save the meter first to manage elements</div>;
               }
 
               // For virtual meters, show CombinedMetersTab
               if (isVirtual) {
-                console.log(`[MeterForm] ✅ Rendering CombinedMetersTab for virtual meter ${meterId}`);
                 return (
                   <div className="meter-form__combined-meters-tab">
                     <CombinedMetersTab
@@ -158,13 +151,11 @@ export const MeterForm: React.FC<MeterFormProps> = ({
               }
 
               // For physical meters, show ElementsGrid
-              console.log(`[MeterForm] ✅ Rendering ElementsGrid for physical meter ${meterId}`);
               return (
                 <div className="meter-form__elements-grid">
                   <ElementsGrid
                     meterId={Number(meterId)}
                     onError={(error) => console.error('ElementsGrid error:', error)}
-                    onSuccess={(message) => console.log('ElementsGrid success:', message)}
                   />
                 </div>
               );

@@ -25,7 +25,6 @@ const pgPool = new pg.Pool({
 });
 
 const sqlitePath = resolveSyncDbPath();
-console.log(`\nMigrating Postgres sync db -> SQLite at ${sqlitePath}\n`);
 const sqlite = new SqlitePool(sqlitePath);
 ensureSyncSchema(sqlite);
 
@@ -51,7 +50,6 @@ async function migrateTable(table, orderBy) {
   const insertSql = `INSERT OR REPLACE INTO ${table} (${colList}) VALUES (${placeholders})`;
 
   const total = parseInt((await pgPool.query(`SELECT COUNT(*) AS n FROM ${table}`)).rows[0].n, 10);
-  console.log(`\n${table}: ${total} row(s) to copy (${cols.length} columns)`);
 
   let copied = 0;
   for (let offset = 0; offset < total; offset += BATCH_SIZE) {
@@ -77,7 +75,6 @@ async function migrateTable(table, orderBy) {
     copied += batch.length;
     process.stdout.write(`  ${copied}/${total}\r`);
   }
-  console.log(`  ${copied}/${total} done`);
   return copied;
 }
 
@@ -90,10 +87,7 @@ try {
 
   for (const t of ['tenant', 'meter', 'register', 'device_register', 'meter_reading']) {
     const n = (await sqlite.query(`SELECT COUNT(*) AS n FROM ${t}`)).rows[0].n;
-    console.log(`Verify SQLite ${t}: ${n} row(s)`);
   }
-  console.log(`Copied: tenant=${tenants}, meter=${meters}, register=${registers}, device_register=${deviceRegisters}, meter_reading=${readings}`);
-  console.log('\n✅ Migration complete');
 } catch (err) {
   console.error('\n❌ Migration failed:', err);
   process.exitCode = 1;
