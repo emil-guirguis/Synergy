@@ -544,12 +544,7 @@
   color: var(--color-error, #ef4444);
 }
 
-/* Empty State */
-.data-table__empty {
-  padding: 48px;
-  text-align: center;
-  color: var(--color-text-secondary, #6b7280);
-}
+/* Empty state now lives in the shared EmptyState component (components/common). */
 
 /* Mobile Styles */
 .data-table--mobile {

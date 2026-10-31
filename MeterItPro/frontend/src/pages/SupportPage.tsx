@@ -197,7 +197,7 @@ const SupportPage: React.FC = () => {
 
 <footer className="landing-footer">
                 <a className="landing-back-to-top" href="#support-hero">Back to top</a>
-                © 2025 MeterIt Pro. All rights reserved.
+                © {new Date().getFullYear()} MeterIt Pro. All rights reserved.
             </footer>
         </div>
     );

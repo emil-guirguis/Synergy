@@ -1,0 +1,44 @@
+/* Empty State Component Styles */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.empty-state--compact {
+  padding: 1.5rem 1rem;
+}
+
+.empty-state__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  line-height: 1;
+  margin-bottom: 0.25rem;
+  color: var(--color-text-tertiary, #9ca3af);
+}
+
+.empty-state__message {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.empty-state__hint {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--color-text-tertiary, #9ca3af);
+}
+
+.empty-state__action {
+  margin-top: 0.75rem;
+}

@@ -86,7 +86,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         extraSlot={<Turnstile onVerify={handleTurnstileVerify} onExpire={handleTurnstileExpire} />}
         footer={
           <Typography variant="body2" color="text.secondary">
-            © 2025 MeterIt Pro. All rights reserved.
+            © {new Date().getFullYear()} MeterIt Pro. All rights reserved.
           </Typography>
         }
       />

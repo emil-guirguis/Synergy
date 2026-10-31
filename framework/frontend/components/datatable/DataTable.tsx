@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import type { DataTableProps, ColumnDefinition, BulkAction } from '../list/types/ui';
 import { useResponsive } from '../../hooks/useResponsive';
+import { EmptyState } from '../common/EmptyState';
 import './DataTable.css';
 
 export function DataTable<T extends Record<string, any>>({
@@ -53,8 +54,21 @@ export function DataTable<T extends Record<string, any>>({
   }, [pagination?.currentPage]);
 
   const totalPages = pagination
-    ? Math.ceil(pagination.total / pagination.pageSize)
+    ? Math.max(1, Math.ceil(pagination.total / pagination.pageSize))
     : 1;
+
+  // Page controls are noise when everything already fits on one page.
+  const showPagination = !!pagination && totalPages > 1;
+
+  // With no rows there is no range to describe, and the naive
+  // ((currentPage - 1) * pageSize) + 1 would read "Showing 1 to 0 of 0".
+  const rangeLabel = pagination
+    ? pagination.total === 0
+      ? 'No entries'
+      : `Showing ${((pagination.currentPage - 1) * pagination.pageSize) + 1} to ` +
+        `${Math.min(pagination.currentPage * pagination.pageSize, pagination.total)} of ` +
+        `${pagination.total} entries`
+    : '';
 
   const commitPageInput = () => {
     if (!pagination) return;
@@ -289,9 +303,7 @@ export function DataTable<T extends Record<string, any>>({
               </div>
             ))
           ) : isEmpty ? (
-            <div className="data-table__empty">
-              <p>{emptyMessage}</p>
-            </div>
+            <EmptyState message={emptyMessage} />
           ) : (
             sortedData.map((item, index) => (
               <div
@@ -332,7 +344,7 @@ export function DataTable<T extends Record<string, any>>({
         </div>
 
         {/* Pagination for mobile */}
-        {pagination && (
+        {showPagination && pagination && (
           <div className="data-table__pagination data-table__pagination--mobile">
             <button
               type="button"
@@ -475,9 +487,7 @@ export function DataTable<T extends Record<string, any>>({
                   }
                   className="data-table__cell data-table__cell--empty"
                 >
-                  <div className="data-table__empty">
-                    <p>{emptyMessage}</p>
-                  </div>
+                  <EmptyState message={emptyMessage} />
                 </td>
               </tr>
             ) : (
@@ -524,12 +534,9 @@ export function DataTable<T extends Record<string, any>>({
       {/* Pagination */}
       {pagination && (
         <div className="data-table__pagination">
-          <div className="data-table__pagination-info">
-            Showing {((pagination.currentPage - 1) * pagination.pageSize) + 1} to{' '}
-            {Math.min(pagination.currentPage * pagination.pageSize, pagination.total)} of{' '}
-            {pagination.total} entries
-          </div>
-          
+          <div className="data-table__pagination-info">{rangeLabel}</div>
+
+          {showPagination && (
           <div className="data-table__pagination-controls">
             <button
               type="button"
@@ -562,7 +569,8 @@ export function DataTable<T extends Record<string, any>>({
               Next
             </button>
           </div>
-          
+          )}
+
           {pagination.showSizeChanger && (
             <div className="data-table__page-size">
               <select
