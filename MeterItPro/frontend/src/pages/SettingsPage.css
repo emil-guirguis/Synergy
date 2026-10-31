@@ -87,27 +87,27 @@
 }
 
 /* Dark mode */
-body[data-theme='dark'] .settings-page__nav-item.Mui-selected,
+:root[data-theme='dark'] .settings-page__nav-item.Mui-selected,
 .dark .settings-page__nav-item.Mui-selected {
   background-color: #1e3a5f !important;
   color: #90caf9 !important;
 }
 
-body[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemIcon-root,
+:root[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemIcon-root,
 .dark .settings-page__nav-item.Mui-selected .MuiListItemIcon-root {
   color: #90caf9 !important;
 }
 
-body[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemText-primary,
+:root[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemText-primary,
 .dark .settings-page__nav-item.Mui-selected .MuiListItemText-primary {
   color: #90caf9;
 }
 
-body[data-theme='dark'] .settings-page__manage-label,
+:root[data-theme='dark'] .settings-page__manage-label,
 .dark .settings-page__manage-label,
-body[data-theme='dark'] .settings-page__subtitle,
+:root[data-theme='dark'] .settings-page__subtitle,
 .dark .settings-page__subtitle,
-body[data-theme='dark'] .settings-page__section-desc,
+:root[data-theme='dark'] .settings-page__section-desc,
 .dark .settings-page__section-desc {
   color: #9ca3af;
 }

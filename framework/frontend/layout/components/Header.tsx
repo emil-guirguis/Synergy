@@ -7,7 +7,8 @@ import { getIconElement } from '../../utils/iconHelper';
 import { getVersionDisplay } from '../../utils/version';
 import { useSystemConfig } from '../../utils/systemConfig';
 import { FormModal } from '../../components/modal';
-import { ColorModeToggle } from '../../components/common/ColorModeToggle';
+import { COLOR_MODE_FACES, NEXT_COLOR_MODE } from '../../components/common/ColorModeToggle';
+import { useColorMode } from '../../theme/ColorModeContext';
 import UserPreferencesForm, { type UserPreferencesValues } from '../../components/settings/UserPreferencesForm';
 
 import './Header.css';
@@ -69,9 +70,15 @@ export const Header: React.FC<HeaderProps> = ({
   const [preferencesSaving, setPreferencesSaving] = useState(false);
   const [preferencesError, setPreferencesError] = useState<string | null>(null);
   const systemConfig = useSystemConfig();
+  const { preference: colorPreference, cycleMode } = useColorMode();
+  const colorFace = COLOR_MODE_FACES[colorPreference];
+  const nextColorFace = COLOR_MODE_FACES[NEXT_COLOR_MODE[colorPreference]];
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isListening, setIsListening] = useState(false);
+  // Mobile only: the search box is an icon until tapped, then spans the header.
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -99,6 +106,7 @@ export const Header: React.FC<HeaderProps> = ({
         if (userMenuOpen) setUserMenuOpen(false);
         if (notificationsOpen) setNotificationsOpen(false);
         if (isListening) stopListening();
+        setSearchExpanded(false);
       }
     };
 
@@ -205,8 +213,18 @@ export const Header: React.FC<HeaderProps> = ({
     const query = searchQuery.trim();
     if (!query) return;
     setSearchQuery('');
+    setSearchExpanded(false);
     navigate('/ai-chat', { state: { autoQuery: query } });
   };
+
+  // Leaving desktop width with the search open would strand it expanded.
+  useEffect(() => {
+    if (!isMobile) setSearchExpanded(false);
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (searchExpanded) searchInputRef.current?.focus();
+  }, [searchExpanded]);
 
   return (
     <header
@@ -250,11 +268,26 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right side - Search, User menu and notifications */}
       <div className="app-header__right">
-        {/* Search Bar */}
-        <div className="app-header__search">
+        {/* Search Bar — on phones, an icon that expands over the header */}
+        {isMobile && !searchExpanded && (
+          <button
+            className="search-toggle"
+            onClick={() => setSearchExpanded(true)}
+            aria-label="Ask AI"
+            title="Ask AI"
+            type="button"
+          >
+            {getIconElement('search', 'icon')}
+          </button>
+        )}
+        <div
+          className={`app-header__search${isMobile ? ' app-header__search--mobile' : ''}${searchExpanded ? ' app-header__search--expanded' : ''}`}
+          hidden={isMobile && !searchExpanded}
+        >
           <div className="search-container">
             {getIconElement('search', 'search-icon')}
             <input
+              ref={searchInputRef}
               type="search"
               className="search-input"
               placeholder="Ask AI — press Enter"
@@ -273,10 +306,17 @@ export const Header: React.FC<HeaderProps> = ({
               {getIconElement('mic', 'mic-icon')}
             </button>
           </div>
+          {searchExpanded && (
+            <button
+              className="search-close"
+              onClick={() => { stopListening(); setSearchExpanded(false); }}
+              aria-label="Close search"
+              type="button"
+            >
+              {getIconElement('close', 'icon')}
+            </button>
+          )}
         </div>
-
-        {/* Colour mode */}
-        <ColorModeToggle />
 
         {/* Notifications */}
         <div className="app-header__notifications" ref={notificationsRef}>
@@ -404,6 +444,18 @@ export const Header: React.FC<HeaderProps> = ({
                       Preferences
                     </button>
                   )}
+                  {/* Stays open on click so the new mode can be seen and cycled again. */}
+                  <button
+                    className="user-menu-item color-mode-item"
+                    type="button"
+                    role="menuitem"
+                    onClick={cycleMode}
+                    aria-label={`Theme: ${colorFace.label}. Switch to ${nextColorFace.label}.`}
+                  >
+                    {getIconElement(colorFace.icon, 'icon')}
+                    Theme
+                    <span className="color-mode-item__value">{colorFace.label}</span>
+                  </button>
                   <button className="user-menu-item" type="button" role="menuitem">
                     {getIconElement('info', 'icon')}
                     Help

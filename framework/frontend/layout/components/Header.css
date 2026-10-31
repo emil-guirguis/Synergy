@@ -119,6 +119,52 @@
   background-color: white;
 }
 
+/* Mobile search: icon in the bar, full-width field over the header when open */
+.search-toggle,
+.search-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: white;
+  flex-shrink: 0;
+}
+
+.search-toggle:hover,
+.search-close:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.search-toggle .icon,
+.search-close .icon {
+  font-size: 22px;
+}
+
+/* The base and tablet rules set display:flex, which would beat [hidden]. */
+.app-header .app-header__search[hidden] {
+  display: none;
+}
+
+.app-header__search--expanded {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  gap: 0.5rem;
+  padding: 0 12px;
+  background: var(--gradient-brand, linear-gradient(120deg, #4f46e5 0%, #6d5ae8 55%, #7c3aed 100%));
+}
+
+.app-header__search--expanded .search-container {
+  flex: 1;
+  width: auto;
+}
+
 /* Mic Button */
 .mic-button {
   position: absolute;
@@ -810,6 +856,12 @@
   color: var(--color-text-secondary, #666);
 }
 
+.color-mode-item__value {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #666);
+}
+
 .logout-item {
   color: var(--color-error, #dc3545);
 }
@@ -897,6 +949,10 @@
 @media (max-width: 480px) {
   .app-header {
     padding: 0;
+  }
+
+  .app-header__left {
+    padding-left: 12px;
   }
 
 

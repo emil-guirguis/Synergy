@@ -126,18 +126,18 @@
 }
 
 /* ── Dark mode ───────────────────────────────────────────────── */
-body[data-theme='dark'] .form-tabs,
+:root[data-theme='dark'] .form-tabs,
 .dark .form-tabs {
   --ft-accent: #8ab4f8;
   --ft-accent-tint: rgba(138, 180, 248, 0.18);
   --ft-track: #25272c;
 }
-body[data-theme='dark'] .form-tabs__tab,
+:root[data-theme='dark'] .form-tabs__tab,
 .dark .form-tabs__tab { color: #9aa0a6; }
-body[data-theme='dark'] .form-tabs__tab:hover,
+:root[data-theme='dark'] .form-tabs__tab:hover,
 .dark .form-tabs__tab:hover { color: #e8eaed; background: rgba(255, 255, 255, 0.06); }
-body[data-theme='dark'] .form-tabs__tab--active,
-body[data-theme='dark'] .form-tabs__tab--active:hover,
+:root[data-theme='dark'] .form-tabs__tab--active,
+:root[data-theme='dark'] .form-tabs__tab--active:hover,
 .dark .form-tabs__tab--active,
 .dark .form-tabs__tab--active:hover {
   color: #8ab4f8;

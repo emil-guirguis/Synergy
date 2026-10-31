@@ -37,6 +37,7 @@ import {
   Chip,
   CircularProgress,
   Stack,
+  Button,
   Table,
   TableBody,
   TableCell,
@@ -55,7 +56,6 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import RequestQuoteIcon from '@mui/icons-material/RequestQuote';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
-import Button from '@mui/material/Button';
 import { alpha } from '@mui/material/styles';
 import { EntityManagementPage } from '@meterit/framework-frontend/components/entity';
 import { formatCurrency, formatDate } from '@meterit/framework-frontend/utils';

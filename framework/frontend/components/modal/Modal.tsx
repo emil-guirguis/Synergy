@@ -2,13 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
-import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
-import Button from '@mui/material/Button';
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Tooltip } from '@mui/material';
 import './Modal.css';
 
 export interface ModalProps {

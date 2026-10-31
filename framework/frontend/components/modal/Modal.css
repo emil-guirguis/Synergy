@@ -330,3 +330,46 @@
   border-radius: 50%;
   background: #fbbf24;
 }
+
+/* ── Dark mode ─────────────────────────────────────────────────
+   Keyed on the data-theme attribute ColorModeProvider stamps on <html>.
+   The shell reads the app's palette vars, so each app's dark set applies. */
+:root[data-theme='dark'] .modal {
+  background: var(--color-surface, #1e2024);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+:root[data-theme='dark'] .modal__header,
+:root[data-theme='dark'] .modal__footer {
+  border-color: var(--color-border, #3c4043);
+}
+:root[data-theme='dark'] .modal__title {
+  color: var(--color-text-primary, #e8eaed);
+}
+:root[data-theme='dark'] .modal__cancel-btn {
+  background: transparent;
+  color: var(--color-text-secondary, #9aa0a6);
+  border-color: var(--color-border, #3c4043);
+}
+:root[data-theme='dark'] .modal__cancel-btn:hover:not(:disabled) {
+  background: var(--color-hover, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-primary, #e8eaed);
+  border-color: var(--color-text-disabled, #5f6368);
+}
+:root[data-theme='dark'] .modal__close {
+  color: var(--color-text-secondary, #9aa0a6);
+}
+:root[data-theme='dark'] .modal__close:hover:not(:disabled) {
+  background-color: var(--color-hover, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-primary, #e8eaed);
+}
+:root[data-theme='dark'] .modal__error {
+  background-color: var(--color-error-light, rgba(242, 184, 181, 0.16));
+  color: var(--color-error, #f2b8b5);
+}
+:root[data-theme='dark'] .modal__loading-overlay {
+  background: rgba(0, 0, 0, 0.6);
+}
+:root[data-theme='dark'] .modal__spinner {
+  border-color: var(--color-border, #3c4043);
+  border-top-color: var(--color-primary, #8ab4f8);
+}

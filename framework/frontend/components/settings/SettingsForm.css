@@ -2,7 +2,7 @@
    and by SettingsPageShell. */
 
 .settings-form {
-  background: #fff;
+  background: var(--color-surface, #fff);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   padding: 2rem;
@@ -53,16 +53,16 @@
 }
 
 .settings-form__error {
-  color: #b91c1c;
-  background: #fee2e2;
-  border: 1px solid #fca5a5;
+  color: var(--color-error, #b91c1c);
+  background: var(--color-error-light, #fee2e2);
+  border: 1px solid var(--color-error, #fca5a5);
   padding: 0.75rem 1rem;
   border-radius: 4px;
   margin-bottom: 1rem;
 }
 
 .settings-form__hint {
-  color: #6b7280;
+  color: var(--color-text-secondary, #6b7280);
   font-size: 0.85rem;
   margin: 0 0 1rem;
 }
@@ -77,7 +77,7 @@
 }
 
 .settings-page__manage-label {
-  color: #6b7280;
+  color: var(--color-text-secondary, #6b7280);
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   font-weight: 600;
@@ -90,7 +90,7 @@
 }
 
 .settings-page__subtitle {
-  color: #6b7280;
+  color: var(--color-text-secondary, #6b7280);
 }
 
 /* Two-column body */
@@ -112,18 +112,19 @@
   border-radius: 0 !important;
 }
 
+/* Selected item follows each app's accent; the vars carry the dark set too. */
 .settings-page__nav-item.Mui-selected {
-  background-color: #eff6ff !important;
-  color: #2563eb !important;
+  background-color: var(--color-primary-light, #eff6ff) !important;
+  color: var(--color-primary, #2563eb) !important;
 }
 
 .settings-page__nav-item.Mui-selected .MuiListItemIcon-root {
-  color: #2563eb !important;
+  color: var(--color-primary, #2563eb) !important;
 }
 
 .settings-page__nav-item.Mui-selected .MuiListItemText-primary {
   font-weight: 600;
-  color: #2563eb;
+  color: var(--color-primary, #2563eb);
 }
 
 .settings-page__nav-icon {
@@ -147,37 +148,11 @@
 }
 
 .settings-page__section-desc {
-  color: #6b7280;
+  color: var(--color-text-secondary, #6b7280);
 }
 
 .settings-page__content-body {
   padding: 1.5rem;
-}
-
-/* Dark mode */
-body[data-theme='dark'] .settings-page__nav-item.Mui-selected,
-.dark .settings-page__nav-item.Mui-selected {
-  background-color: #1e3a5f !important;
-  color: #90caf9 !important;
-}
-
-body[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemIcon-root,
-.dark .settings-page__nav-item.Mui-selected .MuiListItemIcon-root {
-  color: #90caf9 !important;
-}
-
-body[data-theme='dark'] .settings-page__nav-item.Mui-selected .MuiListItemText-primary,
-.dark .settings-page__nav-item.Mui-selected .MuiListItemText-primary {
-  color: #90caf9;
-}
-
-body[data-theme='dark'] .settings-page__manage-label,
-.dark .settings-page__manage-label,
-body[data-theme='dark'] .settings-page__subtitle,
-.dark .settings-page__subtitle,
-body[data-theme='dark'] .settings-page__section-desc,
-.dark .settings-page__section-desc {
-  color: #9ca3af;
 }
 
 /* Responsive */

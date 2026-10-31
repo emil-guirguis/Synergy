@@ -414,10 +414,10 @@ div.form-container div.MuiFormControl-root {
   background-color: #fffde7;
 }
 
-body[data-theme='dark'] .base-form .MuiOutlinedInput-root.Mui-focused,
-body[data-theme='dark'] .form-container .MuiOutlinedInput-root.Mui-focused,
-body[data-theme='dark'] .base-form .MuiInputBase-root.Mui-focused,
-body[data-theme='dark'] .form-container .MuiInputBase-root.Mui-focused,
+:root[data-theme='dark'] .base-form .MuiOutlinedInput-root.Mui-focused,
+:root[data-theme='dark'] .form-container .MuiOutlinedInput-root.Mui-focused,
+:root[data-theme='dark'] .base-form .MuiInputBase-root.Mui-focused,
+:root[data-theme='dark'] .form-container .MuiInputBase-root.Mui-focused,
 .dark .base-form .MuiOutlinedInput-root.Mui-focused,
 .dark .form-container .MuiOutlinedInput-root.Mui-focused,
 .dark .base-form .MuiInputBase-root.Mui-focused,
@@ -791,41 +791,36 @@ body[data-theme='dark'] .form-container .MuiInputBase-root.Mui-focused,
 }
 
 /* ── Dark mode (Direction A) ─────────────────────────────────── */
-/* Scoped to the app's existing dark hook: body[data-theme='dark']  */
-/* (with the .dark alias used in SettingsPage.css). Covers the      */
-/* framework-drawn form chrome. NOTE: the MUI inputs themselves are */
-/* still painted by the light muiTheme — a dark MUI palette is a    */
-/* separate, larger change tracked outside this redesign.           */
-body[data-theme='dark'] .base-form,
-body[data-theme='dark'] .form-container,
+/* Keyed on :root[data-theme='dark'], which ColorModeProvider stamps on  */
+/* <html> (the .dark alias is used in SettingsPage.css). Covers the      */
+/* framework-drawn form chrome; MUI inputs follow the app's MUI theme.   */
+/* The accent is left to each app's own dark --color-primary rather than */
+/* forced to one blue here, so TBWC stays green and MIP indigo.          */
+:root[data-theme='dark'] .base-form,
+:root[data-theme='dark'] .form-container,
 .dark .base-form,
 .dark .form-container {
-  --color-primary: #8ab4f8;
-  --color-primary-dark: #aecbfa;
-  --color-primary-light: rgba(138, 180, 248, 0.18);
-  --mf-accent: #8ab4f8;
-  --mf-accent-tint: rgba(138, 180, 248, 0.18);
   --mf-hairline: #2a2d31;
 }
-body[data-theme='dark'] .base-form [class*="base-form__sections-container"] > *,
+:root[data-theme='dark'] .base-form [class*="base-form__sections-container"] > *,
 .dark .base-form [class*="base-form__sections-container"] > * {
   background: #1e2024 !important;
   border-color: #3c4043 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5) !important;
 }
-body[data-theme='dark'] .base-form__section-title,
+:root[data-theme='dark'] .base-form__section-title,
 .dark .base-form__section-title {
   color: #e8eaed;
   border-bottom-color: #2a2d31;
 }
-body[data-theme='dark'] .base-form__sections-container > *:has(.base-form__field input:disabled),
-body[data-theme='dark'] .base-form__sections-container > *:has(.base-form__field .Mui-disabled),
+:root[data-theme='dark'] .base-form__sections-container > *:has(.base-form__field input:disabled),
+:root[data-theme='dark'] .base-form__sections-container > *:has(.base-form__field .Mui-disabled),
 .dark .base-form__sections-container > *:has(.base-form__field input:disabled),
 .dark .base-form__sections-container > *:has(.base-form__field .Mui-disabled) {
   background: #1a1c20;
 }
 /* light-blue primary needs dark text in dark mode */
-body[data-theme='dark'] .base-form__btn--primary,
+:root[data-theme='dark'] .base-form__btn--primary,
 .dark .base-form__btn--primary { color: #0b1b33; }
 
 /* ── Section description (subtitle under the title) ─────────── */
@@ -844,7 +839,7 @@ body[data-theme='dark'] .base-form__btn--primary,
   color: #9aa0a6;
   line-height: 1.45;
 }
-body[data-theme='dark'] .base-form [class*="base-form__sections-container"] > * > .base-form__section-description,
+:root[data-theme='dark'] .base-form [class*="base-form__sections-container"] > * > .base-form__section-description,
 .dark .base-form [class*="base-form__sections-container"] > * > .base-form__section-description {
   color: #9aa0a6;
   border-bottom-color: #2a2d31 !important;

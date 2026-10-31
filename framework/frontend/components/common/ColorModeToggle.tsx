@@ -4,13 +4,13 @@ import { getIconElement } from '../../utils/iconHelper';
 import './ColorModeToggle.css';
 
 /** Icon and wording per preference, including 'system' as its own state. */
-const FACES: Record<ColorModePreference, { icon: string; label: string }> = {
+export const COLOR_MODE_FACES: Record<ColorModePreference, { icon: string; label: string }> = {
   light: { icon: 'light_mode', label: 'Light' },
   dark: { icon: 'dark_mode', label: 'Dark' },
   system: { icon: 'contrast', label: 'System' },
 };
 
-const NEXT: Record<ColorModePreference, ColorModePreference> = {
+export const NEXT_COLOR_MODE: Record<ColorModePreference, ColorModePreference> = {
   light: 'dark',
   dark: 'system',
   system: 'light',
@@ -34,8 +34,8 @@ export const ColorModeToggle: React.FC<ColorModeToggleProps> = ({
   className,
 }) => {
   const { preference, cycleMode } = useColorMode();
-  const face = FACES[preference];
-  const next = FACES[NEXT[preference]];
+  const face = COLOR_MODE_FACES[preference];
+  const next = COLOR_MODE_FACES[NEXT_COLOR_MODE[preference]];
 
   return (
     <button

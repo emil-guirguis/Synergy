@@ -162,7 +162,7 @@
   background-color: #fffde7;
 }
 
-body[data-theme='dark'] .editable-data-grid__cell--editing,
+:root[data-theme='dark'] .editable-data-grid__cell--editing,
 .dark .editable-data-grid__cell--editing {
   background-color: rgba(255, 235, 59, 0.12);
 }
@@ -279,7 +279,7 @@ body[data-theme='dark'] .editable-data-grid__cell--editing,
   background-color: #fffde7;
 }
 
-body[data-theme='dark'] .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-root.Mui-focused,
+:root[data-theme='dark'] .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-root.Mui-focused,
 .dark .editable-data-grid__wrapper--inline-inputs .editable-data-grid__cell .MuiOutlinedInput-root.Mui-focused {
   background-color: rgba(255, 235, 59, 0.12);
 }

@@ -54,16 +54,16 @@
 }
 
 /* ── Dark mode ───────────────────────────────────────────────── */
-body[data-theme='dark'] .form-field-root .MuiInputBase-root.Mui-focused .MuiOutlinedInput-notchedOutline,
+:root[data-theme='dark'] .form-field-root .MuiInputBase-root.Mui-focused .MuiOutlinedInput-notchedOutline,
 .dark .form-field-root .MuiInputBase-root.Mui-focused .MuiOutlinedInput-notchedOutline {
   border-color: #8ab4f8;
   box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.18);
 }
-body[data-theme='dark'] .form-field-root--modified .MuiOutlinedInput-notchedOutline,
+:root[data-theme='dark'] .form-field-root--modified .MuiOutlinedInput-notchedOutline,
 .dark .form-field-root--modified .MuiOutlinedInput-notchedOutline { border-color: #8ab4f8; }
-body[data-theme='dark'] .form-field-root--modified .MuiInputLabel-root::after,
+:root[data-theme='dark'] .form-field-root--modified .MuiInputLabel-root::after,
 .dark .form-field-root--modified .MuiInputLabel-root::after { background: #8ab4f8; }
-body[data-theme='dark'] .form-field-root .MuiInputBase-root.Mui-error.Mui-focused .MuiOutlinedInput-notchedOutline,
+:root[data-theme='dark'] .form-field-root .MuiInputBase-root.Mui-error.Mui-focused .MuiOutlinedInput-notchedOutline,
 .dark .form-field-root .MuiInputBase-root.Mui-error.Mui-focused .MuiOutlinedInput-notchedOutline {
   border-color: #f28b82;
   box-shadow: 0 0 0 3px rgba(242, 139, 130, 0.18);
