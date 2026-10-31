@@ -42,6 +42,41 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Dark palette. Mirrors darkTokens in src/theme/tokens.ts — keep the two in
+   step; tokens.ts feeds MUI, this block feeds plain CSS.
+
+   Keyed on the data-theme attribute that ColorModeProvider stamps on <html>,
+   not on prefers-color-scheme, so the in-app toggle actually moves it. The
+   provider still defaults to the OS setting, so OS-driven dark keeps working
+   for anyone who never touches the toggle. */
+:root[data-theme='dark'] {
+  --color-primary: #818cf8;
+  --color-primary-light: rgba(129, 140, 248, 0.12);
+  --color-primary-dark: #6366f1;
+  --color-secondary: #a78bfa;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+  --color-error-light: rgba(248, 113, 113, 0.16);
+  --color-info: #38bdf8;
+
+  --color-background: #0f1115;
+  --color-surface: #171a21;
+  --color-border: #2a2f3a;
+  --color-border-light: #22262f;
+  --color-hover: rgba(255, 255, 255, 0.06);
+
+  --color-text-primary: #f3f4f6;
+  --color-text-secondary: #9ca3af;
+  --color-text-disabled: #6b7280;
+
+  /* Soft light-mode shadows are invisible on dark; surface steps carry most
+     of the elevation and these supply depth for genuinely floating things. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
