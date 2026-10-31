@@ -24,7 +24,7 @@
   width: 320px;
   max-width: 85vw;
   height: calc(100vh - 64px); /* Account for header height */
-  background-color: var(--color-surface, #ffffff);
+  background-color: var(--color-surface);
   z-index: 1999;
   display: flex;
   flex-direction: column;
@@ -46,8 +46,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
-  background-color: var(--color-primary, #4f46e5);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-primary);
   color: white;
   min-height: 64px;
 }
@@ -101,15 +101,15 @@
   align-items: center;
   gap: 1rem;
   padding: 1.5rem;
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
-  background-color: var(--color-background, #f8f9fa);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-background);
 }
 
 .user-avatar {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -130,7 +130,7 @@
 .user-name {
   font-weight: 600;
   font-size: 1rem;
-  color: var(--color-text-primary, #333);
+  color: var(--color-text-primary);
   margin-bottom: 0.25rem;
   white-space: nowrap;
   overflow: hidden;
@@ -139,7 +139,7 @@
 
 .user-email {
   font-size: 0.875rem;
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary);
   margin-bottom: 0.25rem;
   white-space: nowrap;
   overflow: hidden;
@@ -148,9 +148,9 @@
 
 .user-role {
   font-size: 0.75rem;
-  color: var(--color-text-disabled, #999);
+  color: var(--color-text-disabled);
   text-transform: capitalize;
-  background-color: var(--color-border, #e0e0e0);
+  background-color: var(--color-border);
   padding: 0.125rem 0.5rem;
   border-radius: 12px;
   display: inline-block;
@@ -162,7 +162,7 @@
   overflow-y: auto;
   max-height: 40vh;
   padding: 0.5rem 0;
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* Navigation Menu */
@@ -198,17 +198,17 @@
 }
 
 .mobile-menu-link:hover {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+  background-color: var(--color-hover);
 }
 
 .mobile-menu-link:focus {
   outline: none;
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+  background-color: var(--color-hover);
 }
 
 .mobile-menu-link.active {
-  background-color: var(--color-primary-light, rgba(79, 70, 229, 0.1));
-  color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
 }
 
 .mobile-menu-link.active::before {
@@ -219,7 +219,7 @@
   transform: translateY(-50%);
   width: 3px;
   height: 24px;
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   border-radius: 0 2px 2px 0;
 }
 
@@ -235,14 +235,14 @@
   flex: 1;
   font-weight: 500;
   font-size: 0.8125rem;
-  color: var(--color-text-primary, #333);
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .menu-badge {
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   color: white;
   font-size: 0.75rem;
   font-weight: 600;
@@ -254,7 +254,7 @@
 
 .menu-arrow {
   font-size: 0.625rem;
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary);
   flex-shrink: 0;
 }
 
@@ -272,9 +272,9 @@
   list-style: none;
   margin: 0;
   padding: 0 0.5rem;
-  background-color: var(--color-background, #f8f9fa);
-  border-top: 1px solid var(--color-border, #e0e0e0);
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  background-color: var(--color-background);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .mobile-menu-link--child {
@@ -290,14 +290,14 @@
 
 .mobile-menu-item__content {
   padding: 0.5rem 0;
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* Quick Actions */
 .mobile-nav__actions {
   padding: 1rem 0;
-  border-top: 1px solid var(--color-border, #e0e0e0);
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .mobile-action-button {
@@ -313,12 +313,12 @@
 }
 
 .mobile-action-button:hover {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+  background-color: var(--color-hover);
 }
 
 .mobile-action-button:focus {
   outline: none;
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+  background-color: var(--color-hover);
 }
 
 .action-icon {
@@ -332,14 +332,14 @@
 .action-label {
   font-weight: 500;
   font-size: 0.875rem;
-  color: var(--color-text-primary, #333);
+  color: var(--color-text-primary);
 }
 
 /* Footer */
 .mobile-nav__footer {
   padding: 1rem 1.5rem;
-  border-top: 1px solid var(--color-border, #e0e0e0);
-  background-color: var(--color-background, #f8f9fa);
+  border-top: 1px solid var(--color-border);
+  background-color: var(--color-background);
 }
 
 .mobile-logout-button {
@@ -356,11 +356,11 @@
 }
 
 .mobile-logout-button:hover {
-  color: var(--color-error, #dc3545);
+  color: var(--color-error);
 }
 
 .mobile-logout-button:focus {
-  outline: 2px solid var(--color-error, #dc3545);
+  outline: 2px solid var(--color-error);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -374,13 +374,13 @@
 .logout-label {
   font-weight: 500;
   font-size: 1rem;
-  color: var(--color-error, #dc3545);
+  color: var(--color-error);
 }
 
 .app-version {
   text-align: center;
   font-size: 0.75rem;
-  color: var(--color-text-disabled, #999);
+  color: var(--color-text-disabled);
   font-family: monospace;
 }
 
@@ -395,12 +395,12 @@
 }
 
 .mobile-nav__menu::-webkit-scrollbar-thumb {
-  background-color: var(--color-border, #e0e0e0);
+  background-color: var(--color-border);
   border-radius: 2px;
 }
 
 .mobile-nav__menu::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-text-disabled, #999);
+  background-color: var(--color-text-disabled);
 }
 
 /* Responsive adjustments */
@@ -414,7 +414,7 @@
 /* High contrast mode support */
 @media (prefers-contrast: high) {
   .mobile-nav {
-    border-right: 2px solid var(--color-border, #e0e0e0);
+    border-right: 2px solid var(--color-border);
   }
 
   .mobile-nav__header,

@@ -13,8 +13,8 @@
    --color-primary/-light (set in each app's index.css) instead of hardcoding,
    so tabs follow the app's brand instead of forcing MeterItPro's indigo. */
 .form-tabs {
-  --ft-accent: var(--color-primary, #4f46e5);
-  --ft-accent-tint: var(--color-primary-light, rgba(79, 70, 229, 0.12));
+  --ft-accent: var(--color-primary);
+  --ft-accent-tint: var(--color-primary-light);
   --ft-track: #f1f3f4;
 
   display: flex;
@@ -53,7 +53,7 @@
   background: none;
   border: none;
   border-radius: 8px;
-  color: var(--color-text-secondary, #5f6368);
+  color: var(--color-text-secondary);
   font-weight: 500;
   font-size: 14px;            /* was 16px */
   white-space: nowrap;
@@ -63,7 +63,7 @@
 }
 
 .form-tabs__tab:hover {
-  color: var(--color-text-primary, #202124);
+  color: var(--color-text-primary);
   background: rgba(0, 0, 0, 0.04);
 }
 
@@ -82,11 +82,11 @@
 
 /* Tab with validation errors */
 .form-tabs__tab--error {
-  color: var(--color-error, #ea4335);
+  color: var(--color-error);
 }
 
 .form-tabs__tab--error.form-tabs__tab--active {
-  color: var(--color-error, #ea4335);
+  color: var(--color-error);
   box-shadow: 0 0 0 1px rgba(234, 67, 53, 0.4), 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
@@ -96,7 +96,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--color-error, #ea4335);
+  background: var(--color-error);
   margin-left: 2px;
   vertical-align: middle;
   flex-shrink: 0;

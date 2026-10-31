@@ -1,4 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+// Framework colour defaults; apps override per system in their own index.css.
+import './tokens.css';
 
 /**
  * What the user picked. 'system' is a real choice, not the absence of one —

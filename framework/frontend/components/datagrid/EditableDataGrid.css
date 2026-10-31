@@ -48,7 +48,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   max-height: var(--editable-grid-max-height, 480px);
-  border: 1px solid var(--color-border, #e5e7eb);
+  border: 1px solid var(--color-border);
 }
 
 /* Table sits inside .editable-data-grid__wrapper's own card chrome (title bar
@@ -62,8 +62,8 @@
 /* Card wrapper used when `title` is set: title bar + table rendered as one
    continuous card, matching BaseList's toolbar-over-table look. */
 .editable-data-grid__wrapper {
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
@@ -75,8 +75,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
-  background: var(--color-surface, #ffffff);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .editable-data-grid__toolbar-title {
@@ -85,12 +85,12 @@
   gap: 6px;
   font-size: 0.9375rem;
   font-weight: 600;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
 }
 
 .editable-data-grid__toolbar-info {
   font-size: 16px;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   cursor: help;
 }
 
@@ -101,15 +101,15 @@
   top: 0;
   z-index: 1;
   font-weight: 600;
-  background: var(--color-background-alt, #f3f4f6);
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
-  color: var(--color-text-secondary, #6b7280);
+  background: var(--color-background-alt);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
   font-size: 13px;
   padding: 12px !important;
 }
 
 .editable-data-grid__row {
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .editable-data-grid__row:last-child {
@@ -119,11 +119,11 @@
 /* Zebra striping — a hair lighter than the hover tint below so hovering
    still reads as a distinct state on every row, striped or not. */
 .editable-data-grid__row:nth-of-type(even) {
-  background-color: var(--color-background, #fafafa);
+  background-color: var(--color-background);
 }
 
 .editable-data-grid__row:hover {
-  background-color: var(--color-background-alt, #f3f4f6);
+  background-color: var(--color-background-alt);
 }
 
 /* min-height (not height) so a wrapped multiline description can grow the row
@@ -135,7 +135,7 @@
   cursor: pointer;
   position: relative;
   font-size: 14px;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   vertical-align: middle;
 }
 
@@ -149,12 +149,12 @@
 
 .editable-data-grid__cell-dropdown-icon {
   font-size: 10px;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   flex-shrink: 0;
 }
 
 .editable-data-grid__cell--editable:hover {
-  background-color: var(--color-background-alt, #f3f4f6);
+  background-color: var(--color-background-alt);
 }
 
 /* Same pale-yellow active-field highlight as BaseForm.css's focused inputs. */
@@ -189,17 +189,17 @@
 }
 
 .editable-data-grid__delete-button {
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 
 .editable-data-grid__delete-button:hover {
-  color: var(--color-error, #dc2626);
-  background-color: var(--color-error-light, rgba(220, 38, 38, 0.08));
+  color: var(--color-error);
+  background-color: var(--color-error-light);
 }
 
 .editable-data-grid__empty {
   padding: 48px 16px;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   font-size: 15px;
   text-align: center;
 }
@@ -214,7 +214,7 @@
 }
 
 .editable-data-grid__row._unsaved .editable-data-grid__cell {
-  border-left: 3px solid var(--color-primary, #4f46e5);
+  border-left: 3px solid var(--color-primary);
   padding-left: 9px !important;
 }
 
@@ -265,11 +265,11 @@
 }
 
 .editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline {
-  border-color: var(--color-border, #e5e7eb);
+  border-color: var(--color-border);
 }
 
 .editable-data-grid__wrapper--inline-inputs .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
-  border-color: var(--color-primary, #4f46e5);
+  border-color: var(--color-primary);
   border-width: 1px;
 }
 
@@ -331,7 +331,7 @@
 /* Added/edited since the form opened (PickableLineItemsGrid) — inset bar so
    the cell layout doesn't shift. */
 .editable-data-grid__row--changed > td:first-child {
-  box-shadow: inset 3px 0 0 var(--color-primary, #4f46e5);
+  box-shadow: inset 3px 0 0 var(--color-primary);
 }
 
 /* ---- One-active-cell grids (ChildRowsGrid) ----
@@ -350,7 +350,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
 }
 
 .editable-data-grid__display--editable {
@@ -358,11 +358,11 @@
 }
 
 .editable-data-grid__display--editable:hover {
-  border-color: var(--color-border, #e5e7eb);
+  border-color: var(--color-border);
 }
 
 .editable-data-grid__placeholder {
-  color: var(--color-text-secondary, #9ca3af);
+  color: var(--color-text-secondary);
 }
 
 /* Autocomplete editor: same inner box as the plain inputs (its own defaults

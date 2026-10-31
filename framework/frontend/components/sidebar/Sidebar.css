@@ -18,11 +18,11 @@
 
 /* Sidebar Card */
 .sidebar__card {
-  background-color: var(--color-surface, #ffffff);
+  background-color: var(--color-surface);
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   overflow: hidden;
-  border: 1px solid var(--color-border, #e5e7eb);
+  border: 1px solid var(--color-border);
 }
 
 /* Card Header - Collapsible */
@@ -31,8 +31,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem;
-  background-color: var(--color-background, #f5f5f5);
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  background-color: var(--color-background);
+  border-bottom: 1px solid var(--color-border);
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
@@ -40,7 +40,7 @@
 }
 
 .sidebar__card-header:hover {
-  background-color: var(--color-border, #e0e0e0);
+  background-color: var(--color-border);
 }
 
 /* Card Title */
@@ -48,7 +48,7 @@
   margin: 0;
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--color-text-primary, #333333);
+  color: var(--color-text-primary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -56,7 +56,7 @@
 /* Card Toggle Arrow */
 .sidebar__card-toggle {
   font-size: 0.75rem;
-  color: var(--color-text-secondary, #666666);
+  color: var(--color-text-secondary);
   transition: transform 0.2s ease;
 }
 
@@ -79,7 +79,7 @@
   padding: 0.5rem 0;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-primary, #4f46e5);
+  color: var(--color-primary);
   cursor: pointer;
   text-align: left;
   text-decoration: none;
@@ -91,7 +91,7 @@
 
 .sidebar__actions a:hover,
 .sidebar__actions button:hover {
-  color: var(--color-primary-dark, #0056b3);
+  color: var(--color-primary-dark);
   text-decoration: underline;
 }
 
@@ -103,14 +103,14 @@
 /* Disabled state */
 .sidebar__actions a[aria-disabled="true"],
 .sidebar__actions button:disabled {
-  color: var(--color-text-secondary, #9ca3af);
+  color: var(--color-text-secondary);
   cursor: not-allowed;
   text-decoration: none;
 }
 
 .sidebar__actions a[aria-disabled="true"]:hover,
 .sidebar__actions button:disabled:hover {
-  color: var(--color-text-secondary, #9ca3af);
+  color: var(--color-text-secondary);
   text-decoration: none;
 }
 
@@ -123,7 +123,7 @@
 
 .sidebar__stat-item {
   padding-bottom: 1rem;
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .sidebar__stat-item:last-child {
@@ -133,7 +133,7 @@
 
 .sidebar__stat-label {
   font-size: 0.75rem;
-  color: var(--color-text-secondary, #666666);
+  color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 0.5rem;
@@ -142,7 +142,7 @@
 .sidebar__stat-value {
   font-size: 1.5rem;
   font-weight: 600;
-  color: var(--color-text-primary, #333333);
+  color: var(--color-text-primary);
 }
 
 /* Responsive Design */

@@ -1,0 +1,101 @@
+/* Framework colour tokens — the defaults every framework stylesheet reads
+   (DataTable, BaseList, BaseForm, EditableDataGrid, SearchFilter, layout…).
+
+   Apps override per system in their own index.css: brand colours always
+   (TBWC green, MIP indigo/violet), neutrals only when their MUI theme uses a
+   different set. Everything here sits inside :where(), so it carries zero
+   specificity and any app :root rule wins regardless of import order.
+
+   Base values mirror lightColorTokens / darkColorTokens in colors.ts — keep
+   the two in step. Derived tokens (stripes, heads, hovers, chip tints) are
+   mixed from the base ones, so an app that overrides --color-surface or
+   --color-success gets matching derived shades for free.
+
+   Keyed on the data-theme attribute ColorModeProvider stamps on <html>,
+   never prefers-color-scheme, so the in-app toggle moves it. */
+
+/* ── Base: light ───────────────────────────────────────── */
+:where(:root) {
+  --color-primary: #4f46e5;
+  --color-primary-dark: #4338ca;
+  --color-primary-light: rgba(79, 70, 229, 0.1);
+  --color-secondary: #7c3aed;
+
+  --color-success: #16a34a;
+  --color-warning: #f59e0b;
+  --color-error: #dc2626;
+  --color-info: #0ea5e9;
+
+  --color-background: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-border: #e5e7eb;
+  --color-border-light: #f3f4f6;
+  --color-hover: rgba(17, 24, 39, 0.04);
+
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-disabled: #9ca3af;
+}
+
+/* ── Base: dark ────────────────────────────────────────── */
+:where(:root[data-theme='dark']) {
+  --color-primary: #d0bcff;
+  --color-primary-dark: #4f378b;
+  --color-primary-light: rgba(208, 188, 255, 0.16);
+  --color-secondary: #ccc7db;
+
+  --color-success: #a5d6a7;
+  --color-warning: #ffb74d;
+  --color-error: #f2b8b5;
+  --color-info: #81d4fa;
+
+  --color-background: #1c1b1f;
+  --color-surface: #232229;
+  --color-border: #49454e;
+  --color-border-light: #2e2d33;
+  --color-hover: rgba(255, 255, 255, 0.06);
+
+  --color-text-primary: #e6e1e5;
+  --color-text-secondary: #cac4d0;
+  --color-text-disabled: #938f99;
+}
+
+/* ── Derived: both modes ───────────────────────────────── */
+/* Mixing toward text-primary darkens on a light ground and lightens on a
+   dark one, so one formula serves both modes. */
+:where(:root) {
+  --gradient-brand: var(--color-primary);
+
+  /* Surface steps: zebra rows, table heads, hover and selected rows */
+  --color-background-alt: color-mix(in srgb, var(--color-text-primary) 4%, var(--color-surface));
+  --color-background-hover: color-mix(in srgb, var(--color-text-primary) 8%, var(--color-surface));
+  --color-background-primary: var(--color-surface);
+  --color-background-secondary: var(--color-background-alt);
+  --color-background-tertiary: var(--color-background-hover);
+  --color-background-disabled: var(--color-background-alt);
+  --color-border-hover: color-mix(in srgb, var(--color-text-primary) 25%, var(--color-border));
+
+  --color-text-tertiary: var(--color-text-secondary);
+  --color-text-placeholder: var(--color-text-disabled);
+  --color-text-dark: var(--color-text-primary);
+
+  --color-gray-50: color-mix(in srgb, var(--color-text-primary) 3%, var(--color-surface));
+  --color-gray-100: color-mix(in srgb, var(--color-text-primary) 6%, var(--color-surface));
+  --color-gray-200: color-mix(in srgb, var(--color-text-primary) 12%, var(--color-surface));
+  --color-gray-400: var(--color-text-disabled);
+
+  --color-primary-50: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  --color-focus: color-mix(in srgb, var(--color-primary) 25%, transparent);
+
+  /* Status chips and badges: tinted fill (-light), readable text (-dark) */
+  --color-success-light: color-mix(in srgb, var(--color-success) 16%, transparent);
+  --color-success-dark: color-mix(in srgb, var(--color-success) 70%, var(--color-text-primary));
+  --color-warning-light: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  --color-warning-dark: color-mix(in srgb, var(--color-warning) 70%, var(--color-text-primary));
+  --color-error-light: color-mix(in srgb, var(--color-error) 14%, transparent);
+  --color-error-dark: color-mix(in srgb, var(--color-error) 70%, var(--color-text-primary));
+  --color-info-light: color-mix(in srgb, var(--color-info) 16%, transparent);
+  --color-info-dark: color-mix(in srgb, var(--color-info) 70%, var(--color-text-primary));
+  --color-secondary-light: color-mix(in srgb, var(--color-secondary) 16%, transparent);
+  --color-secondary-dark: color-mix(in srgb, var(--color-secondary) 70%, var(--color-text-primary));
+}

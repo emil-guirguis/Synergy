@@ -4,8 +4,8 @@
   position: relative;
   width: auto;
   min-width: 0;
-  background-color: var(--color-surface, #ffffff);
-  border-right: 1px solid var(--color-border, #e0e0e0);
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   z-index: 1;
@@ -56,13 +56,13 @@
 .brand-text {
   font-weight: 600;
   font-size: 1.125rem;
-  color: var(--color-text-primary, #333);
+  color: var(--color-text-primary);
   white-space: nowrap;
 }
 
 .toggle-icon {
   font-size: 0.875rem;
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary);
   transition: transform 0.3s ease;
   display: inline-block; /* allow transform to affect layout */
   transform-origin: 50% 50%;
@@ -90,7 +90,7 @@
 
 /* Custom Sidebar Content */
 .sidebar__custom-content {
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  border-bottom: 1px solid var(--color-border);
   padding: 0.75rem 0;
   flex-shrink: 0;
 }
@@ -146,22 +146,22 @@
 }
 
 .sidebar-link:hover {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+  background-color: var(--color-hover);
   transform: translateZ(0) translateX(2px);
 }
 
 .sidebar-link:focus {
-  outline: 2px solid var(--color-primary, #4f46e5);
+  outline: 2px solid var(--color-primary);
   outline-offset: -2px;
 }
 
 .sidebar-link.active {
-  background-color: var(--color-primary-light, rgba(79, 70, 229, 0.1));
-  color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
 }
 
 .sidebar-link.active .sidebar-label {
-  color: var(--color-primary, #4f46e5);
+  color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -179,7 +179,7 @@
   transform: translateY(-50%);
   width: 3px;
   height: 24px;
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   border-radius: 0 2px 2px 0;
 }
 
@@ -211,7 +211,7 @@
   flex: 1;
   font-weight: 500;
   font-size: 0.8125rem;
-  color: var(--color-text-primary, #333);
+  color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -221,7 +221,7 @@
 }
 
 .sidebar-badge {
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   color: white;
   font-size: 0.75rem;
   font-weight: 600;
@@ -234,7 +234,7 @@
 .sidebar-arrow {
   margin-left: 0.375rem;
   font-size: 0.625rem;
-  color: var(--color-text-secondary, #666);
+  color: var(--color-text-secondary);
   transition: transform 0.2s ease;
   flex-shrink: 0;
 }
@@ -274,7 +274,7 @@
 /* Inline custom content (e.g. meters list under a menu item) */
 .sidebar-item__content {
   display: none;
-  border-top: 1px solid var(--color-border, #e0e0e0);
+  border-top: 1px solid var(--color-border);
   margin: 0 0.5rem 0.25rem;
   overflow-y: auto;
   max-height: 60vh;
@@ -290,7 +290,7 @@
   left: calc(100% + 8px);
   top: 50%;
   transform: translate3d(0, -50%, 0);
-  background-color: var(--color-text-primary, #333);
+  background-color: var(--color-text-primary);
   color: white;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
@@ -314,7 +314,7 @@
   top: 50%;
   transform: translateY(-50%);
   border: 4px solid transparent;
-  border-right-color: var(--color-text-primary, #333);
+  border-right-color: var(--color-text-primary);
 }
 
 .sidebar.collapsed .sidebar-item:hover .sidebar-tooltip {
@@ -323,7 +323,7 @@
 }
 
 .tooltip-badge {
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   color: white;
   font-size: 0.75rem;
   padding: 0.125rem 0.375rem;
@@ -367,7 +367,7 @@
   right: 8px;
   width: 6px;
   height: 6px;
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   border-radius: 50%;
   transform: translateY(-50%);
 }
@@ -402,12 +402,12 @@
 }
 
 .sidebar__nav::-webkit-scrollbar-thumb {
-  background-color: var(--color-border, #e0e0e0);
+  background-color: var(--color-border);
   border-radius: 2px;
 }
 
 .sidebar__nav::-webkit-scrollbar-thumb:hover {
-  background-color: var(--color-text-disabled, #999);
+  background-color: var(--color-text-disabled);
 }
 
 /* Responsive Design */
@@ -469,7 +469,7 @@
   }
 
   .sidebar-link.active {
-    border: 2px solid var(--color-primary, #4f46e5);
+    border: 2px solid var(--color-primary);
   }
 }
 

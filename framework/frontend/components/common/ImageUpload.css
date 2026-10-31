@@ -4,9 +4,9 @@
 
 .image-upload__dropzone {
   position: relative;
-  border: 2px dashed var(--color-border, #d1d5db);
+  border: 2px dashed var(--color-border);
   border-radius: 8px;
-  background: var(--color-surface, #ffffff);
+  background: var(--color-surface);
   transition: all 0.2s ease;
   cursor: pointer;
   min-height: 200px;
@@ -18,32 +18,32 @@
 }
 
 .image-upload__dropzone:hover {
-  border-color: var(--color-primary, #3b82f6);
-  background: var(--color-primary-light, #f0f9ff);
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
 }
 
 .image-upload__dropzone--dragging {
-  border-color: var(--color-primary, #3b82f6);
-  background: var(--color-primary-light, #f0f9ff);
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
   transform: scale(1.02);
 }
 
 .image-upload__dropzone--disabled {
   cursor: not-allowed;
   opacity: 0.6;
-  background: var(--color-background-disabled, #f9fafb);
+  background: var(--color-background-disabled);
 }
 
 .image-upload__dropzone--disabled:hover {
-  border-color: var(--color-border, #d1d5db);
-  background: var(--color-background-disabled, #f9fafb);
+  border-color: var(--color-border);
+  background: var(--color-background-disabled);
   transform: none;
 }
 
 .image-upload__dropzone--has-image {
   min-height: 250px;
   border-style: solid;
-  border-color: var(--color-border, #d1d5db);
+  border-color: var(--color-border);
 }
 
 .image-upload__input {
@@ -64,13 +64,13 @@
 .image-upload__text {
   font-size: 1rem;
   font-weight: 500;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   margin-bottom: 0.5rem;
 }
 
 .image-upload__hint {
   font-size: 0.875rem;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   line-height: 1.4;
 }
 
@@ -85,8 +85,8 @@
 .image-upload__spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid var(--color-border, #d1d5db);
-  border-top: 3px solid var(--color-primary, #3b82f6);
+  border: 3px solid var(--color-border);
+  border-top: 3px solid var(--color-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -143,7 +143,7 @@
   border: none;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.9);
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
   font-size: 16px;
   font-weight: bold;
   cursor: pointer;
@@ -155,7 +155,7 @@
 }
 
 .image-upload__remove:hover {
-  background: var(--color-error, #ef4444);
+  background: var(--color-error);
   color: white;
   transform: scale(1.1);
 }
@@ -199,15 +199,15 @@
 }
 
 .image-upload--error .image-upload__dropzone {
-  border-color: var(--color-error, #ef4444);
-  background: var(--color-error-light, #fef2f2);
+  border-color: var(--color-error);
+  background: var(--color-error-light);
 }
 
 .image-upload--success .image-upload__dropzone {
-  border-color: var(--color-success, #10b981);
+  border-color: var(--color-success);
 }
 
 .image-upload__dropzone:focus-within {
-  outline: 2px solid var(--color-primary, #3b82f6);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }

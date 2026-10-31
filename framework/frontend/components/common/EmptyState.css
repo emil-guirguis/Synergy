@@ -21,14 +21,14 @@
   font-size: 2rem;
   line-height: 1;
   margin-bottom: 0.25rem;
-  color: var(--color-text-tertiary, #9ca3af);
+  color: var(--color-text-tertiary);
 }
 
 .empty-state__message {
   margin: 0;
   font-size: 0.9375rem;
   font-weight: 500;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 
 .empty-state__hint {
@@ -36,7 +36,7 @@
   max-width: 44ch;
   font-size: 0.8125rem;
   line-height: 1.5;
-  color: var(--color-text-tertiary, #9ca3af);
+  color: var(--color-text-tertiary);
 }
 
 .empty-state__action {

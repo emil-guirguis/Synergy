@@ -7,7 +7,7 @@
   align-items: center;
   gap: 1rem;
   padding: 1.5rem;
-  background: var(--color-surface, #ffffff);
+  background: var(--color-surface);
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   transition: all 0.2s ease;
@@ -25,29 +25,29 @@
 }
 
 .stat-card--clickable:focus {
-  outline: 2px solid var(--color-primary, #3b82f6);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
 /* Variant colors */
 .stat-card--default {
-  border-left-color: var(--color-gray-400, #9ca3af);
+  border-left-color: var(--color-gray-400);
 }
 
 .stat-card--success {
-  border-left-color: var(--color-success, #10b981);
+  border-left-color: var(--color-success);
 }
 
 .stat-card--warning {
-  border-left-color: var(--color-warning, #f59e0b);
+  border-left-color: var(--color-warning);
 }
 
 .stat-card--error {
-  border-left-color: var(--color-error, #ef4444);
+  border-left-color: var(--color-error);
 }
 
 .stat-card--info {
-  border-left-color: var(--color-info, #3b82f6);
+  border-left-color: var(--color-info);
 }
 
 /* Icon */
@@ -66,7 +66,7 @@
 .stat-card__title {
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   margin: 0 0 0.25rem 0;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -75,7 +75,7 @@
 .stat-card__value {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   margin: 0 0 0.25rem 0;
   line-height: 1;
   word-break: break-word;
@@ -83,7 +83,7 @@
 
 .stat-card__subtitle {
   font-size: 0.875rem;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   margin: 0;
 }
 
@@ -98,15 +98,15 @@
 }
 
 .stat-card__trend--up {
-  color: var(--color-success, #10b981);
+  color: var(--color-success);
 }
 
 .stat-card__trend--down {
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
 }
 
 .stat-card__trend--neutral {
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 
 .stat-card__trend-icon {
@@ -114,7 +114,7 @@
 }
 
 .stat-card__trend-label {
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   margin-left: 0.25rem;
 }
 
@@ -136,9 +136,9 @@
   border-radius: 8px;
   background: linear-gradient(
     90deg,
-    var(--color-gray-200, #e5e7eb) 25%,
-    var(--color-gray-100, #f3f4f6) 50%,
-    var(--color-gray-200, #e5e7eb) 75%
+    var(--color-gray-200) 25%,
+    var(--color-gray-100) 50%,
+    var(--color-gray-200) 75%
   );
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s ease-in-out infinite;
@@ -158,9 +158,9 @@
   border-radius: 4px;
   background: linear-gradient(
     90deg,
-    var(--color-gray-200, #e5e7eb) 25%,
-    var(--color-gray-100, #f3f4f6) 50%,
-    var(--color-gray-200, #e5e7eb) 75%
+    var(--color-gray-200) 25%,
+    var(--color-gray-100) 50%,
+    var(--color-gray-200) 75%
   );
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s ease-in-out infinite;

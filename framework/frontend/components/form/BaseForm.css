@@ -16,7 +16,7 @@
   flex-direction: column;
   gap: 0;
   padding: 0;
-  background: var(--color-background, #f9fafb);
+  background: var(--color-background);
   overflow: visible;
   width: 100%;
   min-width: 0;
@@ -179,9 +179,9 @@
 /* Form Sections - card-based sections with borders and shadows */
 .base-form__section {
   padding: 1.25rem;
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e5e7eb);
-  border-left: 3px solid var(--color-primary, #4f46e5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   min-width: 0;
@@ -237,7 +237,7 @@
   margin: 0 0 1rem 0;
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -370,11 +370,11 @@ div.form-container div.MuiFormControl-root {
   left: 0.75rem;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: left center;
   pointer-events: none;
-  background-color: var(--color-surface, #ffffff);
+  background-color: var(--color-surface);
   padding: 0 0.25rem;
   max-width: calc(100% - 1.5rem);
   overflow: hidden;
@@ -383,13 +383,13 @@ div.form-container div.MuiFormControl-root {
 }
 
 .base-form__label--error {
-  color: var(--color-error, #dc2626);
+  color: var(--color-error);
   font-weight: 600;
 }
 
 /* Required Indicator */
 .base-form__required {
-  color: var(--color-error, #dc2626);
+  color: var(--color-error);
 }
 
 /* Schema loading skeleton */
@@ -467,30 +467,30 @@ div.form-container div.MuiFormControl-root {
 }
 
 .base-form__btn--primary {
-  background: var(--color-primary, #4f46e5);
+  background: var(--color-primary);
   color: white;
 }
 
 .base-form__btn--primary:hover:not(:disabled) {
-  background: var(--color-primary-dark, #1565c0);
+  background: var(--color-primary-dark);
   box-shadow: 0 2px 4px rgba(25, 118, 210, 0.3);
 }
 
 .base-form__btn--secondary {
-  background: var(--color-background-alt, #f3f4f6);
-  color: var(--color-text-secondary, #6b7280);
-  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-background-alt);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
 }
 
 .base-form__btn--secondary:hover:not(:disabled) {
-  background: var(--color-background-hover, #e5e7eb);
-  color: var(--color-text-primary, #111827);
-  border-color: var(--color-border-hover, #d1d5db);
+  background: var(--color-background-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
 }
 
 .base-form__btn:disabled {
-  background: var(--color-background-alt, #f3f4f6);
-  color: var(--color-text-secondary, #9ca3af);
+  background: var(--color-background-alt);
+  color: var(--color-text-secondary);
   cursor: not-allowed;
   box-shadow: none;
 }
@@ -536,7 +536,7 @@ div.form-container div.MuiFormControl-root {
   align-items: flex-start;
   gap: 1rem;
   padding: 1rem 1.5rem;
-  background: var(--color-error, #dc2626);
+  background: var(--color-error);
   color: white;
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
@@ -590,13 +590,13 @@ div.form-container div.MuiFormControl-root {
 
 /* System Information Section - Read-only fields styling */
 .base-form__section:has(.base-form__field input:disabled) {
-  background: var(--color-background-alt, #f9fafb);
-  border-color: var(--color-border, #e5e7eb);
+  background: var(--color-background-alt);
+  border-color: var(--color-border);
   opacity: 0.85;
 }
 
 .base-form__section:has(.base-form__field input:disabled) .base-form__section-title {
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   font-weight: 500;
 }
 
@@ -701,8 +701,8 @@ div.form-container div.MuiFormControl-root {
 /* redeclaring it here would just reintroduce the same hardcoding bug.     */
 .base-form,
 .form-container {
-  --mf-accent: var(--color-primary, #4f46e5);
-  --mf-accent-tint: var(--color-primary-light, rgba(79, 70, 229, 0.12));
+  --mf-accent: var(--color-primary);
+  --mf-accent-tint: var(--color-primary-light);
   --mf-hairline: #f0f0f0;
 }
 

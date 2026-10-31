@@ -33,38 +33,38 @@
 
 /* Color Variants */
 .badge--primary {
-  background-color: var(--color-primary-light, #e3f2fd);
-  color: var(--color-primary-dark, #0d47a1);
+  background-color: var(--color-primary-light);
+  color: var(--color-primary-dark);
 }
 
 .badge--secondary {
-  background-color: var(--color-secondary-light, #ede7f6);
-  color: var(--color-secondary-dark, #4527a0);
+  background-color: var(--color-secondary-light);
+  color: var(--color-secondary-dark);
 }
 
 .badge--success {
-  background-color: var(--color-success-light, #c8e6c9);
-  color: var(--color-success-dark, #2e7d32);
+  background-color: var(--color-success-light);
+  color: var(--color-success-dark);
 }
 
 .badge--warning {
-  background-color: var(--color-warning-light, #fff3cd);
-  color: var(--color-warning-dark, #92400e);
+  background-color: var(--color-warning-light);
+  color: var(--color-warning-dark);
 }
 
 .badge--error {
-  background-color: var(--color-error-light, #ffccbc);
-  color: var(--color-error-dark, #d84315);
+  background-color: var(--color-error-light);
+  color: var(--color-error-dark);
 }
 
 .badge--info {
-  background-color: var(--color-info-light, #e1f5fe);
-  color: var(--color-info-dark, #01579b);
+  background-color: var(--color-info-light);
+  color: var(--color-info-dark);
 }
 
 .badge--neutral {
-  background-color: var(--color-background-secondary, #f5f5f5);
-  color: var(--color-text-secondary, #616161);
+  background-color: var(--color-background-secondary);
+  color: var(--color-text-secondary);
 }
 
 /* Status Badge (pill) — shared by list tables and dashboards */
@@ -80,19 +80,19 @@
 
 .status-badge--active,
 .status-badge--success {
-  background-color: var(--color-success-light, #c8e6c9);
-  color: var(--color-success-dark, #2e7d32);
+  background-color: var(--color-success-light);
+  color: var(--color-success-dark);
 }
 
 .status-badge--inactive,
 .status-badge--error {
-  background-color: var(--color-error-light, #ffccbc);
-  color: var(--color-error-dark, #d84315);
+  background-color: var(--color-error-light);
+  color: var(--color-error-dark);
 }
 
 .status-badge--warning {
-  background-color: var(--color-warning-light, #fff3cd);
-  color: var(--color-warning-dark, #92400e);
+  background-color: var(--color-warning-light);
+  color: var(--color-warning-dark);
 }
 
 /* Status Indicator Styles */
@@ -259,11 +259,11 @@
 }
 
 .table-cell__chip-list .badge--warning[data-tooltip]::after {
-  border-top: 2px solid var(--color-warning-dark, #92400e);
+  border-top: 2px solid var(--color-warning-dark);
 }
 
 .table-cell__chip-list .badge--error[data-tooltip]::after {
-  border-top: 2px solid var(--color-error-dark, #d84315);
+  border-top: 2px solid var(--color-error-dark);
 }
 
 /* Responsive adjustments */
@@ -299,13 +299,13 @@ tbody tr:hover .status-indicator {
 tr:hover .table-cell__primary,
 .data-table__row:hover .table-cell__primary,
 tbody tr:hover .table-cell__primary {
-  color: var(--color-text-primary, #111827) !important;
+  color: var(--color-text-primary) !important;
 }
 
 tr:hover .table-cell__secondary,
 .data-table__row:hover .table-cell__secondary,
 tbody tr:hover .table-cell__secondary {
-  color: var(--color-text-secondary, #6b7280) !important;
+  color: var(--color-text-secondary) !important;
 }
 
 /* Dark mode support removed */

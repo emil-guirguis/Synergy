@@ -9,7 +9,7 @@
 .form-container {
   display: flex;
   flex-direction: column;
-  background: var(--color-background, #f9fafb);
+  background: var(--color-background);
   overflow: visible;
   margin: 0;
   padding: 0;

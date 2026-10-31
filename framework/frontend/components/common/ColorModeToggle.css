@@ -13,17 +13,17 @@
   border: none;
   cursor: pointer;
   border-radius: 50%;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .color-mode-toggle:hover {
-  background-color: var(--color-hover, rgba(17, 24, 39, 0.04));
-  color: var(--color-text-primary, #111827);
+  background-color: var(--color-hover);
+  color: var(--color-text-primary);
 }
 
 .color-mode-toggle:focus-visible {
-  outline: 2px solid var(--color-primary, #4f46e5);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 

@@ -3,7 +3,10 @@
   line-height: 1.5;
   font-weight: 400;
 
-  /* CSS Variables — Modern SaaS palette (indigo/violet, soft neutrals) */
+  /* MIP overrides of the framework defaults (framework/frontend/theme/
+     tokens.css): brand indigo/violet, plus the neutrals and status colours
+     src/theme/tokens.ts gives MUI, so plain CSS and MUI match. Derived
+     tokens (stripes, table heads, chip tints) come from the framework. */
   --color-primary: #4f46e5;
   --color-primary-light: rgba(79, 70, 229, 0.1);
   --color-primary-dark: #4338ca;

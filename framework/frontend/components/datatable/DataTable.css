@@ -2,7 +2,7 @@
 
 .data-table {
   width: 100%;
-  background: var(--color-surface, #ffffff);
+  background: var(--color-surface);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: hidden;
@@ -14,8 +14,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: var(--color-background-alt, #f9fafb);
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-background-alt);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .data-list__header-left {
@@ -35,7 +35,7 @@
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
 }
 
 /* Bulk Actions */
@@ -44,8 +44,8 @@
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: var(--color-primary-light, #f0f9ff);
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-primary-light);
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* NOTE: previous full-width thead actions have been removed; header actions
@@ -80,7 +80,7 @@
 
 .data-table__selected-count {
   font-weight: 500;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
 }
 
 .data-table__bulk-btn {
@@ -97,48 +97,48 @@
 }
 
 .data-table__bulk-btn--primary {
-  background: var(--color-primary, #3b82f6);
+  background: var(--color-primary);
   color: white;
 }
 
 .data-table__bulk-btn--primary:hover {
-  background: var(--color-primary-dark, #2563eb);
+  background: var(--color-primary-dark);
 }
 
 .data-table__bulk-btn--secondary {
-  background: var(--color-secondary, #6b7280);
+  background: var(--color-secondary);
   color: white;
 }
 
 .data-table__bulk-btn--secondary:hover {
-  background: var(--color-secondary-dark, #4b5563);
+  background: var(--color-secondary-dark);
 }
 
 .data-table__bulk-btn--success {
-  background: var(--color-success, #10b981);
+  background: var(--color-success);
   color: white;
 }
 
 .data-table__bulk-btn--success:hover {
-  background: var(--color-success-dark, #059669);
+  background: var(--color-success-dark);
 }
 
 .data-table__bulk-btn--warning {
-  background: var(--color-warning, #f59e0b);
+  background: var(--color-warning);
   color: white;
 }
 
 .data-table__bulk-btn--warning:hover {
-  background: var(--color-warning-dark, #d97706);
+  background: var(--color-warning-dark);
 }
 
 .data-table__bulk-btn--error {
-  background: var(--color-error, #ef4444);
+  background: var(--color-error);
   color: white;
 }
 
 .data-table__bulk-btn--error:hover {
-  background: var(--color-error-dark, #dc2626);
+  background: var(--color-error-dark);
 }
 
 .data-table__bulk-icon {
@@ -159,7 +159,7 @@
   min-width: 0;
   /* Add scrollbar styling for better visibility */
   scrollbar-width: thin;
-  scrollbar-color: var(--color-primary, #3b82f6) var(--color-background-alt, #f9fafb);
+  scrollbar-color: var(--color-primary) var(--color-background-alt);
 }
 
 /* Webkit scrollbar styling */
@@ -169,17 +169,17 @@
 }
 
 .data-table__wrapper::-webkit-scrollbar-track {
-  background: var(--color-background-alt, #f9fafb);
+  background: var(--color-background-alt);
   border-radius: 4px;
 }
 
 .data-table__wrapper::-webkit-scrollbar-thumb {
-  background: var(--color-primary, #3b82f6);
+  background: var(--color-primary);
   border-radius: 4px;
 }
 
 .data-table__wrapper::-webkit-scrollbar-thumb:hover {
-  background: var(--color-primary-dark, #2563eb);
+  background: var(--color-primary-dark);
 }
 
 /* Table */
@@ -192,16 +192,16 @@
 }
 
 .data-table__table--striped tbody tr:nth-child(even) {
-  background: var(--color-background-alt, #f8fafc);
+  background: var(--color-background-alt);
 }
 
 .data-table__table--hoverable tbody tr:hover {
-  background: var(--color-background-hover, #f1f5f9) !important;
-  color: var(--color-text-primary, #111827) !important;
+  background: var(--color-background-hover) !important;
+  color: var(--color-text-primary) !important;
 }
 
 .data-table__table--hoverable tbody tr:hover .data-table__cell {
-  color: var(--color-text-primary, #111827) !important;
+  color: var(--color-text-primary) !important;
 }
 
 .data-table__row--clickable {
@@ -215,16 +215,16 @@
 }
 
 .data-table__card--clickable:hover {
-  background: var(--color-primary-50, #eff6ff);
+  background: var(--color-primary-50);
 }
 
 .data-table__row--clickable:hover {
-  background: var(--color-primary-50, #eff6ff) !important;
-  color: var(--color-text-primary, #111827) !important;
+  background: var(--color-primary-50) !important;
+  color: var(--color-text-primary) !important;
 }
 
 .data-table__row--clickable:hover .data-table__cell {
-  color: var(--color-text-primary, #111827) !important;
+  color: var(--color-text-primary) !important;
 }
 
 /* Last row checked/clicked into (view/edit/etc) — stays highlighted when a
@@ -232,56 +232,56 @@
 .data-table__row--active,
 .data-table__table--striped tbody tr.data-table__row--active:nth-child(even),
 .data-table__table--striped tbody tr.data-table__row--active:nth-child(odd) {
-  background: var(--color-info-light, #dbeafe) !important;
-  box-shadow: inset 4px 0 0 var(--color-primary, #3b82f6);
+  background: var(--color-info-light) !important;
+  box-shadow: inset 4px 0 0 var(--color-primary);
 }
 
 .data-table__row--active .data-table__cell {
-  color: var(--color-text-primary, #111827) !important;
+  color: var(--color-text-primary) !important;
   font-weight: 500;
 }
 
 .data-table__card--active {
-  background: var(--color-info-light, #dbeafe);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), inset 4px 0 0 var(--color-primary, #3b82f6);
+  background: var(--color-info-light);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), inset 4px 0 0 var(--color-primary);
 }
 
 /* Ensure text remains readable on striped rows */
 .data-table__table--striped tbody tr:nth-child(even) .data-table__cell {
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
 }
 
 /* Ensure hover state works on both odd and even rows */
 .data-table__table--hoverable.data-table__table--striped tbody tr:nth-child(even):hover {
-  background: var(--color-primary-50, #eff6ff) !important;
-  color: var(--color-text-primary, #111827) !important;
+  background: var(--color-primary-50) !important;
+  color: var(--color-text-primary) !important;
 }
 
 .data-table__table--hoverable.data-table__table--striped tbody tr:nth-child(even):hover .data-table__cell {
-  color: var(--color-text-primary, #111827) !important;
+  color: var(--color-text-primary) !important;
 }
 
 .data-table__table--hoverable.data-table__table--striped tbody tr:nth-child(odd):hover {
-  background: var(--color-primary-50, #eff6ff) !important;
-  color: var(--color-text-primary, #111827) !important;
+  background: var(--color-primary-50) !important;
+  color: var(--color-text-primary) !important;
 }
 
 .data-table__table--hoverable.data-table__table--striped tbody tr:nth-child(odd):hover .data-table__cell {
-  color: var(--color-text-primary, #111827) !important;
+  color: var(--color-text-primary) !important;
 }
 
 /* Table Header */
 .data-table__head {
-  background: var(--color-background-alt, #f9fafb);
-  border-bottom: 2px solid var(--color-border, #e5e7eb);
+  background: var(--color-background-alt);
+  border-bottom: 2px solid var(--color-border);
 }
 
 .data-table__header {
   padding: 8px 12px;
   text-align: left;
   font-weight: 600;
-  color: var(--color-text-primary, #111827);
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
   /* Frozen header row — pinned to the top of .data-table__wrapper's scrollport.
      The background has to sit on the cell itself (not .data-table__head) or
@@ -290,8 +290,8 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--color-background-alt, #f9fafb);
-  box-shadow: inset 0 -1px 0 var(--color-border, #e5e7eb);
+  background: var(--color-background-alt);
+  box-shadow: inset 0 -1px 0 var(--color-border);
 }
 
 .data-table__header--sortable {
@@ -302,7 +302,7 @@
 }
 
 .data-table__header--sortable:hover {
-  background: var(--color-background-hover, #f3f4f6);
+  background: var(--color-background-hover);
 }
 
 .data-table__header--select {
@@ -325,22 +325,22 @@
 .data-table__sort-indicator {
   font-size: 16px;
   font-weight: bold;
-  color: var(--color-primary, #3b82f6);
+  color: var(--color-primary);
 }
 
 /* Table Body */
 .data-table__body {
-  background: var(--color-surface, #ffffff);
+  background: var(--color-surface);
 }
 
 .data-table__row {
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  border-bottom: 1px solid var(--color-border);
   transition: background-color 0.2s ease;
 }
 
 .data-table__cell {
   padding: 8px 12px;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   vertical-align: middle;
 }
 
@@ -383,7 +383,7 @@
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 14px;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 
 .data-table__action-btn .material-symbols-outlined {
@@ -391,27 +391,27 @@
 }
 
 .data-table__action-btn:hover {
-  background: var(--color-background-hover, #f3f4f6);
+  background: var(--color-background-hover);
 }
 
 .data-table__action-btn--view:hover {
-  background: var(--color-info-light, #dbeafe);
-  color: var(--color-info, #3b82f6);
+  background: var(--color-info-light);
+  color: var(--color-info);
 }
 
 .data-table__action-btn--preview:hover {
-  background: var(--color-success-light, #d1fae5);
-  color: var(--color-success, #10b981);
+  background: var(--color-success-light);
+  color: var(--color-success);
 }
 
 .data-table__action-btn--edit:hover {
-  background: var(--color-warning-light, #fef3c7);
-  color: var(--color-warning, #f59e0b);
+  background: var(--color-warning-light);
+  color: var(--color-warning);
 }
 
 .data-table__action-btn--delete:hover {
-  background: var(--color-error-light, #fee2e2);
-  color: var(--color-error, #ef4444);
+  background: var(--color-error-light);
+  color: var(--color-error);
 }
 
 /* Pagination */
@@ -421,13 +421,13 @@
   justify-content: center;
   gap: 16px;
   padding: 16px;
-  border-top: 1px solid var(--color-border, #e5e7eb);
-  background: var(--color-background-alt, #f9fafb);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background-alt);
 }
 
 .data-table__pagination-info {
   font-size: 14px;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 
 .data-table__pagination-controls {
@@ -445,32 +445,32 @@
 .data-table__page-input {
   width: 52px;
   padding: 6px 8px;
-  border: 1px solid var(--color-border, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: var(--color-surface, #ffffff);
+  background: var(--color-surface);
   font-size: 14px;
   text-align: center;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   transition: border-color 0.15s ease;
 }
 
 .data-table__page-input:focus {
   outline: none;
-  border-color: var(--color-primary, #3b82f6);
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
 .data-table__page-of {
   font-size: 14px;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
 .data-table__page-btn {
   padding: 8px 12px;
-  border: 1px solid var(--color-border, #e5e7eb);
-  background: var(--color-surface, #ffffff);
-  color: var(--color-text-primary, #111827);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -478,8 +478,8 @@
 }
 
 .data-table__page-btn:hover:not(:disabled) {
-  background: var(--color-background-hover, #f3f4f6);
-  border-color: var(--color-primary, #3b82f6);
+  background: var(--color-background-hover);
+  border-color: var(--color-primary);
 }
 
 .data-table__page-btn:disabled {
@@ -488,9 +488,9 @@
 }
 
 .data-table__page-btn--active {
-  background: var(--color-primary, #3b82f6);
+  background: var(--color-primary);
   color: white;
-  border-color: var(--color-primary, #3b82f6);
+  border-color: var(--color-primary);
 }
 
 .data-table__page-size {
@@ -501,10 +501,10 @@
 
 .data-table__page-size-select {
   padding: 6px 8px;
-  border: 1px solid var(--color-border, #e5e7eb);
+  border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: var(--color-surface, #ffffff);
-  color: var(--color-text-primary, #111827);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
   font-size: 14px;
 }
 
@@ -512,7 +512,7 @@
 .data-table__skeleton-cell {
   height: 14px;
   border-radius: 4px;
-  background: linear-gradient(90deg, var(--color-border, #e5e7eb) 25%, #f3f4f6 50%, var(--color-border, #e5e7eb) 75%);
+  background: linear-gradient(90deg, var(--color-border) 25%, #f3f4f6 50%, var(--color-border) 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s ease infinite;
   width: 70%;
@@ -541,7 +541,7 @@
 .data-table__error {
   padding: 48px;
   text-align: center;
-  color: var(--color-error, #ef4444);
+  color: var(--color-error);
 }
 
 /* Empty state now lives in the shared EmptyState component (components/common). */
@@ -560,8 +560,8 @@
 }
 
 .data-table__card {
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -590,13 +590,13 @@
 
 .data-table__card-label {
   font-weight: 500;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
   min-width: 80px;
   flex-shrink: 0;
 }
 
 .data-table__card-value {
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   text-align: right;
   word-break: break-word;
 }
@@ -606,7 +606,7 @@
   justify-content: flex-end;
   gap: 8px;
   padding-top: 12px;
-  border-top: 1px solid var(--color-border, #e5e7eb);
+  border-top: 1px solid var(--color-border);
 }
 
 .data-table__pagination--mobile {
@@ -614,13 +614,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  background: var(--color-background-alt, #f9fafb);
-  border-top: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-background-alt);
+  border-top: 1px solid var(--color-border);
 }
 
 .data-table__page-info {
   font-size: 14px;
-  color: var(--color-text-secondary, #6b7280);
+  color: var(--color-text-secondary);
 }
 
 /* Responsive Breakpoints */
@@ -683,16 +683,16 @@
 /* High contrast mode support */
 @media (prefers-contrast: high) {
   .data-table {
-    border: 2px solid var(--color-border, #000000);
+    border: 2px solid var(--color-border);
   }
 
   .data-table__header,
   .data-table__cell {
-    border: 1px solid var(--color-border, #000000);
+    border: 1px solid var(--color-border);
   }
 
   .data-table__action-btn:hover {
-    border: 2px solid var(--color-primary, #000000);
+    border: 2px solid var(--color-primary);
   }
 }
 
@@ -700,7 +700,7 @@
 @media (prefers-reduced-motion: reduce) {
   .data-table__skeleton-cell {
     animation: none;
-    background: var(--color-border, #e5e7eb);
+    background: var(--color-border);
   }
 
   .data-table__action-btn,

@@ -65,7 +65,7 @@
 
 /* Focus state for accessibility */
 .hamburger-icon:focus-visible {
-  outline: 2px solid var(--color-focus, #4f46e5);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -89,5 +89,5 @@
 /* Dark mode support — see the note in Breadcrumb.css on why this is an
    attribute selector rather than a prefers-color-scheme query. */
 :root[data-theme='dark'] .hamburger-line {
-  background: var(--color-text-dark, #ffffff);
+  background: var(--color-text-dark);
 }

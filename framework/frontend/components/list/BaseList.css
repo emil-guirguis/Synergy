@@ -1,6 +1,6 @@
 /* ── Toolbar ─────────────────────────────────────────── */
 .base-list {
-  background: var(--color-surface, #ffffff);
+  background: var(--color-surface);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   overflow: hidden;
@@ -11,14 +11,14 @@
   align-items: center;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
-  background: var(--color-surface, #ffffff);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .base-list__toolbar-title {
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   margin-right: auto;
 }
 
@@ -31,7 +31,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -46,11 +46,11 @@
 }
 
 .base-list__toolbar-btn:hover {
-  background: var(--color-background-hover, #e5e7eb);
+  background: var(--color-background-hover);
 }
 
 .base-list__toolbar-btn--filter.base-list__toolbar-btn--active {
-  background: var(--color-background-hover, #e5e7eb);
+  background: var(--color-background-hover);
 }
 
 /* Export: icon-only, slightly narrower */
@@ -68,8 +68,8 @@
   right: 0;
   z-index: 20;
   min-width: 160px;
-  background: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   overflow: hidden;
@@ -81,14 +81,14 @@
   padding: 0.5rem 0.875rem;
   border: none;
   background: transparent;
-  color: var(--color-text-primary, #111827);
+  color: var(--color-text-primary);
   font-size: 0.875rem;
   text-align: left;
   cursor: pointer;
 }
 
 .base-list__export-menu-dropdown button:hover {
-  background: var(--color-background-hover, #e5e7eb);
+  background: var(--color-background-hover);
 }
 
 /* New: blue filled */
@@ -115,8 +115,8 @@
   gap: 0.75rem;
   align-items: center;
   padding: 1rem 1.5rem;
-  background: var(--color-surface, #ffffff);
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
   animation: base-list-fadein 0.15s ease;
 }
 
@@ -145,8 +145,8 @@
   z-index: 20;
   margin: 2px 0 0;
   padding: 4px 0;
-  background-color: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e0e0e0);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   max-height: 200px;
@@ -172,7 +172,7 @@
   font-size: 0.875rem;
   font-family: inherit;
   line-height: normal;
-  color: var(--color-text-primary, #333333);
+  color: var(--color-text-primary);
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -181,7 +181,7 @@
 
 .list__search-history-item:hover,
 .list__search-history-item:focus {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+  background-color: var(--color-hover);
   outline: none;
 }
 
@@ -200,24 +200,24 @@
   appearance: none;
   font-size: 0.75rem;
   line-height: normal;
-  color: var(--color-text-secondary, #666666);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
 .list__search-history-remove:hover,
 .list__search-history-remove:focus {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-hover);
+  color: var(--color-text-primary);
   outline: none;
 }
 
 .base-list__filters-panel .list__filter-item .form-control {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--color-border, #e0e0e0);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background-color: var(--color-surface, #ffffff);
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
   font-size: 0.875rem;
   font-family: inherit;
   transition: all 0.2s ease;
@@ -243,8 +243,8 @@
   z-index: 20;
   margin: 2px 0 0;
   padding: 4px 0;
-  background-color: var(--color-surface, #ffffff);
-  border: 1px solid var(--color-border, #e0e0e0);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   max-height: 240px;
@@ -257,23 +257,23 @@
   gap: 0.5rem;
   padding: 0.4rem 0.75rem;
   font-size: 0.875rem;
-  color: var(--color-text-primary, #333333);
+  color: var(--color-text-primary);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .list__multiselect-option:hover {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
+  background-color: var(--color-hover);
 }
 
 .base-list__filters-panel .list__filter-item .form-control:focus {
   outline: none;
-  border-color: var(--color-primary, #4f46e5);
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
 .base-list__filters-panel .list__filter-item .form-control::placeholder {
-  color: var(--color-text-disabled, #999999);
+  color: var(--color-text-disabled);
 }
 
 .base-list__filters-panel .list__filter-item select.form-control {
@@ -288,10 +288,10 @@
 
 .base-list__filters-panel .btn {
   padding: 0.5rem 1rem;
-  border: 1px solid var(--color-border, #e0e0e0);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background-color: var(--color-surface, #ffffff);
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -300,18 +300,18 @@
 }
 
 .base-list__filters-panel .btn:hover {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
-  border-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-hover);
+  border-color: var(--color-primary);
 }
 
 .base-list__filters-panel .btn-secondary {
-  background-color: var(--color-background, #f5f5f5);
-  color: var(--color-text-secondary, #666666);
+  background-color: var(--color-background);
+  color: var(--color-text-secondary);
 }
 
 .base-list__filters-panel .btn-secondary:hover {
-  background-color: var(--color-border, #e0e0e0);
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-border);
+  color: var(--color-text-primary);
 }
 
 /* Always the trailing control in the filter panel — order:-1 above pins the
@@ -328,9 +328,9 @@
 }
 
 .base-list__filters-panel .btn:disabled:hover {
-  background-color: var(--color-surface, #ffffff);
-  border-color: var(--color-border, #e0e0e0);
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
 }
 
 @media (max-width: 768px) {
@@ -363,7 +363,7 @@
   gap: 0.75rem;
   align-items: center;
   padding: 1rem;
-  background-color: var(--color-surface, #ffffff);
+  background-color: var(--color-surface);
   border-radius: 8px;
   margin-bottom: 1rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -386,10 +386,10 @@
 .base-list__filters .list__filter-item .form-control {
   width: 100%;
   padding: 0.5rem 0.75rem;
-  border: 1px solid var(--color-border, #e0e0e0);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background-color: var(--color-surface, #ffffff);
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
   font-size: 0.875rem;
   font-family: inherit;
   transition: all 0.2s ease;
@@ -397,12 +397,12 @@
 
 .base-list__filters .list__filter-item .form-control:focus {
   outline: none;
-  border-color: var(--color-primary, #4f46e5);
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
 .base-list__filters .list__filter-item .form-control::placeholder {
-  color: var(--color-text-disabled, #999999);
+  color: var(--color-text-disabled);
 }
 
 .base-list__filters .list__filter-item select.form-control {
@@ -417,10 +417,10 @@
 
 .base-list__filters .btn {
   padding: 0.5rem 1rem;
-  border: 1px solid var(--color-border, #e0e0e0);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
-  background-color: var(--color-surface, #ffffff);
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -429,18 +429,18 @@
 }
 
 .base-list__filters .btn:hover {
-  background-color: var(--color-hover, rgba(0, 0, 0, 0.05));
-  border-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-hover);
+  border-color: var(--color-primary);
 }
 
 .base-list__filters .btn-secondary {
-  background-color: var(--color-background, #f5f5f5);
-  color: var(--color-text-secondary, #666666);
+  background-color: var(--color-background);
+  color: var(--color-text-secondary);
 }
 
 .base-list__filters .btn-secondary:hover {
-  background-color: var(--color-border, #e0e0e0);
-  color: var(--color-text-primary, #333333);
+  background-color: var(--color-border);
+  color: var(--color-text-primary);
 }
 
 /* Responsive design for filters */
@@ -494,7 +494,7 @@
 
 /* Sidebar collapsible cards */
 .list__sidebar-card {
-  background-color: var(--color-surface, #ffffff);
+  background-color: var(--color-surface);
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   overflow: hidden;
@@ -505,8 +505,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem;
-  background-color: var(--color-background, #f5f5f5);
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  background-color: var(--color-background);
+  border-bottom: 1px solid var(--color-border);
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
@@ -514,21 +514,21 @@
 }
 
 .list__sidebar-card__header:hover {
-  background-color: var(--color-border, #e0e0e0);
+  background-color: var(--color-border);
 }
 
 .list__sidebar-card__title {
   margin: 0;
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--color-text-primary, #333333);
+  color: var(--color-text-primary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .list__sidebar-card__toggle {
   font-size: 0.75rem;
-  color: var(--color-text-secondary, #666666);
+  color: var(--color-text-secondary);
 }
 
 .list__sidebar-card__content {
@@ -549,7 +549,7 @@
   padding: 0.5rem 0;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--color-primary, #4f46e5);
+  color: var(--color-primary);
   cursor: pointer;
   text-align: left;
   text-decoration: none;
@@ -561,7 +561,7 @@
 
 .list__header-actions a:hover,
 .list__header-actions button:hover {
-  color: var(--color-primary-dark, #0056b3);
+  color: var(--color-primary-dark);
   text-decoration: underline;
 }
 
@@ -572,7 +572,7 @@
 
 /* Stats sidebar */
 .list__stats {
-  background-color: var(--color-surface, #ffffff);
+  background-color: var(--color-surface);
   border-radius: 8px;
   padding: 1rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -580,7 +580,7 @@
 
 .list__stat-item {
   padding: 0.75rem 0;
-  border-bottom: 1px solid var(--color-border, #e0e0e0);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .list__stat-item:last-child {
@@ -600,7 +600,7 @@
 
 .list__stat-label {
   font-size: 0.75rem;
-  color: var(--color-text-secondary, #666666);
+  color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 0.25rem;
@@ -609,7 +609,7 @@
 .list__stat-value {
   font-size: 1.5rem;
   font-weight: 600;
-  color: var(--color-text-primary, #333333);
+  color: var(--color-text-primary);
 }
 
 /* Responsive design */
@@ -693,22 +693,22 @@
 }
 
 .list-status-badge--active {
-  background-color: #c8e6c9;
-  color: #2e7d32;
+  background-color: var(--color-success-light);
+  color: var(--color-success-dark);
 }
 
 .list-status-badge--inactive {
-  background-color: #ffccbc;
-  color: #d84315;
+  background-color: var(--color-error-light);
+  color: var(--color-error-dark);
 }
 
 .list-status-badge--true {
-  background-color: #c8e6c9;
-  color: #2e7d32;
+  background-color: var(--color-success-light);
+  color: var(--color-success-dark);
 }
 
 .list-status-badge--false {
-  background-color: #ffccbc;
-  color: #d84315;
+  background-color: var(--color-error-light);
+  color: var(--color-error-dark);
 }
 

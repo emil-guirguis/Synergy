@@ -2,59 +2,22 @@
   /* Header brand color */
   --gradient-brand: #03a84e;
 
-  /* TBWC brand accent (green) — mirrors tbwcTheme.ts's tbwcGreenAccent so
-     framework-drawn chrome (e.g. BaseForm.css's schema-generated forms)
-     honors the same color instead of falling back to the framework's
-     default indigo. */
+  /* TBWC brand green — overrides the framework default indigo in
+     framework/frontend/theme/tokens.css; mirrors tbwcTheme.ts's
+     tbwcGreenAccent so framework-drawn chrome matches MUI. */
   --color-primary: #2E7D32;
   --color-primary-dark: #1B5E20;
   --color-primary-light: rgba(46, 125, 50, 0.12);
 }
 
-/* Dark palette for framework-drawn chrome (layout, sidebar, header menus,
-   lists, forms), which reads these vars and otherwise falls back to light
-   hex. Neutrals mirror darkColorTokens in framework/frontend/theme/colors.ts,
-   which is what MUI renders in dark — keep the two in step.
-
-   Keyed on the data-theme attribute ColorModeProvider stamps on <html>, not
-   on prefers-color-scheme, so the in-app toggle moves it. */
+/* Dark brand green. Neutrals, status colours and derived shades (stripes,
+   table heads, chip tints) come from the framework defaults in
+   framework/frontend/theme/tokens.css, which mirror darkColorTokens in
+   colors.ts — what MUI renders in dark. */
 :root[data-theme='dark'] {
   --color-primary: #66BB6A;
   --color-primary-dark: #2E7D32;
   --color-primary-light: rgba(102, 187, 106, 0.16);
-  --color-error: #F2B8B5;
-  --color-error-light: rgba(242, 184, 181, 0.16);
-
-  --color-background: #1C1B1F;
-  --color-surface: #232229;
-  --color-border: #49454E;
-  --color-border-light: #2E2D33;
-  --color-hover: rgba(255, 255, 255, 0.06);
-  /* Zebra stripes, table heads, hover and selected rows (DataTable.css) */
-  --color-background-alt: #28272D;
-  --color-background-hover: #322F37;
-  --color-background-primary: #232229;
-  --color-background-secondary: #28272D;
-  --color-primary-50: rgba(102, 187, 106, 0.12);
-
-  /* Status chips and buttons: tinted fill, light text */
-  --color-info: #81D4FA;
-  --color-info-dark: #4FC3F7;
-  --color-info-light: rgba(129, 212, 250, 0.16);
-  --color-success: #A5D6A7;
-  --color-success-dark: #81C784;
-  --color-success-light: rgba(165, 214, 167, 0.16);
-  --color-warning: #FFB74D;
-  --color-warning-dark: #FFA726;
-  --color-warning-light: rgba(255, 183, 77, 0.16);
-  --color-error-dark: #E57373;
-  --color-secondary: #CCC7DB;
-  --color-secondary-dark: #B0AABF;
-  --color-secondary-light: rgba(204, 199, 219, 0.16);
-
-  --color-text-primary: #E6E1E5;
-  --color-text-secondary: #CAC4D0;
-  --color-text-disabled: #938F99;
 }
 
 body {

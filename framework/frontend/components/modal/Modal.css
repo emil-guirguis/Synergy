@@ -110,7 +110,7 @@
 }
 
 .modal__save-btn {
-  background-color: var(--color-primary, #4f46e5);
+  background-color: var(--color-primary);
   color: white;
   border: none;
   padding: 0.5rem 1.125rem;
@@ -122,7 +122,7 @@
 }
 
 .modal__save-btn:hover:not(:disabled) {
-  background-color: var(--color-primary-dark, #4338ca);
+  background-color: var(--color-primary-dark);
 }
 .modal__cancel-btn {
   background: #ffffff;
@@ -299,8 +299,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 9px;
-  background: var(--color-primary-light, rgba(79, 70, 229, 0.12));
-  color: var(--color-primary, #4f46e5);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
 }
 .modal__title-icon svg,
 .modal__title-icon .material-icons,
@@ -320,7 +320,7 @@
 
 /* Unsaved changes: dot before the label + soft ring so Save reads as "pending" */
 .modal__save-btn--dirty {
-  box-shadow: 0 0 0 3px var(--color-primary-light, rgba(79, 70, 229, 0.25));
+  box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
 .modal__save-btn--dirty::before {
@@ -335,41 +335,41 @@
    Keyed on the data-theme attribute ColorModeProvider stamps on <html>.
    The shell reads the app's palette vars, so each app's dark set applies. */
 :root[data-theme='dark'] .modal {
-  background: var(--color-surface, #1e2024);
+  background: var(--color-surface);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
 }
 :root[data-theme='dark'] .modal__header,
 :root[data-theme='dark'] .modal__footer {
-  border-color: var(--color-border, #3c4043);
+  border-color: var(--color-border);
 }
 :root[data-theme='dark'] .modal__title {
-  color: var(--color-text-primary, #e8eaed);
+  color: var(--color-text-primary);
 }
 :root[data-theme='dark'] .modal__cancel-btn {
   background: transparent;
-  color: var(--color-text-secondary, #9aa0a6);
-  border-color: var(--color-border, #3c4043);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
 }
 :root[data-theme='dark'] .modal__cancel-btn:hover:not(:disabled) {
-  background: var(--color-hover, rgba(255, 255, 255, 0.06));
-  color: var(--color-text-primary, #e8eaed);
-  border-color: var(--color-text-disabled, #5f6368);
+  background: var(--color-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-disabled);
 }
 :root[data-theme='dark'] .modal__close {
-  color: var(--color-text-secondary, #9aa0a6);
+  color: var(--color-text-secondary);
 }
 :root[data-theme='dark'] .modal__close:hover:not(:disabled) {
-  background-color: var(--color-hover, rgba(255, 255, 255, 0.06));
-  color: var(--color-text-primary, #e8eaed);
+  background-color: var(--color-hover);
+  color: var(--color-text-primary);
 }
 :root[data-theme='dark'] .modal__error {
-  background-color: var(--color-error-light, rgba(242, 184, 181, 0.16));
-  color: var(--color-error, #f2b8b5);
+  background-color: var(--color-error-light);
+  color: var(--color-error);
 }
 :root[data-theme='dark'] .modal__loading-overlay {
   background: rgba(0, 0, 0, 0.6);
 }
 :root[data-theme='dark'] .modal__spinner {
-  border-color: var(--color-border, #3c4043);
-  border-top-color: var(--color-primary, #8ab4f8);
+  border-color: var(--color-border);
+  border-top-color: var(--color-primary);
 }
