@@ -17,12 +17,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Framework alias — mirrors the resolve.alias in vite.config.ts */
-    "baseUrl": ".",
-    "paths": {
-      "@framework/*": ["../framework/frontend/*"]
-    },
-
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,

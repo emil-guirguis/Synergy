@@ -11,9 +11,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react(), versionPlugin()],
   resolve: {
-    alias: {
-      '@framework': path.resolve(__dirname, '../../framework/frontend'),
-    },
     // Prevent duplicate copies of common libs (avoid bundling framework's node_modules separately)
     dedupe: [
       'react',

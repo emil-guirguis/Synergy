@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LoginForm as BaseLoginForm, type LoginFormCredentials } from '@framework/components/auth/LoginForm';
+import { LoginForm as BaseLoginForm, type LoginFormCredentials } from '@meterit/framework-frontend/components/auth/LoginForm';
 import { useAuth } from '../../hooks/useAuth';
 
 interface LoginFormProps {

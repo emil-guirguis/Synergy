@@ -11,7 +11,6 @@ export default defineConfig({
     // pulls in its own separately-installed copy, producing a second React/MUI instance in the
     // same test and "Cannot read properties of null (reading 'useContext')" crashes.
     alias: [
-      { find: '@framework', replacement: path.resolve(__dirname, '../../framework/frontend') },
       { find: /^react(\/.*)?$/, replacement: path.resolve(__dirname, 'node_modules/react') + '$1' },
       { find: /^react-dom(\/.*)?$/, replacement: path.resolve(__dirname, 'node_modules/react-dom') + '$1' },
       { find: /^@mui\/material(\/.*)?$/, replacement: path.resolve(__dirname, 'node_modules/@mui/material') + '$1' },

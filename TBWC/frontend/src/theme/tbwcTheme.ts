@@ -1,4 +1,4 @@
-import { createMaterialDesign3Theme, type ColorTokenOverrides } from '@framework/theme/materialDesign3Theme';
+import { createMaterialDesign3Theme, type ColorTokenOverrides } from '@meterit/framework-frontend/theme/materialDesign3Theme';
 
 // TBWC brand accent: green. Everything else (error/warning/info/success,
 // typography, shape, elevation, component overrides) inherits from the
