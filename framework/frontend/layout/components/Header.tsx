@@ -7,6 +7,7 @@ import { getIconElement } from '../../utils/iconHelper';
 import { getVersionDisplay } from '../../utils/version';
 import { useSystemConfig } from '../../utils/systemConfig';
 import { FormModal } from '../../components/modal';
+import { ColorModeToggle } from '../../components/common/ColorModeToggle';
 import UserPreferencesForm, { type UserPreferencesValues } from '../../components/settings/UserPreferencesForm';
 
 import './Header.css';
@@ -273,6 +274,9 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Colour mode */}
+        <ColorModeToggle />
 
         {/* Notifications */}
         <div className="app-header__notifications" ref={notificationsRef}>

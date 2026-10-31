@@ -100,21 +100,23 @@
   }
 }
 
-/* Dark Theme Support */
-@media (prefers-color-scheme: dark) {
-  .breadcrumb-item {
-    color: #9ca3af;
-  }
-  
-  .breadcrumb-item.active {
-    color: #f9fafb;
-  }
-  
-  .breadcrumb-link:hover {
-    color: #60a5fa;
-  }
-  
-  .breadcrumb-separator {
-    color: #6b7280;
-  }
+/* Dark Theme Support
+   Keyed on [data-theme="dark"] (set by ColorModeProvider), not on
+   prefers-color-scheme — a media query ignores the in-app toggle and would
+   leave this light while the rest of the UI went dark. The provider still
+   defaults to the OS setting, so OS-driven dark keeps working. */
+:root[data-theme='dark'] .breadcrumb-item {
+  color: #9ca3af;
+}
+
+:root[data-theme='dark'] .breadcrumb-item.active {
+  color: #f9fafb;
+}
+
+:root[data-theme='dark'] .breadcrumb-link:hover {
+  color: #60a5fa;
+}
+
+:root[data-theme='dark'] .breadcrumb-separator {
+  color: #6b7280;
 }

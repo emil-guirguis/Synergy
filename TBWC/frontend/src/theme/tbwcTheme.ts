@@ -14,4 +14,13 @@ const tbwcGreenAccent: ColorTokenOverrides = {
   onSecondaryContainer: '#132A17',
 };
 
-export const tbwcTheme = createMaterialDesign3Theme('light', tbwcGreenAccent);
+/**
+ * Build the TBWC theme for a colour mode. The green accent is the only
+ * brand override; everything else comes from the framework's MD3 base, which
+ * already ships a dark token set.
+ */
+export const createTbwcTheme = (mode: 'light' | 'dark' = 'light') =>
+  createMaterialDesign3Theme(mode, tbwcGreenAccent);
+
+/** Light theme, kept for callers that render outside the colour-mode provider. */
+export const tbwcTheme = createTbwcTheme('light');

@@ -86,9 +86,8 @@
   }
 }
 
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .hamburger-line {
-    background: var(--color-text-dark, #ffffff);
-  }
+/* Dark mode support — see the note in Breadcrumb.css on why this is an
+   attribute selector rather than a prefers-color-scheme query. */
+:root[data-theme='dark'] .hamburger-line {
+  background: var(--color-text-dark, #ffffff);
 }
